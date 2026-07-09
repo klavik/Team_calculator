@@ -46,7 +46,7 @@
     .ceiling-head{display:flex;justify-content:space-between;gap:12px;align-items:baseline;margin-bottom:4px}
     .ceiling-value{font-weight:800;font-size:16px}.ceiling-sub{color:var(--muted);font-size:12px;margin-top:4px}
     .qa-secondary{display:block;color:var(--muted);font-size:12px;font-weight:700;margin-top:2px}
-    .role-secondary{display:block;color:var(--muted);font-size:11px;font-weight:600;margin-top:2px}
+    .role-secondary{display:block;color:var(--muted);font-size:11px;font-weight:600;margin-top:2px}.saved-sprint-row{display:grid;grid-template-columns:1fr auto;gap:10px;align-items:center;padding:9px 0;border-bottom:1px solid var(--border)}.saved-sprint-row:last-child{border-bottom:0}.saved-sprint-name{font-weight:700}.saved-sprint-meta{color:var(--muted);font-size:12px;margin-top:2px}.small-actions{display:flex;gap:6px;flex-wrap:wrap}.small-actions button{padding:7px 9px;font-size:12px}.status-note{margin-top:10px;color:var(--muted);font-size:12px}
     @media(max-width:980px){.grid{grid-template-columns:1fr}.controls{grid-template-columns:repeat(2,minmax(140px,1fr))}}
     @media(max-width:680px){main{padding:14px}header{padding:22px 16px 14px}.controls{grid-template-columns:1fr}.summary{grid-template-columns:1fr}table{display:block;overflow-x:auto;white-space:nowrap}}
     @media print{body{background:#fff}button,.button-row{display:none!important}.card{box-shadow:none;break-inside:avoid}main{max-width:none}}
@@ -71,6 +71,38 @@
           <div><label for="excludePrepRoles">Аналитик / дизайнер</label><select id="excludePrepRoles"><option value="yes" selected>Не ограничивают текущий спринт</option><option value="no">Учитывать как ограничение</option></select></div>
         </div>
         <p class="footer-note">Формула: <b>ёмкость роли = (люди × рабочие дни − отсутствия) × коэффициент × (1 − резерв)</b>. Для поставки текущего спринта аналитик и дизайнер по умолчанию не считаются ограничением, потому что основную подготовку выполняют до планирования.</p>
+      </div>
+
+      <div class="card">
+        <h2>Сохранение спринтов</h2>
+        <div class="controls">
+          <div>
+            <label for="sprintName">Имя спринта / набора</label>
+            <input id="sprintName" type="text" value="Sprint 1" placeholder="Например: Sprint 2026-Q3-01" />
+          </div>
+          <div>
+            <label for="savedSprintSelect">Открыть сохранённый набор</label>
+            <select id="savedSprintSelect">
+              <option value="">— выберите набор —</option>
+            </select>
+          </div>
+          <div>
+            <label>Действия</label>
+            <div class="button-row" style="margin-top:0">
+              <button id="saveSprint">Сохранить / обновить</button>
+              <button class="secondary" id="saveAsSprint">Сохранить как новый</button>
+            </div>
+          </div>
+        </div>
+        <div class="button-row">
+          <button class="secondary" id="loadSprint">Открыть</button>
+          <button class="secondary" id="newSprint">Новый набор</button>
+          <button class="danger" id="deleteSprint">Удалить</button>
+        </div>
+        <div id="savedSprintsList" class="status-note"></div>
+        <p class="footer-note">
+          Сохраняются введённые данные и расчётный результат. Данные хранятся локально в браузере на этом устройстве.
+        </p>
       </div>
 
       <div class="card">
@@ -117,7 +149,7 @@
       <div class="card">
         <h2>Потолок задач по ролям</h2>
         <div id="roleCeilings"></div>
-        <p class="footer-note">Аналитик и дизайнер по умолчанию не ограничивают поставку текущего спринта; QA показывает потолок сквозных задач и пересчёт в задачи разработки.</p>
+        <p class="footer-note">Для аналитика и дизайнера показывается потолок задач подготовки на спринт, но они не ограничивают поставку текущего спринта. QA показывает потолок сквозных задач и пересчёт в задачи разработки.</p>
       </div>
 
       <div class="card">
@@ -147,7 +179,9 @@ const defaultRoles=[
   {name:"QA",people:1,absence:0,task:2.5},
   {name:"DevOps",people:2,absence:0,task:.5}
 ];
-let roles=loadState()?.roles||JSON.parse(JSON.stringify(defaultRoles));
+let loadedState=loadState();
+let roles=loadedState?.roles||JSON.parse(JSON.stringify(defaultRoles));
+let currentSprintId=loadedState?.currentSprintId||null;
 
 const periodName=document.getElementById("periodName"),
 workdays=document.getElementById("workdays"),
@@ -155,6 +189,9 @@ utilization=document.getElementById("utilization"),
 buffer=document.getElementById("buffer"),
 devIssuesPerCrossTask=document.getElementById("devIssuesPerCrossTask"),
 excludePrepRoles=document.getElementById("excludePrepRoles"),
+sprintName=document.getElementById("sprintName"),
+savedSprintSelect=document.getElementById("savedSprintSelect"),
+savedSprintsList=document.getElementById("savedSprintsList"),
 rolesBody=document.getElementById("rolesBody"),
 taskBody=document.getElementById("taskBody");
 
@@ -170,6 +207,185 @@ function capacity(role){
 }
 function fmt(n,d=1){if(!isFinite(n))return"—";return Number(n).toLocaleString("ru-RU",{maximumFractionDigits:d})}
 function esc(s){return String(s).replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[m]))}
+
+
+function getCurrentInputState(){
+  return {
+    roles: JSON.parse(JSON.stringify(roles)),
+    periodName: periodName.value,
+    workdays: workdays.value,
+    utilization: utilization.value,
+    buffer: buffer.value,
+    devIssuesPerCrossTask: devIssuesPerCrossTask.value,
+    excludePrepRoles: excludePrepRoles.value,
+    sprintName: sprintName.value,
+    currentSprintId: currentSprintId
+  };
+}
+
+function getCurrentResultSnapshot(){
+  const caps=roles.map(r=>capacity(r));
+  let bottleneck=null,maxTasks=Infinity;
+  roles.forEach((role,idx)=>{
+    const task=Number(role.task)||0;
+    const taskCap=task>0?caps[idx]/task:Infinity;
+    if(task>0&&!isExcludedFromDelivery(role)&&taskCap<maxTasks){
+      maxTasks=taskCap;
+      bottleneck=role.name;
+    }
+  });
+  const devParts=Math.max(1,Number(devIssuesPerCrossTask.value)||2);
+  const roleLimits=roles.map((role,idx)=>{
+    const task=Number(role.task)||0;
+    const limit=task>0?caps[idx]/task:Infinity;
+    return {
+      role: role.name,
+      capacity: caps[idx],
+      taskCost: task,
+      limit: isFinite(limit)?limit:null,
+      excludedFromDelivery: isExcludedFromDelivery(role)
+    };
+  });
+  return {
+    totalPeople: roles.reduce((a,r)=>a+(Number(r.people)||0),0),
+    totalCapacity: caps.reduce((a,b)=>a+b,0),
+    bottleneck: bottleneck,
+    crossTaskLimit: isFinite(maxTasks)?Math.floor(maxTasks):null,
+    developmentTaskLimit: isFinite(maxTasks)?Math.floor(maxTasks)*devParts:null,
+    roleLimits: roleLimits
+  };
+}
+
+function getSavedSprints(){
+  try{
+    return JSON.parse(localStorage.getItem("teamCapacityCalculatorSprintSets")||"{}");
+  }catch{
+    return {};
+  }
+}
+
+function setSavedSprints(data){
+  localStorage.setItem("teamCapacityCalculatorSprintSets",JSON.stringify(data));
+}
+
+function makeSprintId(){
+  return "sp_"+Date.now()+"_"+Math.random().toString(36).slice(2,8);
+}
+
+function applyInputState(state){
+  if(!state)return;
+  roles=JSON.parse(JSON.stringify(state.roles||defaultRoles));
+  if(state.periodName)periodName.value=state.periodName;
+  if(state.workdays!==undefined)workdays.value=state.workdays;
+  if(state.utilization!==undefined)utilization.value=state.utilization;
+  if(state.buffer!==undefined)buffer.value=state.buffer;
+  if(state.devIssuesPerCrossTask!==undefined)devIssuesPerCrossTask.value=state.devIssuesPerCrossTask;
+  if(state.excludePrepRoles!==undefined)excludePrepRoles.value=state.excludePrepRoles;
+  if(state.sprintName!==undefined)sprintName.value=state.sprintName;
+  currentSprintId=state.currentSprintId||null;
+  saveState();
+  render();
+}
+
+function saveSprintSet(forceNew=false){
+  const name=(sprintName.value||"").trim();
+  if(!name){
+    alert("Введите имя спринта / набора.");
+    sprintName.focus();
+    return;
+  }
+  const sprints=getSavedSprints();
+  const id=forceNew||!currentSprintId?makeSprintId():currentSprintId;
+  currentSprintId=id;
+  const inputState=getCurrentInputState();
+  inputState.currentSprintId=id;
+  const saved={
+    id,
+    name,
+    updatedAt:new Date().toISOString(),
+    input:inputState,
+    result:getCurrentResultSnapshot()
+  };
+  sprints[id]=saved;
+  setSavedSprints(sprints);
+  saveState();
+  renderSavedSprints();
+  savedSprintSelect.value=id;
+}
+
+function loadSprintSet(id){
+  const sprints=getSavedSprints();
+  const item=sprints[id];
+  if(!item){
+    alert("Сохранённый набор не найден.");
+    return;
+  }
+  currentSprintId=id;
+  const state=item.input||{};
+  state.currentSprintId=id;
+  state.sprintName=item.name||state.sprintName||"";
+  applyInputState(state);
+  savedSprintSelect.value=id;
+}
+
+function deleteSprintSet(id){
+  if(!id){
+    alert("Выберите сохранённый набор.");
+    return;
+  }
+  const sprints=getSavedSprints();
+  if(!sprints[id]){
+    alert("Сохранённый набор не найден.");
+    return;
+  }
+  if(!confirm(`Удалить набор «${sprints[id].name}»?`))return;
+  delete sprints[id];
+  setSavedSprints(sprints);
+  if(currentSprintId===id)currentSprintId=null;
+  savedSprintSelect.value="";
+  saveState();
+  renderSavedSprints();
+  render();
+}
+
+function startNewSprintSet(){
+  currentSprintId=null;
+  sprintName.value="";
+  savedSprintSelect.value="";
+  saveState();
+  renderSavedSprints();
+  render();
+}
+
+function renderSavedSprints(){
+  const sprints=getSavedSprints();
+  const items=Object.values(sprints).sort((a,b)=>String(b.updatedAt).localeCompare(String(a.updatedAt)));
+  savedSprintSelect.innerHTML='<option value="">— выберите набор —</option>';
+  items.forEach(item=>{
+    const opt=document.createElement("option");
+    opt.value=item.id;
+    opt.textContent=item.name;
+    savedSprintSelect.appendChild(opt);
+  });
+  if(currentSprintId&&sprints[currentSprintId])savedSprintSelect.value=currentSprintId;
+
+  if(!items.length){
+    savedSprintsList.innerHTML="Сохранённых наборов пока нет.";
+    return;
+  }
+  savedSprintsList.innerHTML="";
+  items.slice(0,6).forEach(item=>{
+    const res=item.result||{};
+    const d=new Date(item.updatedAt);
+    const updated=isNaN(d.getTime())?item.updatedAt:d.toLocaleString("ru-RU",{day:"2-digit",month:"2-digit",year:"2-digit",hour:"2-digit",minute:"2-digit"});
+    const row=document.createElement("div");
+    row.className="saved-sprint-row";
+    row.innerHTML=`<div><div class="saved-sprint-name">${esc(item.name)} ${item.id===currentSprintId?'<span class="prep-pill">открыт</span>':""}</div><div class="saved-sprint-meta">Обновлён: ${updated}; потолок: ${res.crossTaskLimit??"—"} сквозн.; dev-задач: ${res.developmentTaskLimit??"—"}; узкое место: ${esc(res.bottleneck||"—")}</div></div><div class="small-actions"><button class="secondary" data-open-sprint="${item.id}">Открыть</button><button class="danger" data-delete-sprint="${item.id}">Удалить</button></div>`;
+    savedSprintsList.appendChild(row);
+  });
+  document.querySelectorAll("[data-open-sprint]").forEach(btn=>btn.onclick=()=>loadSprintSet(btn.dataset.openSprint));
+  document.querySelectorAll("[data-delete-sprint]").forEach(btn=>btn.onclick=()=>deleteSprintSet(btn.dataset.deleteSprint));
+}
 
 function render(){
   const caps=roles.map(r=>capacity(r));
@@ -196,7 +412,7 @@ function render(){
     tr.innerHTML=`<td>${esc(role.name)} ${excluded?'<span class="prep-pill">подготовка</span>':""}</td>
       <td class="num"><input type="number" min="0" step="0.5" value="${role.task||0}" data-idx="${idx}" data-field="task"></td>
       <td class="num">${fmt(cap)}</td>
-      <td class="num">${excluded?"не ограничивает":(task>0?fmt(taskCap,1):"не ограничивает")}</td>`;
+      <td class="num">${excluded?(task>0?fmt(taskCap,1)+" / подготовка":"не ограничивает"):(task>0?fmt(taskCap,1):"не ограничивает")}</td>`;
     taskBody.appendChild(tr);
   });
 
@@ -210,6 +426,7 @@ function render(){
   renderBars(caps);
   renderFormula(caps);
   renderInterpretation(bottleneck,maxTasks);
+  renderSavedSprints();
   bindDynamicInputs();
 }
 
@@ -227,17 +444,19 @@ function renderRoleCeilings(caps,bottleneck){
     const roleName=(item.role.name||"").toLowerCase();
     const isQa=roleName.includes("qa")||roleName.includes("тест");
     const isBot=item.role.name===bottleneck&&isFinite(item.limit)&&!item.excluded;
-    const width=item.excluded?0:(isFinite(item.limit)?Math.max(2,Math.min(100,item.limit/maxLimit*100)):100);
+    const width=isFinite(item.limit)?Math.max(2,Math.min(100,item.limit/maxLimit*100)):100;
     let valueText;
-    if(item.excluded)valueText="не ограничивает";
-    else if(!isFinite(item.limit))valueText="не ограничивает";
-    else if(isQa){
+    if(!isFinite(item.limit)){
+      valueText="не ограничивает";
+    }else if(isQa){
       const cross=Math.floor(item.limit),dev=cross*devParts;
       valueText=`${fmt(cross,0)} сквозн.<span class="qa-secondary">≈ ${fmt(dev,0)} задач разработки</span>`;
-    }else valueText=`${fmt(Math.floor(item.limit),0)} задач`;
+    }else{
+      valueText=`${fmt(Math.floor(item.limit),0)} задач`;
+    }
     const detail=item.task>0?`${fmt(item.cap)} ч.д. / ${fmt(item.task)} ч.д. на задачу = ${fmt(item.limit,1)}`:`${fmt(item.cap)} ч.д.; потребление роли на задачу не задано`;
     let extra="";
-    if(item.excluded)extra=`<span class="role-secondary">Роль учитывается как подготовка будущего потока, но не ограничивает поставку текущего спринта.</span>`;
+    if(item.excluded)extra=`<span class="role-secondary">Это потолок задач подготовки на спринт. Роль не ограничивает поставку текущего спринта.</span>`;
     else if(isQa&&isFinite(item.limit))extra=`<span class="role-secondary">Для QA это потолок сквозных задач; задачи разработки считаются как сквозные × ${fmt(devParts,0)}.</span>`;
     const div=document.createElement("div");
     div.className="ceiling-item";
@@ -292,8 +511,15 @@ function bindDynamicInputs(){
 
 function saveState(){
   localStorage.setItem("teamCapacityCalculator",JSON.stringify({
-    roles,periodName:periodName.value,workdays:workdays.value,utilization:utilization.value,
-    buffer:buffer.value,devIssuesPerCrossTask:devIssuesPerCrossTask.value,excludePrepRoles:excludePrepRoles.value
+    roles,
+    periodName:periodName.value,
+    workdays:workdays.value,
+    utilization:utilization.value,
+    buffer:buffer.value,
+    devIssuesPerCrossTask:devIssuesPerCrossTask.value,
+    excludePrepRoles:excludePrepRoles.value,
+    sprintName:sprintName?sprintName.value:"",
+    currentSprintId:currentSprintId
   }));
 }
 function loadState(){
@@ -307,6 +533,8 @@ function loadState(){
       if(state.buffer!==undefined)buffer.value=state.buffer;
       if(state.devIssuesPerCrossTask!==undefined)devIssuesPerCrossTask.value=state.devIssuesPerCrossTask;
       if(state.excludePrepRoles!==undefined)excludePrepRoles.value=state.excludePrepRoles;
+      if(state.sprintName!==undefined)sprintName.value=state.sprintName;
+      if(state.currentSprintId!==undefined)currentSprintId=state.currentSprintId;
       render();
     },0);
     return state;
@@ -315,15 +543,22 @@ function loadState(){
 
 periodName.onchange=()=>{if(periodName.value==="sprint")workdays.value=10;if(periodName.value==="quarter")workdays.value=60;saveState();render()};
 [workdays,utilization,buffer,devIssuesPerCrossTask,excludePrepRoles].forEach(el=>el.addEventListener("input",()=>{if(periodName.value!=="custom"&&((periodName.value==="sprint"&&workdays.value!=10)||(periodName.value==="quarter"&&workdays.value!=60)))periodName.value="custom";saveState();render()}));
+document.getElementById("saveSprint").onclick=()=>saveSprintSet(false);
+document.getElementById("saveAsSprint").onclick=()=>saveSprintSet(true);
+document.getElementById("loadSprint").onclick=()=>loadSprintSet(savedSprintSelect.value);
+document.getElementById("deleteSprint").onclick=()=>deleteSprintSet(savedSprintSelect.value);
+document.getElementById("newSprint").onclick=()=>startNewSprintSet();
+savedSprintSelect.onchange=()=>{if(savedSprintSelect.value)loadSprintSet(savedSprintSelect.value)};
+sprintName.addEventListener("input",()=>saveState());
 document.getElementById("addRole").onclick=()=>{roles.push({name:"Новая роль",people:1,absence:0,task:0});render()};
-document.getElementById("resetDefaults").onclick=()=>{roles=JSON.parse(JSON.stringify(defaultRoles));periodName.value="sprint";workdays.value=10;utilization.value=.7;buffer.value=0;devIssuesPerCrossTask.value=2;excludePrepRoles.value="yes";saveState();render()};
+document.getElementById("resetDefaults").onclick=()=>{roles=JSON.parse(JSON.stringify(defaultRoles));periodName.value="sprint";workdays.value=10;utilization.value=.7;buffer.value=0;devIssuesPerCrossTask.value=2;excludePrepRoles.value="yes";currentSprintId=null;sprintName.value="";savedSprintSelect.value="";saveState();render()};
 document.getElementById("saveData").onclick=()=>{saveState();alert("Сохранено в браузере.")};
 document.getElementById("setMTask").onclick=()=>{const t={"Аналитик":1.5,"Дизайнер":1.5,"Backend":4,"Frontend":4,"QA":2.5,"DevOps":.5};roles.forEach(r=>r.task=t[r.name]??r.task??0);render()};
 document.getElementById("clearTask").onclick=()=>{roles.forEach(r=>r.task=0);render()};
 document.getElementById("copyFormula").onclick=async()=>{try{await navigator.clipboard.writeText(document.getElementById("formulaBox").textContent);alert("Расчёт скопирован.")}catch{alert("Не удалось скопировать автоматически. Выделите текст вручную.")}};
 document.getElementById("downloadCsv").onclick=()=>{
   const wd=Number(workdays.value)||0,util=Number(utilization.value)||0,buf=Number(buffer.value)||0;
-  const rows=[["Роль","Сотрудников","Рабочих дней","Отсутствия","Коэффициент","Резерв %","Доступно ч.д.","ч.д. на задачу","Потолок задач роли","Учитывается как ограничение поставки"]];
+  const rows=[["Спринт",sprintName.value||""],[],["Роль","Сотрудников","Рабочих дней","Отсутствия","Коэффициент","Резерв %","Доступно ч.д.","ч.д. на задачу","Потолок задач роли","Учитывается как ограничение поставки"]];
   roles.forEach(r=>{const cap=capacity(r),task=Number(r.task)||0;rows.push([r.name,r.people,wd,r.absence,util,buf,cap.toFixed(2),task,task>0?(cap/task).toFixed(2):"",isExcludedFromDelivery(r)?"нет":"да"])});
   const csv=rows.map(row=>row.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(";")).join("\n");
   const blob=new Blob(["\uFEFF"+csv],{type:"text/csv;charset=utf-8;"}),url=URL.createObjectURL(blob),a=document.createElement("a");

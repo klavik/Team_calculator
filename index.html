@@ -47,18 +47,33 @@
     .ceiling-value{font-weight:800;font-size:16px}.ceiling-sub{color:var(--muted);font-size:12px;margin-top:4px}
     .qa-secondary{display:block;color:var(--muted);font-size:12px;font-weight:700;margin-top:2px}
     .role-secondary{display:block;color:var(--muted);font-size:11px;font-weight:600;margin-top:2px}.save-card{padding:0;overflow:hidden}.save-top{padding:18px;border-bottom:1px solid var(--border);background:#fff}.save-header{display:flex;justify-content:space-between;gap:14px;align-items:flex-start;margin-bottom:14px}.save-header h2{margin-bottom:4px}.save-layout{display:grid;grid-template-columns:minmax(220px,1fr) auto;gap:14px;align-items:end}.save-actions{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}.save-list-wrap{padding:14px 18px 18px;background:#fafbfe}.save-list-title{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:8px}.save-list-title h3{margin:0;font-size:15px}.saved-sprint-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:center;padding:10px;background:#fff;border:1px solid var(--border);border-radius:12px;margin-top:8px}.saved-sprint-row.active{border-color:#ffd5a0;background:#fffaf3}.saved-sprint-name{font-weight:800}.saved-sprint-meta{color:var(--muted);font-size:12px;margin-top:3px;overflow-wrap:anywhere}.small-actions{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}.small-actions button{padding:7px 9px;font-size:12px}.status-note{margin-top:10px;color:var(--muted);font-size:12px}.plan-input{max-width:90px}.fact-input{max-width:90px}.fact-good{color:#137333;font-weight:800}.fact-warn{color:#b06000;font-weight:800}.fact-bad{color:var(--bad);font-weight:800}.plan-ok{color:#137333;font-weight:800}.plan-warn{color:#b06000;font-weight:800}.plan-bad{color:var(--bad);font-weight:800}.history-table-wrap{max-width:100%;overflow-x:auto;overscroll-behavior-x:contain}.history-table{width:max-content;min-width:100%}.history-table th,.history-table td{white-space:nowrap}.over-capacity{background:#fff2dd}.hard-over-capacity{background:#fce8e6}.hidden-control{display:none}.save-status{white-space:nowrap}.danger-inline{background:#f6e7e5!important;color:var(--bad)!important}.danger-inline:hover{background:#efd1ce!important}@media(max-width:780px){.save-layout{grid-template-columns:1fr}.save-actions{justify-content:flex-start}.saved-sprint-row{grid-template-columns:1fr}.small-actions{justify-content:flex-start}}
-
-    .focus-layout{width:100%;max-width:1280px;margin:0 auto}
-    .top-focus-grid{display:grid;grid-template-columns:minmax(0,1.05fr) minmax(320px,.95fr);gap:20px;align-items:start;margin-bottom:20px}
-    .top-focus-grid>.card{margin-bottom:0}
-    .work-focus-grid{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(320px,.65fr);gap:20px;align-items:start}
-    .primary-column,.secondary-column{min-width:0}
-    .focus-summary-card{border-color:#ffd5a0;background:#fffaf3}
-    .focus-summary-card .summary{grid-template-columns:repeat(3,minmax(0,1fr))}
-    .focus-planning-card{border-color:#ffd5a0}
-    .focus-planning-card h2,.history-focus-card h2,.focus-ceiling-card h2{font-size:21px}
-    .history-focus-card{margin-top:20px}
-    .settings-section{margin-top:20px}
+    @media(max-width:980px){.grid{grid-template-columns:1fr}.controls{grid-template-columns:repeat(2,minmax(0,1fr))}}
+    @media(max-width:680px){main{padding:14px}header{padding:22px 16px 14px}.controls{grid-template-columns:1fr}.summary{grid-template-columns:1fr}.roles-table{display:block;max-width:100%;overflow-x:auto;white-space:nowrap}}
+    @media print{body{background:#fff}button,.button-row{display:none!important}.card{box-shadow:none;break-inside:avoid}main{max-width:none}}
+  
+    /* v17 verified stable layout */
+    main{width:100%;max-width:none;margin:0;padding:24px}
+    .page-layout{width:100%;max-width:1280px;margin:0 auto;display:flex;flex-direction:column;gap:20px}
+    .page-layout section{min-width:0;width:100%}
+    .page-layout .card{margin-bottom:0}
+    .section-main{display:grid;grid-template-columns:minmax(0,1fr) 400px;gap:20px;align-items:start}
+    .main-left,.main-right{min-width:0}
+    .card-save .save-layout{grid-template-columns:1fr!important}
+    .card-save .save-actions{justify-content:flex-start!important}
+    .card-save .save-actions button{white-space:nowrap}
+    .card-save .save-list-wrap{max-height:190px;overflow:auto;background:#fff}
+    .card-summary{border-color:#ffd5a0;background:#fffaf3}
+    .card-summary .summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr))!important;gap:12px}
+    .card-summary .metric{min-width:0;min-height:88px}
+    .card-summary .metric .value{font-size:23px}
+    .interpretation-details{margin-top:14px;border-top:1px solid #ffd5a0;padding-top:12px}
+    .interpretation-details>summary{cursor:pointer;font-weight:800;color:var(--text)}
+    .interpretation-details #interpretation{margin-top:10px;max-width:900px}
+    .card-plan{border-color:#ffd5a0}
+    .card-plan table{table-layout:auto}
+    .card-plan .roles-table{display:block;max-width:100%;overflow-x:auto}
+    .card-plan .roles-table thead,.card-plan .roles-table tbody{display:table;width:100%;min-width:760px}
+    .card-ceilings{position:sticky;top:16px}
     .settings-details{background:var(--card);border:1px solid var(--border);border-radius:18px;box-shadow:var(--shadow);overflow:hidden}
     .settings-details>summary{list-style:none;cursor:pointer;padding:16px 18px;display:flex;justify-content:space-between;gap:16px;align-items:center;font-weight:800}
     .settings-details>summary::-webkit-details-marker{display:none}
@@ -66,23 +81,13 @@
     .settings-details[open]>summary:after{content:"▴"}
     .settings-summary-note{font-weight:500;color:var(--muted);font-size:12px;text-align:right}
     .settings-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:20px;padding:0 18px 18px}
-    .settings-grid .card{box-shadow:none;background:#fafbfe}
+    .settings-grid .card{box-shadow:none;background:#fafbfe;margin-bottom:20px}
     .settings-grid .card:last-child{margin-bottom:0}
-    .focus-save-card .save-list-wrap{background:#fff;max-height:260px;overflow:auto}
-    @media(max-width:1100px){
-      .top-focus-grid,.work-focus-grid{grid-template-columns:1fr}
-      .focus-summary-card .summary{grid-template-columns:repeat(2,minmax(0,1fr))}
-    }
-    @media(max-width:760px){
-      .settings-grid{grid-template-columns:1fr}
-      .settings-details>summary{align-items:flex-start;flex-direction:column}
-      .settings-summary-note{text-align:left}
-    }
+    @media(max-width:1180px){.section-main{grid-template-columns:1fr}.card-ceilings{position:static}.card-summary .summary{grid-template-columns:repeat(3,minmax(130px,1fr))}}
+    @media(max-width:760px){main{padding:14px}.card-summary .summary{grid-template-columns:repeat(2,minmax(0,1fr))}.settings-grid{grid-template-columns:1fr}.settings-details>summary{align-items:flex-start;flex-direction:column}.settings-summary-note{text-align:left}}
+    @media(max-width:520px){.card-summary .summary{grid-template-columns:1fr}}
 
-    @media(max-width:980px){.grid{grid-template-columns:1fr}.controls{grid-template-columns:repeat(2,minmax(0,1fr))}}
-    @media(max-width:680px){main{padding:14px}header{padding:22px 16px 14px}.controls{grid-template-columns:1fr}.summary{grid-template-columns:1fr}.roles-table{display:block;max-width:100%;overflow-x:auto;white-space:nowrap}}
-    @media print{body{background:#fff}button,.button-row{display:none!important}.card{box-shadow:none;break-inside:avoid}main{max-width:none}}
-  </style>
+</style>
 </head>
 <body>
 <header>
@@ -91,179 +96,155 @@
 </header>
 
 <main>
-  <div class="focus-layout">
-    <section class="top-focus-grid">
-      <div class="card save-card focus-save-card">
-        <div class="save-top">
-          <div class="save-header">
-            <div>
-              <h2>Текущий набор</h2>
-              <p class="muted" id="currentSprintHint" style="margin:0">Создай новый набор или открой сохранённый спринт для редактирования.</p>
-            </div>
-            <span class="pill save-status" id="currentSprintStatus">не сохранён</span>
-          </div>
-
-          <div class="save-layout">
-            <div>
-              <label for="sprintName">Название спринта / набора</label>
-              <input id="sprintName" type="text" value="Sprint 1" placeholder="Например: Sprint 2026-Q3-01" />
-            </div>
-            <div class="save-actions">
-              <button id="saveSprint">Сохранить</button>
-              <button class="secondary" id="saveAsSprint">Сохранить копию</button>
-              <button class="secondary" id="newSprint">Новый набор</button>
-              <button class="danger-inline" id="deleteSprint">Удалить текущий</button>
-            </div>
-          </div>
-
-          <select id="savedSprintSelect" class="hidden-control">
-            <option value="">— выберите набор —</option>
-          </select>
-        </div>
-
-        <div class="save-list-wrap">
-          <div class="save-list-title">
-            <h3>Сохранённые наборы</h3>
-            <span class="muted" id="savedSprintsCount">0 наборов</span>
-          </div>
-          <div id="savedSprintsList" class="status-note"></div>
-          <p class="footer-note">
+  <div class="page-layout">
+    <section class="section-current"><div class="card save-card card-save">
+<div class="save-top">
+<div class="save-header">
+<div>
+<h2>Текущий набор</h2>
+<p class="muted" id="currentSprintHint" style="margin:0">Создай новый набор или открой сохранённый спринт для редактирования.</p>
+</div>
+<span class="pill save-status" id="currentSprintStatus">не сохранён</span>
+</div>
+<div class="save-layout">
+<div>
+<label for="sprintName">Название спринта / набора</label>
+<input id="sprintName" placeholder="Например: Sprint 2026-Q3-01" type="text" value="Sprint 1"/>
+</div>
+<div class="save-actions">
+<button id="saveSprint">Сохранить</button>
+<button class="secondary" id="saveAsSprint">Сохранить копию</button>
+<button class="secondary" id="newSprint">Новый набор</button>
+<button class="danger-inline" id="deleteSprint">Удалить текущий</button>
+</div>
+</div>
+<select class="hidden-control" id="savedSprintSelect">
+<option value="">— выберите набор —</option>
+</select>
+</div>
+<div class="save-list-wrap">
+<div class="save-list-title">
+<h3>Сохранённые наборы</h3>
+<span class="muted" id="savedSprintsCount">0 наборов</span>
+</div>
+<div class="status-note" id="savedSprintsList"></div>
+<p class="footer-note">
             Наборы сохраняются локально в браузере на этом устройстве. Для GitHub Pages сервер не нужен.
           </p>
-        </div>
-      </div>
-      <div class="card focus-summary-card">
-        <h2>Итог</h2>
-        <div class="summary">
-          <div class="metric"><div class="label">Всего сотрудников</div><div class="value" id="totalPeople">0</div></div>
-          <div class="metric"><div class="label">Всего доступно</div><div class="value" id="totalCapacity">0</div></div>
-          <div class="metric highlight"><div class="label">Узкое место поставки</div><div class="value" id="bottleneck">—</div></div>
-          <div class="metric highlight"><div class="label">Потолок сквозных задач</div><div class="value" id="maxTasks">—</div></div>
-          <div class="metric highlight"><div class="label">Потолок задач разработки</div><div class="value" id="devTasksMax">—</div></div>
-        </div>
-        <h3>Интерпретация</h3>
-        <p id="interpretation" class="muted">Заполните данные по ролям и потребление одной задачи.</p>
-      </div>
-    </section>
+</div>
+</div></section>
+    <section class="section-summary"><div class="card card-summary">
+<h2>Итог</h2>
+<div class="summary">
+<div class="metric"><div class="label">Всего сотрудников</div><div class="value" id="totalPeople">0</div></div>
+<div class="metric"><div class="label">Всего доступно</div><div class="value" id="totalCapacity">0</div></div>
+<div class="metric highlight"><div class="label">Узкое место поставки</div><div class="value" id="bottleneck">—</div></div>
+<div class="metric highlight"><div class="label">Потолок сквозных задач</div><div class="value" id="maxTasks">—</div></div>
+<div class="metric highlight"><div class="label">Потолок задач разработки</div><div class="value" id="devTasksMax">—</div></div>
+</div>
+<details class="interpretation-details"><summary>Интерпретация</summary><div class="muted" id="interpretation">Заполните данные по ролям и потребление одной задачи.</div></details>
 
-    <section class="work-focus-grid">
-      <div class="primary-column">
-        <div class="card focus-planning-card">
-        <h2>План спринта по ролям</h2>
-        <p class="muted">
+</div></section>
+    <section class="section-main">
+      <div class="main-left"><div class="card card-plan">
+<h2>План спринта по ролям</h2>
+<p class="muted">
           Зафиксируй, сколько задач набрали на планировании и сколько фактически сделали к концу спринта по каждой роли.
           Эти значения сохраняются вместе со спринтом и попадают в историю план-факт.
         </p>
-        <table class="roles-table">
-          <thead>
-            <tr>
-              <th>Роль</th>
-              <th class="num">План, задач</th>
-              <th class="num">Факт, задач</th>
-              <th class="num">Потолок роли</th>
-              <th class="num">Загрузка плана</th>
-              <th class="num">План-факт</th>
-              <th>Комментарий</th>
-            </tr>
-          </thead>
-          <tbody id="planningBody"></tbody>
-        </table>
-        <div class="button-row">
-          <button class="secondary" id="fillPlanByLimit">Заполнить по потолку</button>
-          <button class="secondary" id="clearPlan">Очистить план</button><button class="secondary" id="copyPlanToFact">План → факт</button><button class="secondary" id="clearFact">Очистить факт</button>
-        </div>
-      </div>
-
+<table class="roles-table">
+<thead>
+<tr>
+<th>Роль</th>
+<th class="num">План, задач</th>
+<th class="num">Факт, задач</th>
+<th class="num">Потолок роли</th>
+<th class="num">Загрузка плана</th>
+<th class="num">План-факт</th>
+<th>Комментарий</th>
+</tr>
+</thead>
+<tbody id="planningBody"></tbody>
+</table>
+<div class="button-row">
+<button class="secondary" id="fillPlanByLimit">Заполнить по потолку</button>
+<button class="secondary" id="clearPlan">Очистить план</button><button class="secondary" id="copyPlanToFact">План → факт</button><button class="secondary" id="clearFact">Очистить факт</button>
+</div>
+</div></div>
+      <aside class="main-right"><div class="card card-ceilings">
+<h2>Потолок задач по ролям</h2>
+<div id="roleCeilings"></div>
+<p class="footer-note">Для аналитика и дизайнера показывается потолок задач подготовки на спринт, но они не ограничивают поставку текущего спринта. QA показывает потолок сквозных задач и пересчёт в задачи разработки.</p>
+</div></aside>
     </section>
-
-    <aside>
-        <div class="card history-focus-card">
-        <h2>История планирования</h2>
-        <div class="history-table-wrap">
-          <table class="history-table">
-            <thead id="planningHistoryHead"></thead>
-            <tbody id="planningHistoryBody"></tbody>
-          </table>
-        </div>
-        <p class="footer-note">
+    <section class="section-history"><div class="card card-history">
+<h2>История планирования</h2>
+<div class="history-table-wrap">
+<table class="history-table">
+<thead id="planningHistoryHead"></thead>
+<tbody id="planningHistoryBody"></tbody>
+</table>
+</div>
+<p class="footer-note">
           История строится по сохранённым наборам. В ячейках: план / факт / потолок роли и отклонение факта от плана.
         </p>
-      </div>
-      </div>
-      <aside class="secondary-column">
-        <div class="card focus-ceiling-card">
-        <h2>Потолок задач по ролям</h2>
-        <div id="roleCeilings"></div>
-        <p class="footer-note">Для аналитика и дизайнера показывается потолок задач подготовки на спринт, но они не ограничивают поставку текущего спринта. QA показывает потолок сквозных задач и пересчёт в задачи разработки.</p>
-      </div>
-      </aside>
-    </section>
-
-    <section class="settings-section">
-
+</div></section>
+    <section class="section-settings">
       <details class="settings-details">
         <summary>
           <span>Настройки расчёта и команды</span>
           <span class="settings-summary-note">период, численность, потребление задачи, ёмкость и формула</span>
         </summary>
         <div class="settings-grid">
-          <div>
-            <div class="card">
-        <h2>Параметры периода</h2>
-        <div class="controls">
-          <div><label for="periodName">Период</label><select id="periodName"><option value="sprint">Спринт</option><option value="quarter">Квартал</option><option value="custom">Свой период</option></select></div>
-          <div><label for="workdays">Рабочих дней в периоде</label><input id="workdays" type="number" min="1" step="1" value="10" /></div>
-          <div><label for="utilization">Коэффициент полезной загрузки</label><input id="utilization" type="number" min="0" max="1" step="0.05" value="0.7" /></div>
-          <div><label for="buffer">Резерв на незапланированное, %</label><input id="buffer" type="number" min="0" max="80" step="5" value="0" /></div>
-          <div><label for="devIssuesPerCrossTask">Dev-задач на 1 сквозную</label><input id="devIssuesPerCrossTask" type="number" min="1" step="1" value="2" /></div>
-          <div><label for="excludePrepRoles">Аналитик / дизайнер</label><select id="excludePrepRoles"><option value="yes" selected>Не ограничивают текущий спринт</option><option value="no">Учитывать как ограничение</option></select></div>
-        </div>
-        <p class="footer-note">Формула: <b>ёмкость роли = (люди × рабочие дни − отсутствия) × коэффициент × (1 − резерв)</b>. Для поставки текущего спринта аналитик и дизайнер по умолчанию не считаются ограничением, потому что основную подготовку выполняют до планирования.</p>
-      </div>
-            <div class="card">
-        <h2>Команда по ролям</h2>
-        <table class="roles-table">
-          <thead><tr><th>Роль</th><th class="num">Сотрудников</th><th class="num">Отсутствия, ч.д.</th><th class="num">Доступно, ч.д.</th><th class="num">% от общего</th><th></th></tr></thead>
-          <tbody id="rolesBody"></tbody>
-        </table>
-        <div class="button-row">
-          <button id="addRole">Добавить роль</button>
-          <button class="secondary" id="resetDefaults">Сбросить к команде MARS</button>
-          <button class="secondary" id="saveData">Сохранить в браузере</button>
-        </div>
-      </div>
-          </div>
-          <div>
-            <div class="card">
-        <h2>Потребление одной типовой задачи</h2>
-        <p class="muted">Укажите, сколько человеко-дней по каждой роли требует одна задача. Для аналитика/дизайнера это скорее подготовка следующего спринта, а не ограничение текущей поставки.</p>
-        <table class="roles-table">
-          <thead><tr><th>Роль</th><th class="num">ч.д. на 1 задачу</th><th class="num">Ёмкость роли</th><th class="num">Потолок задач роли</th></tr></thead>
-          <tbody id="taskBody"></tbody>
-        </table>
-        <div class="button-row">
-          <button class="secondary" id="setMTask">Пример M-задачи</button>
-          <button class="secondary" id="clearTask">Очистить потребление</button>
-        </div>
-      </div>
-            <div class="card">
-        <h2>Ёмкость по ролям</h2>
-        <div id="capacityBars"></div>
-      </div>
-            <div class="card">
-        <h2>Формула</h2>
-        <div class="formula" id="formulaBox"></div>
-        <div class="button-row">
-          <button class="secondary" id="copyFormula">Копировать расчёт</button>
-          <button class="secondary" id="downloadCsv">Скачать CSV</button>
-          <button class="secondary" onclick="window.print()">Печать / PDF</button>
-        </div>
-      </div>
-          </div>
+          <div><div class="card">
+<h2>Параметры периода</h2>
+<div class="controls">
+<div><label for="periodName">Период</label><select id="periodName"><option value="sprint">Спринт</option><option value="quarter">Квартал</option><option value="custom">Свой период</option></select></div>
+<div><label for="workdays">Рабочих дней в периоде</label><input id="workdays" min="1" step="1" type="number" value="10"/></div>
+<div><label for="utilization">Коэффициент полезной загрузки</label><input id="utilization" max="1" min="0" step="0.05" type="number" value="0.7"/></div>
+<div><label for="buffer">Резерв на незапланированное, %</label><input id="buffer" max="80" min="0" step="5" type="number" value="0"/></div>
+<div><label for="devIssuesPerCrossTask">Dev-задач на 1 сквозную</label><input id="devIssuesPerCrossTask" min="1" step="1" type="number" value="2"/></div>
+<div><label for="excludePrepRoles">Аналитик / дизайнер</label><select id="excludePrepRoles"><option selected="" value="yes">Не ограничивают текущий спринт</option><option value="no">Учитывать как ограничение</option></select></div>
+</div>
+<p class="footer-note">Формула: <b>ёмкость роли = (люди × рабочие дни − отсутствия) × коэффициент × (1 − резерв)</b>. Для поставки текущего спринта аналитик и дизайнер по умолчанию не считаются ограничением, потому что основную подготовку выполняют до планирования.</p>
+</div><div class="card">
+<h2>Команда по ролям</h2>
+<table class="roles-table">
+<thead><tr><th>Роль</th><th class="num">Сотрудников</th><th class="num">Отсутствия, ч.д.</th><th class="num">Доступно, ч.д.</th><th class="num">% от общего</th><th></th></tr></thead>
+<tbody id="rolesBody"></tbody>
+</table>
+<div class="button-row">
+<button id="addRole">Добавить роль</button>
+<button class="secondary" id="resetDefaults">Сбросить к команде MARS</button>
+<button class="secondary" id="saveData">Сохранить в браузере</button>
+</div>
+</div></div>
+          <div><div class="card">
+<h2>Потребление одной типовой задачи</h2>
+<p class="muted">Укажите, сколько человеко-дней по каждой роли требует одна задача. Для аналитика/дизайнера это скорее подготовка следующего спринта, а не ограничение текущей поставки.</p>
+<table class="roles-table">
+<thead><tr><th>Роль</th><th class="num">ч.д. на 1 задачу</th><th class="num">Ёмкость роли</th><th class="num">Потолок задач роли</th></tr></thead>
+<tbody id="taskBody"></tbody>
+</table>
+<div class="button-row">
+<button class="secondary" id="setMTask">Пример M-задачи</button>
+<button class="secondary" id="clearTask">Очистить потребление</button>
+</div>
+</div><div class="card">
+<h2>Ёмкость по ролям</h2>
+<div id="capacityBars"></div>
+</div><div class="card">
+<h2>Формула</h2>
+<div class="formula" id="formulaBox"></div>
+<div class="button-row">
+<button class="secondary" id="copyFormula">Копировать расчёт</button>
+<button class="secondary" id="downloadCsv">Скачать CSV</button>
+<button class="secondary" onclick="window.print()">Печать / PDF</button>
+</div>
+</div></div>
         </div>
       </details>
-
-    </section>
+</section>
   </div>
 </main>
 <script>

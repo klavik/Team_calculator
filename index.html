@@ -87,6 +87,132 @@
     @media(max-width:760px){main{padding:14px}.card-summary .summary{grid-template-columns:repeat(2,minmax(0,1fr))}.settings-grid{grid-template-columns:1fr}.settings-details>summary{align-items:flex-start;flex-direction:column}.settings-summary-note{text-align:left}}
     @media(max-width:520px){.card-summary .summary{grid-template-columns:1fr}}
 
+
+    /* v18: improved sprint plan grid */
+    .plan-grid{
+      display:grid;
+      grid-template-columns:minmax(150px,1.15fr) minmax(96px,.55fr) minmax(96px,.55fr) minmax(220px,1.5fr) minmax(86px,.45fr) minmax(180px,1fr);
+      gap:0;
+      width:100%;
+      min-width:860px;
+      border:1px solid var(--border);
+      border-radius:14px;
+      overflow:hidden;
+      background:#fff;
+    }
+    .plan-grid-wrap{
+      width:100%;
+      overflow-x:auto;
+      border-radius:14px;
+    }
+    .plan-head,.plan-cell{
+      padding:10px 11px;
+      border-bottom:1px solid var(--border);
+      display:flex;
+      align-items:center;
+      min-width:0;
+    }
+    .plan-head{
+      background:#fafbfe;
+      color:var(--muted);
+      font-size:12px;
+      font-weight:800;
+      line-height:1.2;
+      min-height:44px;
+    }
+    .plan-cell{
+      min-height:58px;
+      font-size:14px;
+    }
+    .plan-grid .plan-cell:nth-last-child(-n+6){
+      border-bottom:0;
+    }
+    .plan-role{
+      flex-direction:column;
+      align-items:flex-start;
+      justify-content:center;
+      gap:3px;
+      font-weight:800;
+    }
+    .plan-input,.fact-input{
+      width:76px!important;
+      max-width:76px!important;
+      text-align:right;
+    }
+    .plan-number-cell,.fact-number-cell,.delta-cell{
+      justify-content:flex-end;
+    }
+    .plan-bar-cell{
+      flex-direction:column;
+      align-items:stretch;
+      justify-content:center;
+      gap:5px;
+    }
+    .plan-bar-meta{
+      display:flex;
+      justify-content:space-between;
+      gap:8px;
+      color:var(--muted);
+      font-size:11px;
+      line-height:1.2;
+    }
+    .plan-bar{
+      position:relative;
+      width:100%;
+      height:16px;
+      border-radius:999px;
+      background:#eef1f7;
+      overflow:hidden;
+      border:1px solid #dfe3ee;
+    }
+    .plan-target{
+      position:absolute;
+      left:0;
+      top:0;
+      bottom:0;
+      width:0%;
+      border-right:3px solid var(--accent);
+      background:rgba(239,125,0,.18);
+      border-radius:999px 0 0 999px;
+      transition:width .2s ease;
+    }
+    .fact-fill{
+      position:absolute;
+      left:0;
+      top:3px;
+      bottom:3px;
+      width:0%;
+      background:var(--accent);
+      border-radius:999px;
+      transition:width .2s ease;
+    }
+    .fact-fill.over-plan{
+      background:var(--bad);
+    }
+    .plan-cap-line{
+      position:absolute;
+      right:0;
+      top:-2px;
+      bottom:-2px;
+      width:2px;
+      background:#94a3b8;
+      opacity:.8;
+    }
+    .plan-comment{
+      color:var(--muted);
+      font-size:12px;
+      line-height:1.25;
+    }
+    .plan-row-over-soft{
+      background:#fffaf3;
+    }
+    .plan-row-over-hard{
+      background:#fff5f4;
+    }
+    @media(max-width:900px){
+      .plan-grid{min-width:820px}
+    }
+
 </style>
 </head>
 <body>
@@ -152,20 +278,9 @@
           Зафиксируй, сколько задач набрали на планировании и сколько фактически сделали к концу спринта по каждой роли.
           Эти значения сохраняются вместе со спринтом и попадают в историю план-факт.
         </p>
-<table class="roles-table">
-<thead>
-<tr>
-<th>Роль</th>
-<th class="num">План, задач</th>
-<th class="num">Факт, задач</th>
-<th class="num">Потолок роли</th>
-<th class="num">Загрузка плана</th>
-<th class="num">План-факт</th>
-<th>Комментарий</th>
-</tr>
-</thead>
-<tbody id="planningBody"></tbody>
-</table>
+        <div class="plan-grid-wrap">
+          <div class="plan-grid" id="planningBody"></div>
+        </div>
 <div class="button-row">
 <button class="secondary" id="fillPlanByLimit">Заполнить по потолку</button>
 <button class="secondary" id="clearPlan">Очистить план</button><button class="secondary" id="copyPlanToFact">План → факт</button><button class="secondary" id="clearFact">Очистить факт</button>
@@ -572,27 +687,43 @@ function render(){
 
 function renderPlanningTable(caps){
   planningBody.innerHTML="";
+
+  const headers=[
+    "Роль",
+    "План, задач",
+    "Факт, задач",
+    "План / факт / потолок",
+    "План-факт",
+    "Комментарий"
+  ];
+
+  headers.forEach(h=>{
+    const div=document.createElement("div");
+    div.className="plan-head";
+    div.innerHTML=h;
+    planningBody.appendChild(div);
+  });
+
   roles.forEach((role,idx)=>{
     const cap=caps[idx];
     const task=Number(role.task)||0;
     const limit=task>0?cap/task:Infinity;
     const planned=Number(role.planned)||0;
     const actual=Number(role.actual)||0;
+    const excluded=isExcludedFromDelivery(role);
+
+    const planPct=isFinite(limit)&&limit>0?Math.min(140,planned/limit*100):0;
+    const factPct=isFinite(limit)&&limit>0?Math.min(140,actual/limit*100):0;
+    const factOfPlanPct=planned>0?actual/planned*100:null;
     const load=isFinite(limit)&&limit>0?planned/limit:null;
     const actualLoad=isFinite(limit)&&limit>0?actual/limit:null;
-    const excluded=isExcludedFromDelivery(role);
-    const ceilingText=task>0?fmt(limit,1):"—";
-    let loadText="—";
-    let loadClass="";
+
+    let rowClass="";
+    if((load!==null&&load>1.2)||(actualLoad!==null&&actualLoad>1.2))rowClass="plan-row-over-hard";
+    else if((load!==null&&load>1)||(actualLoad!==null&&actualLoad>1))rowClass="plan-row-over-soft";
+
     let deltaText="—";
     let deltaClass="";
-    let comment="";
-
-    if(load!==null){
-      loadText=fmt(load*100,0)+"%";
-      loadClass=load<=1?"plan-ok":(load<=1.2?"plan-warn":"plan-bad");
-    }
-
     if(planned>0 || actual>0){
       const delta=actual-planned;
       const pct=planned>0?actual/planned:null;
@@ -609,34 +740,59 @@ function renderPlanningTable(caps){
       }
     }
 
+    let comment="";
     if(excluded){
       comment="подготовка будущего потока; не ограничивает поставку";
-    }else if(load===null){
+    }else if(!isFinite(limit)){
       comment="потребление роли на задачу не задано";
-    }else if(load<=1){
+    }else if(load!==null&&load<=1){
       comment="план в пределах потолка";
-    }else if(load<=1.2){
+    }else if(load!==null&&load<=1.2){
       comment="план выше потолка, нужен резерв/контроль";
     }else{
       comment="план существенно выше потолка";
     }
-
     if(actual>0 && actualLoad!==null && actualLoad>1){
       comment += "; факт выше потолка роли";
     }
 
-    const tr=document.createElement("tr");
-    if(load!==null&&load>1.2)tr.className="hard-over-capacity";
-    else if(load!==null&&load>1)tr.className="over-capacity";
+    const roleCell=document.createElement("div");
+    roleCell.className=`plan-cell plan-role ${rowClass}`;
+    roleCell.innerHTML=`<span>${esc(role.name)}</span>${excluded?'<span class="prep-pill">подготовка</span>':""}`;
 
-    tr.innerHTML=`<td>${esc(role.name)} ${excluded?'<span class="prep-pill">подготовка</span>':""}</td>
-      <td class="num"><input class="plan-input" type="number" min="0" step="1" value="${planned}" data-idx="${idx}" data-field="planned"></td>
-      <td class="num"><input class="fact-input" type="number" min="0" step="1" value="${actual}" data-idx="${idx}" data-field="actual"></td>
-      <td class="num">${ceilingText}</td>
-      <td class="num"><span class="${loadClass}">${loadText}</span></td>
-      <td class="num"><span class="${deltaClass}">${deltaText}</span></td>
-      <td class="muted">${comment}</td>`;
-    planningBody.appendChild(tr);
+    const planCell=document.createElement("div");
+    planCell.className=`plan-cell plan-number-cell ${rowClass}`;
+    planCell.innerHTML=`<input class="plan-input" type="number" min="0" step="1" value="${planned}" data-idx="${idx}" data-field="planned">`;
+
+    const factCell=document.createElement("div");
+    factCell.className=`plan-cell fact-number-cell ${rowClass}`;
+    factCell.innerHTML=`<input class="fact-input" type="number" min="0" step="1" value="${actual}" data-idx="${idx}" data-field="actual">`;
+
+    const barCell=document.createElement("div");
+    barCell.className=`plan-cell plan-bar-cell ${rowClass}`;
+    const planLabel=isFinite(limit)?`${fmt(planned,0)} план / ${fmt(limit,1)} потолок`:`${fmt(planned,0)} план`;
+    const factLabel=planned>0&&factOfPlanPct!==null?`${fmt(actual,0)} факт · ${fmt(factOfPlanPct,0)}% от плана`:`${fmt(actual,0)} факт`;
+    barCell.innerHTML=`
+      <div class="plan-bar-meta">
+        <span>${planLabel}</span>
+        <span>${factLabel}</span>
+      </div>
+      <div class="plan-bar" title="План — светлая линия, факт — заполнение внутри линии">
+        <div class="plan-target" style="width:${planPct}%"></div>
+        <div class="fact-fill ${actual>planned?'over-plan':''}" style="width:${factPct}%"></div>
+        <div class="plan-cap-line"></div>
+      </div>
+    `;
+
+    const deltaCell=document.createElement("div");
+    deltaCell.className=`plan-cell delta-cell ${rowClass}`;
+    deltaCell.innerHTML=`<span class="${deltaClass}">${deltaText}</span>`;
+
+    const commentCell=document.createElement("div");
+    commentCell.className=`plan-cell ${rowClass}`;
+    commentCell.innerHTML=`<span class="plan-comment">${comment}</span>`;
+
+    [roleCell,planCell,factCell,barCell,deltaCell,commentCell].forEach(c=>planningBody.appendChild(c));
   });
 }
 

@@ -46,7 +46,7 @@
     .ceiling-head{display:flex;justify-content:space-between;gap:12px;align-items:baseline;margin-bottom:4px}
     .ceiling-value{font-weight:800;font-size:16px}.ceiling-sub{color:var(--muted);font-size:12px;margin-top:4px}
     .qa-secondary{display:block;color:var(--muted);font-size:12px;font-weight:700;margin-top:2px}
-    .role-secondary{display:block;color:var(--muted);font-size:11px;font-weight:600;margin-top:2px}.saved-sprint-row{display:grid;grid-template-columns:1fr auto;gap:10px;align-items:center;padding:9px 0;border-bottom:1px solid var(--border)}.saved-sprint-row:last-child{border-bottom:0}.saved-sprint-name{font-weight:700}.saved-sprint-meta{color:var(--muted);font-size:12px;margin-top:2px}.small-actions{display:flex;gap:6px;flex-wrap:wrap}.small-actions button{padding:7px 9px;font-size:12px}.status-note{margin-top:10px;color:var(--muted);font-size:12px}
+    .role-secondary{display:block;color:var(--muted);font-size:11px;font-weight:600;margin-top:2px}.save-card{padding:0;overflow:hidden}.save-top{padding:18px;border-bottom:1px solid var(--border);background:#fff}.save-header{display:flex;justify-content:space-between;gap:14px;align-items:flex-start;margin-bottom:14px}.save-header h2{margin-bottom:4px}.save-layout{display:grid;grid-template-columns:minmax(220px,1fr) auto;gap:14px;align-items:end}.save-actions{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}.save-list-wrap{padding:14px 18px 18px;background:#fafbfe}.save-list-title{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:8px}.save-list-title h3{margin:0;font-size:15px}.saved-sprint-row{display:grid;grid-template-columns:1fr auto;gap:10px;align-items:center;padding:10px;background:#fff;border:1px solid var(--border);border-radius:12px;margin-top:8px}.saved-sprint-row.active{border-color:#ffd5a0;background:#fffaf3}.saved-sprint-name{font-weight:800}.saved-sprint-meta{color:var(--muted);font-size:12px;margin-top:3px}.small-actions{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}.small-actions button{padding:7px 9px;font-size:12px}.status-note{margin-top:10px;color:var(--muted);font-size:12px}.plan-input{max-width:90px}.fact-input{max-width:90px}.fact-good{color:#137333;font-weight:800}.fact-warn{color:#b06000;font-weight:800}.fact-bad{color:var(--bad);font-weight:800}.plan-ok{color:#137333;font-weight:800}.plan-warn{color:#b06000;font-weight:800}.plan-bad{color:var(--bad);font-weight:800}.history-table-wrap{overflow-x:auto}.history-table th,.history-table td{white-space:nowrap}.over-capacity{background:#fff2dd}.hard-over-capacity{background:#fce8e6}.hidden-control{display:none}.save-status{white-space:nowrap}.danger-inline{background:#f6e7e5!important;color:var(--bad)!important}.danger-inline:hover{background:#efd1ce!important}@media(max-width:780px){.save-layout{grid-template-columns:1fr}.save-actions{justify-content:flex-start}.saved-sprint-row{grid-template-columns:1fr}.small-actions{justify-content:flex-start}}
     @media(max-width:980px){.grid{grid-template-columns:1fr}.controls{grid-template-columns:repeat(2,minmax(140px,1fr))}}
     @media(max-width:680px){main{padding:14px}header{padding:22px 16px 14px}.controls{grid-template-columns:1fr}.summary{grid-template-columns:1fr}table{display:block;overflow-x:auto;white-space:nowrap}}
     @media print{body{background:#fff}button,.button-row{display:none!important}.card{box-shadow:none;break-inside:avoid}main{max-width:none}}
@@ -73,36 +73,44 @@
         <p class="footer-note">Формула: <b>ёмкость роли = (люди × рабочие дни − отсутствия) × коэффициент × (1 − резерв)</b>. Для поставки текущего спринта аналитик и дизайнер по умолчанию не считаются ограничением, потому что основную подготовку выполняют до планирования.</p>
       </div>
 
-      <div class="card">
-        <h2>Сохранение спринтов</h2>
-        <div class="controls">
-          <div>
-            <label for="sprintName">Имя спринта / набора</label>
-            <input id="sprintName" type="text" value="Sprint 1" placeholder="Например: Sprint 2026-Q3-01" />
+      <div class="card save-card">
+        <div class="save-top">
+          <div class="save-header">
+            <div>
+              <h2>Текущий набор</h2>
+              <p class="muted" id="currentSprintHint" style="margin:0">Создай новый набор или открой сохранённый спринт для редактирования.</p>
+            </div>
+            <span class="pill save-status" id="currentSprintStatus">не сохранён</span>
           </div>
-          <div>
-            <label for="savedSprintSelect">Открыть сохранённый набор</label>
-            <select id="savedSprintSelect">
-              <option value="">— выберите набор —</option>
-            </select>
-          </div>
-          <div>
-            <label>Действия</label>
-            <div class="button-row" style="margin-top:0">
-              <button id="saveSprint">Сохранить / обновить</button>
-              <button class="secondary" id="saveAsSprint">Сохранить как новый</button>
+
+          <div class="save-layout">
+            <div>
+              <label for="sprintName">Название спринта / набора</label>
+              <input id="sprintName" type="text" value="Sprint 1" placeholder="Например: Sprint 2026-Q3-01" />
+            </div>
+            <div class="save-actions">
+              <button id="saveSprint">Сохранить</button>
+              <button class="secondary" id="saveAsSprint">Сохранить копию</button>
+              <button class="secondary" id="newSprint">Новый набор</button>
+              <button class="danger-inline" id="deleteSprint">Удалить текущий</button>
             </div>
           </div>
+
+          <select id="savedSprintSelect" class="hidden-control">
+            <option value="">— выберите набор —</option>
+          </select>
         </div>
-        <div class="button-row">
-          <button class="secondary" id="loadSprint">Открыть</button>
-          <button class="secondary" id="newSprint">Новый набор</button>
-          <button class="danger" id="deleteSprint">Удалить</button>
+
+        <div class="save-list-wrap">
+          <div class="save-list-title">
+            <h3>Сохранённые наборы</h3>
+            <span class="muted" id="savedSprintsCount">0 наборов</span>
+          </div>
+          <div id="savedSprintsList" class="status-note"></div>
+          <p class="footer-note">
+            Наборы сохраняются локально в браузере на этом устройстве. Для GitHub Pages сервер не нужен.
+          </p>
         </div>
-        <div id="savedSprintsList" class="status-note"></div>
-        <p class="footer-note">
-          Сохраняются введённые данные и расчётный результат. Данные хранятся локально в браузере на этом устройстве.
-        </p>
       </div>
 
       <div class="card">
@@ -130,6 +138,33 @@
           <button class="secondary" id="clearTask">Очистить потребление</button>
         </div>
       </div>
+
+      <div class="card">
+        <h2>План спринта по ролям</h2>
+        <p class="muted">
+          Зафиксируй, сколько задач набрали на планировании и сколько фактически сделали к концу спринта по каждой роли.
+          Эти значения сохраняются вместе со спринтом и попадают в историю план-факт.
+        </p>
+        <table class="roles-table">
+          <thead>
+            <tr>
+              <th>Роль</th>
+              <th class="num">План, задач</th>
+              <th class="num">Факт, задач</th>
+              <th class="num">Потолок роли</th>
+              <th class="num">Загрузка плана</th>
+              <th class="num">План-факт</th>
+              <th>Комментарий</th>
+            </tr>
+          </thead>
+          <tbody id="planningBody"></tbody>
+        </table>
+        <div class="button-row">
+          <button class="secondary" id="fillPlanByLimit">Заполнить по потолку</button>
+          <button class="secondary" id="clearPlan">Очистить план</button><button class="secondary" id="copyPlanToFact">План → факт</button><button class="secondary" id="clearFact">Очистить факт</button>
+        </div>
+      </div>
+
     </section>
 
     <aside>
@@ -153,6 +188,19 @@
       </div>
 
       <div class="card">
+        <h2>История планирования</h2>
+        <div class="history-table-wrap">
+          <table class="history-table">
+            <thead id="planningHistoryHead"></thead>
+            <tbody id="planningHistoryBody"></tbody>
+          </table>
+        </div>
+        <p class="footer-note">
+          История строится по сохранённым наборам. В ячейках: план / факт / потолок роли и отклонение факта от плана.
+        </p>
+      </div>
+
+      <div class="card">
         <h2>Ёмкость по ролям</h2>
         <div id="capacityBars"></div>
       </div>
@@ -172,12 +220,12 @@
 
 <script>
 const defaultRoles=[
-  {name:"Аналитик",people:1,absence:0,task:1.5},
-  {name:"Дизайнер",people:1,absence:0,task:1.5},
-  {name:"Backend",people:4,absence:0,task:4},
-  {name:"Frontend",people:4,absence:0,task:4},
-  {name:"QA",people:1,absence:0,task:2.5},
-  {name:"DevOps",people:2,absence:0,task:.5}
+  {name:"Аналитик",people:1,absence:0,task:1.5,planned:0,actual:0},
+  {name:"Дизайнер",people:1,absence:0,task:1.5,planned:0,actual:0},
+  {name:"Backend",people:4,absence:0,task:4,planned:0,actual:0},
+  {name:"Frontend",people:4,absence:0,task:4,planned:0,actual:0},
+  {name:"QA",people:1,absence:0,task:2.5,planned:0,actual:0},
+  {name:"DevOps",people:2,absence:0,task:.5,planned:0,actual:0}
 ];
 let loadedState=loadState();
 let roles=loadedState?.roles||JSON.parse(JSON.stringify(defaultRoles));
@@ -193,7 +241,10 @@ sprintName=document.getElementById("sprintName"),
 savedSprintSelect=document.getElementById("savedSprintSelect"),
 savedSprintsList=document.getElementById("savedSprintsList"),
 rolesBody=document.getElementById("rolesBody"),
-taskBody=document.getElementById("taskBody");
+taskBody=document.getElementById("taskBody"),
+planningBody=document.getElementById("planningBody"),
+planningHistoryHead=document.getElementById("planningHistoryHead"),
+planningHistoryBody=document.getElementById("planningHistoryBody");
 
 function isPreparationRole(role){
   const n=(role.name||"").toLowerCase();
@@ -207,6 +258,15 @@ function capacity(role){
 }
 function fmt(n,d=1){if(!isFinite(n))return"—";return Number(n).toLocaleString("ru-RU",{maximumFractionDigits:d})}
 function esc(s){return String(s).replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[m]))}
+function normalizeRoles(){
+  roles.forEach(r=>{
+    if(r.planned===undefined||r.planned===null)r.planned=0;
+    if(r.actual===undefined||r.actual===null)r.actual=0;
+    if(r.absence===undefined||r.absence===null)r.absence=0;
+    if(r.task===undefined||r.task===null)r.task=0;
+  });
+}
+
 
 
 function getCurrentInputState(){
@@ -243,6 +303,12 @@ function getCurrentResultSnapshot(){
       capacity: caps[idx],
       taskCost: task,
       limit: isFinite(limit)?limit:null,
+      planned: Number(role.planned)||0,
+      actual: Number(role.actual)||0,
+      planFactDelta: (Number(role.actual)||0) - (Number(role.planned)||0),
+      planFactPct: (Number(role.planned)||0)>0 ? ((Number(role.actual)||0)/(Number(role.planned)||0)) : null,
+      load: isFinite(limit)&&limit>0?(Number(role.planned)||0)/limit:null,
+      actualLoad: isFinite(limit)&&limit>0?(Number(role.actual)||0)/limit:null,
       excludedFromDelivery: isExcludedFromDelivery(role)
     };
   });
@@ -355,11 +421,32 @@ function startNewSprintSet(){
   saveState();
   renderSavedSprints();
   render();
+  sprintName.focus();
 }
 
 function renderSavedSprints(){
   const sprints=getSavedSprints();
   const items=Object.values(sprints).sort((a,b)=>String(b.updatedAt).localeCompare(String(a.updatedAt)));
+
+  const currentItem=currentSprintId?sprints[currentSprintId]:null;
+  const statusEl=document.getElementById("currentSprintStatus");
+  const hintEl=document.getElementById("currentSprintHint");
+  const countEl=document.getElementById("savedSprintsCount");
+
+  if(statusEl){
+    statusEl.textContent=currentItem?"открыт сохранённый":"новый / не сохранён";
+    statusEl.className=currentItem?"pill save-status":"pill save-status";
+  }
+  if(hintEl){
+    hintEl.textContent=currentItem
+      ? `Открыт набор «${currentItem.name}». Кнопка «Сохранить» обновит именно его.`
+      : "Это новый набор. Кнопка «Сохранить» создаст сохранённый спринт.";
+  }
+  if(countEl){
+    const n=items.length;
+    countEl.textContent=`${n} ${n===1?"набор":(n>=2&&n<=4?"набора":"наборов")}`;
+  }
+
   savedSprintSelect.innerHTML='<option value="">— выберите набор —</option>';
   items.forEach(item=>{
     const opt=document.createElement("option");
@@ -370,24 +457,45 @@ function renderSavedSprints(){
   if(currentSprintId&&sprints[currentSprintId])savedSprintSelect.value=currentSprintId;
 
   if(!items.length){
-    savedSprintsList.innerHTML="Сохранённых наборов пока нет.";
+    savedSprintsList.innerHTML="Сохранённых наборов пока нет. Введите название и нажмите «Сохранить».";
     return;
   }
+
   savedSprintsList.innerHTML="";
-  items.slice(0,6).forEach(item=>{
+  items.forEach(item=>{
     const res=item.result||{};
     const d=new Date(item.updatedAt);
     const updated=isNaN(d.getTime())?item.updatedAt:d.toLocaleString("ru-RU",{day:"2-digit",month:"2-digit",year:"2-digit",hour:"2-digit",minute:"2-digit"});
     const row=document.createElement("div");
-    row.className="saved-sprint-row";
-    row.innerHTML=`<div><div class="saved-sprint-name">${esc(item.name)} ${item.id===currentSprintId?'<span class="prep-pill">открыт</span>':""}</div><div class="saved-sprint-meta">Обновлён: ${updated}; потолок: ${res.crossTaskLimit??"—"} сквозн.; dev-задач: ${res.developmentTaskLimit??"—"}; узкое место: ${esc(res.bottleneck||"—")}</div></div><div class="small-actions"><button class="secondary" data-open-sprint="${item.id}">Открыть</button><button class="danger" data-delete-sprint="${item.id}">Удалить</button></div>`;
+    row.className="saved-sprint-row"+(item.id===currentSprintId?" active":"");
+    row.innerHTML=`<div>
+        <div class="saved-sprint-name">${esc(item.name)} ${item.id===currentSprintId?'<span class="prep-pill">открыт</span>':""}</div>
+        <div class="saved-sprint-meta">Обновлён: ${updated} · потолок: ${res.crossTaskLimit??"—"} сквозн. · dev-задач: ${res.developmentTaskLimit??"—"} · узкое место: ${esc(res.bottleneck||"—")} · план-факт сохранён</div>
+      </div>
+      <div class="small-actions">
+        <button class="secondary" data-open-sprint="${item.id}">Открыть</button>
+        <button class="secondary" data-copy-sprint="${item.id}">Копия</button>
+        <button class="danger-inline" data-delete-sprint="${item.id}">Удалить</button>
+      </div>`;
     savedSprintsList.appendChild(row);
   });
+
   document.querySelectorAll("[data-open-sprint]").forEach(btn=>btn.onclick=()=>loadSprintSet(btn.dataset.openSprint));
+  document.querySelectorAll("[data-copy-sprint]").forEach(btn=>btn.onclick=()=>{
+    const sprints=getSavedSprints();
+    const item=sprints[btn.dataset.copySprint];
+    if(!item)return;
+    const state=JSON.parse(JSON.stringify(item.input||{}));
+    state.sprintName=(item.name||"Набор")+" — копия";
+    state.currentSprintId=null;
+    applyInputState(state);
+    saveSprintSet(true);
+  });
   document.querySelectorAll("[data-delete-sprint]").forEach(btn=>btn.onclick=()=>deleteSprintSet(btn.dataset.deleteSprint));
 }
 
 function render(){
+  normalizeRoles();
   const caps=roles.map(r=>capacity(r));
   const totalCapacity=caps.reduce((a,b)=>a+b,0);
   const totalPeople=roles.reduce((a,r)=>a+(Number(r.people)||0),0);
@@ -423,11 +531,145 @@ function render(){
   document.getElementById("maxTasks").textContent=isFinite(maxTasks)?fmt(Math.floor(maxTasks),0):"—";
   document.getElementById("devTasksMax").textContent=isFinite(maxTasks)?fmt(Math.floor(maxTasks)*devParts,0):"—";
   renderRoleCeilings(caps,bottleneck);
+  renderPlanningTable(caps);
+  renderPlanningHistory();
   renderBars(caps);
   renderFormula(caps);
   renderInterpretation(bottleneck,maxTasks);
   renderSavedSprints();
   bindDynamicInputs();
+}
+
+
+function renderPlanningTable(caps){
+  planningBody.innerHTML="";
+  roles.forEach((role,idx)=>{
+    const cap=caps[idx];
+    const task=Number(role.task)||0;
+    const limit=task>0?cap/task:Infinity;
+    const planned=Number(role.planned)||0;
+    const actual=Number(role.actual)||0;
+    const load=isFinite(limit)&&limit>0?planned/limit:null;
+    const actualLoad=isFinite(limit)&&limit>0?actual/limit:null;
+    const excluded=isExcludedFromDelivery(role);
+    const ceilingText=task>0?fmt(limit,1):"—";
+    let loadText="—";
+    let loadClass="";
+    let deltaText="—";
+    let deltaClass="";
+    let comment="";
+
+    if(load!==null){
+      loadText=fmt(load*100,0)+"%";
+      loadClass=load<=1?"plan-ok":(load<=1.2?"plan-warn":"plan-bad");
+    }
+
+    if(planned>0 || actual>0){
+      const delta=actual-planned;
+      const pct=planned>0?actual/planned:null;
+      const sign=delta>0?"+":"";
+      deltaText=`${sign}${fmt(delta,0)}`;
+      if(pct===null){
+        deltaClass=actual>0?"fact-warn":"";
+      }else if(pct>=0.9&&pct<=1.1){
+        deltaClass="fact-good";
+      }else if(pct>=0.7&&pct<=1.3){
+        deltaClass="fact-warn";
+      }else{
+        deltaClass="fact-bad";
+      }
+    }
+
+    if(excluded){
+      comment="подготовка будущего потока; не ограничивает поставку";
+    }else if(load===null){
+      comment="потребление роли на задачу не задано";
+    }else if(load<=1){
+      comment="план в пределах потолка";
+    }else if(load<=1.2){
+      comment="план выше потолка, нужен резерв/контроль";
+    }else{
+      comment="план существенно выше потолка";
+    }
+
+    if(actual>0 && actualLoad!==null && actualLoad>1){
+      comment += "; факт выше потолка роли";
+    }
+
+    const tr=document.createElement("tr");
+    if(load!==null&&load>1.2)tr.className="hard-over-capacity";
+    else if(load!==null&&load>1)tr.className="over-capacity";
+
+    tr.innerHTML=`<td>${esc(role.name)} ${excluded?'<span class="prep-pill">подготовка</span>':""}</td>
+      <td class="num"><input class="plan-input" type="number" min="0" step="1" value="${planned}" data-idx="${idx}" data-field="planned"></td>
+      <td class="num"><input class="fact-input" type="number" min="0" step="1" value="${actual}" data-idx="${idx}" data-field="actual"></td>
+      <td class="num">${ceilingText}</td>
+      <td class="num"><span class="${loadClass}">${loadText}</span></td>
+      <td class="num"><span class="${deltaClass}">${deltaText}</span></td>
+      <td class="muted">${comment}</td>`;
+    planningBody.appendChild(tr);
+  });
+}
+
+function renderPlanningHistory(){
+  const sprints=getSavedSprints();
+  const items=Object.values(sprints).sort((a,b)=>String(a.updatedAt).localeCompare(String(b.updatedAt)));
+  if(!items.length){
+    planningHistoryHead.innerHTML="";
+    planningHistoryBody.innerHTML='<tr><td class="muted">Истории пока нет. Сохрани хотя бы один спринт.</td></tr>';
+    return;
+  }
+
+  const roleNames=[];
+  items.forEach(item=>{
+    const limits=item.result?.roleLimits||[];
+    limits.forEach(r=>{
+      if(!roleNames.includes(r.role))roleNames.push(r.role);
+    });
+  });
+
+  planningHistoryHead.innerHTML=`<tr><th>Спринт</th><th>Потолок</th><th>Dev-задач</th><th>Узкое место</th>${roleNames.map(r=>`<th class="num">${esc(r)}<br><span class="muted">план/факт/потолок</span></th>`).join("")}</tr>`;
+  planningHistoryBody.innerHTML="";
+
+  items.forEach(item=>{
+    const res=item.result||{};
+    const limits=res.roleLimits||[];
+    const byRole={};
+    limits.forEach(r=>byRole[r.role]=r);
+
+    const cells=roleNames.map(role=>{
+      const r=byRole[role];
+      if(!r)return '<td class="num">—</td>';
+      const planned=Number(r.planned)||0;
+      const actual=Number(r.actual)||0;
+      const limit=r.limit===null||r.limit===undefined?null:Number(r.limit);
+      const load=limit&&limit>0?planned/limit:null;
+      const factLoad=limit&&limit>0?actual/limit:null;
+      const delta=actual-planned;
+      let cls="";
+      if(load!==null&&load>1.2)cls="hard-over-capacity";
+      else if(load!==null&&load>1)cls="over-capacity";
+      if(factLoad!==null&&factLoad>1.2)cls="hard-over-capacity";
+      else if(factLoad!==null&&factLoad>1&&cls==="")cls="over-capacity";
+
+      let deltaClass="";
+      if(planned>0||actual>0){
+        const pct=planned>0?actual/planned:null;
+        if(pct===null)deltaClass=actual>0?"fact-warn":"";
+        else if(pct>=0.9&&pct<=1.1)deltaClass="fact-good";
+        else if(pct>=0.7&&pct<=1.3)deltaClass="fact-warn";
+        else deltaClass="fact-bad";
+      }
+
+      const limitText=limit===null?"—":fmt(limit,1);
+      const sign=delta>0?"+":"";
+      return `<td class="num ${cls}">${fmt(planned,0)} / <b>${fmt(actual,0)}</b> / ${limitText}<br><span class="${deltaClass}">${sign}${fmt(delta,0)}</span></td>`;
+    }).join("");
+
+    const tr=document.createElement("tr");
+    tr.innerHTML=`<td><b>${esc(item.name)}</b></td><td class="num">${res.crossTaskLimit??"—"}</td><td class="num">${res.developmentTaskLimit??"—"}</td><td>${esc(res.bottleneck||"—")}</td>${cells}`;
+    planningHistoryBody.appendChild(tr);
+  });
 }
 
 function renderRoleCeilings(caps,bottleneck){
@@ -545,21 +787,47 @@ periodName.onchange=()=>{if(periodName.value==="sprint")workdays.value=10;if(per
 [workdays,utilization,buffer,devIssuesPerCrossTask,excludePrepRoles].forEach(el=>el.addEventListener("input",()=>{if(periodName.value!=="custom"&&((periodName.value==="sprint"&&workdays.value!=10)||(periodName.value==="quarter"&&workdays.value!=60)))periodName.value="custom";saveState();render()}));
 document.getElementById("saveSprint").onclick=()=>saveSprintSet(false);
 document.getElementById("saveAsSprint").onclick=()=>saveSprintSet(true);
-document.getElementById("loadSprint").onclick=()=>loadSprintSet(savedSprintSelect.value);
-document.getElementById("deleteSprint").onclick=()=>deleteSprintSet(savedSprintSelect.value);
+document.getElementById("deleteSprint").onclick=()=>deleteSprintSet(currentSprintId);
 document.getElementById("newSprint").onclick=()=>startNewSprintSet();
 savedSprintSelect.onchange=()=>{if(savedSprintSelect.value)loadSprintSet(savedSprintSelect.value)};
-sprintName.addEventListener("input",()=>saveState());
-document.getElementById("addRole").onclick=()=>{roles.push({name:"Новая роль",people:1,absence:0,task:0});render()};
+sprintName.addEventListener("input",()=>{currentSprintId=currentSprintId;saveState();renderSavedSprints();});
+document.getElementById("addRole").onclick=()=>{roles.push({name:"Новая роль",people:1,absence:0,task:0,planned:0,actual:0});render()};
 document.getElementById("resetDefaults").onclick=()=>{roles=JSON.parse(JSON.stringify(defaultRoles));periodName.value="sprint";workdays.value=10;utilization.value=.7;buffer.value=0;devIssuesPerCrossTask.value=2;excludePrepRoles.value="yes";currentSprintId=null;sprintName.value="";savedSprintSelect.value="";saveState();render()};
 document.getElementById("saveData").onclick=()=>{saveState();alert("Сохранено в браузере.")};
+document.getElementById("fillPlanByLimit").onclick=()=>{
+  const caps=roles.map(r=>capacity(r));
+  roles.forEach((r,idx)=>{
+    const task=Number(r.task)||0;
+    if(task>0){
+      const limit=caps[idx]/task;
+      r.planned=Math.floor(limit);
+    }
+  });
+  saveState();
+  render();
+};
+document.getElementById("clearPlan").onclick=()=>{
+  roles.forEach(r=>r.planned=0);
+  saveState();
+  render();
+};
+document.getElementById("copyPlanToFact").onclick=()=>{
+  roles.forEach(r=>r.actual=Number(r.planned)||0);
+  saveState();
+  render();
+};
+document.getElementById("clearFact").onclick=()=>{
+  roles.forEach(r=>r.actual=0);
+  saveState();
+  render();
+};
 document.getElementById("setMTask").onclick=()=>{const t={"Аналитик":1.5,"Дизайнер":1.5,"Backend":4,"Frontend":4,"QA":2.5,"DevOps":.5};roles.forEach(r=>r.task=t[r.name]??r.task??0);render()};
 document.getElementById("clearTask").onclick=()=>{roles.forEach(r=>r.task=0);render()};
 document.getElementById("copyFormula").onclick=async()=>{try{await navigator.clipboard.writeText(document.getElementById("formulaBox").textContent);alert("Расчёт скопирован.")}catch{alert("Не удалось скопировать автоматически. Выделите текст вручную.")}};
 document.getElementById("downloadCsv").onclick=()=>{
   const wd=Number(workdays.value)||0,util=Number(utilization.value)||0,buf=Number(buffer.value)||0;
-  const rows=[["Спринт",sprintName.value||""],[],["Роль","Сотрудников","Рабочих дней","Отсутствия","Коэффициент","Резерв %","Доступно ч.д.","ч.д. на задачу","Потолок задач роли","Учитывается как ограничение поставки"]];
-  roles.forEach(r=>{const cap=capacity(r),task=Number(r.task)||0;rows.push([r.name,r.people,wd,r.absence,util,buf,cap.toFixed(2),task,task>0?(cap/task).toFixed(2):"",isExcludedFromDelivery(r)?"нет":"да"])});
+  const rows=[["Спринт",sprintName.value||""],[],["Роль","Сотрудников","Рабочих дней","Отсутствия","Коэффициент","Резерв %","Доступно ч.д.","ч.д. на задачу","Потолок задач роли","План задач","Факт задач","План-факт","Загрузка плана %","Загрузка факта %","Учитывается как ограничение поставки"]];
+  roles.forEach(r=>{const cap=capacity(r),task=Number(r.task)||0,limit=task>0?cap/task:null,planned=Number(r.planned)||0,actual=Number(r.actual)||0,load=limit&&limit>0?planned/limit*100:null,actualLoad=limit&&limit>0?actual/limit*100:null;rows.push([r.name,r.people,wd,r.absence,util,buf,cap.toFixed(2),task,limit?limit.toFixed(2):"",planned,actual,actual-planned,load!==null?load.toFixed(0):"",actualLoad!==null?actualLoad.toFixed(0):"",isExcludedFromDelivery(r)?"нет":"да"])});
   const csv=rows.map(row=>row.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(";")).join("\n");
   const blob=new Blob(["\uFEFF"+csv],{type:"text/csv;charset=utf-8;"}),url=URL.createObjectURL(blob),a=document.createElement("a");
   a.href=url;a.download="team_capacity.csv";a.click();URL.revokeObjectURL(url);

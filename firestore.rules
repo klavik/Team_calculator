@@ -1,0 +1,36 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return signedIn() && request.auth.uid == userId;
+    }
+
+    match /users/{userId} {
+      // Профиль создаётся администратором вручную через Firebase Console.
+      allow create, delete: if false;
+
+      allow read: if isOwner(userId);
+
+      // Пользователь может менять только свой псевдоним и updatedAt.
+      allow update: if isOwner(userId)
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['alias', 'updatedAt'])
+        && request.resource.data.email == resource.data.email
+        && request.resource.data.role == resource.data.role
+        && request.resource.data.active == resource.data.active;
+
+      match /app/{documentId} {
+        allow read, write: if isOwner(userId);
+      }
+
+      match /sprints/{sprintId} {
+        allow read, write: if isOwner(userId);
+      }
+    }
+  }
+}

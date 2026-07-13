@@ -289,6 +289,69 @@
     @media(max-width:900px){.task-table{min-width:900px}}
 
 
+
+    /* Manual tasks created directly in Team_calculator */
+    .manual-task-dialog{
+      width:min(540px,calc(100vw - 28px));
+      max-width:540px;
+      border:0;
+      border-radius:18px;
+      padding:0;
+      box-shadow:0 24px 70px rgba(15,23,42,.28);
+      color:var(--text);
+      background:#fff;
+    }
+    .manual-task-dialog::backdrop{
+      background:rgba(15,23,42,.45);
+      backdrop-filter:blur(2px);
+    }
+    .manual-task-form{padding:20px}
+    .manual-task-title-row{
+      display:flex;
+      justify-content:space-between;
+      align-items:flex-start;
+      gap:14px;
+      margin-bottom:14px;
+    }
+    .manual-task-title-row h2{margin:0;font-size:20px}
+    .manual-task-close{
+      width:34px;
+      height:34px;
+      padding:0;
+      border-radius:50%;
+      background:#eef1f7;
+      color:var(--text);
+      font-size:20px;
+      line-height:1;
+      flex:0 0 auto;
+    }
+    .manual-task-close:hover{background:#e1e6f0}
+    .manual-task-grid{
+      display:grid;
+      grid-template-columns:1fr 1fr;
+      gap:12px;
+      margin-top:14px;
+    }
+    .manual-task-grid .full{grid-column:1/-1}
+    .manual-task-message{
+      min-height:18px;
+      margin-top:10px;
+      font-size:12px;
+      color:var(--bad);
+    }
+    .manual-task-actions{
+      display:flex;
+      justify-content:flex-end;
+      gap:8px;
+      flex-wrap:wrap;
+      margin-top:14px;
+    }
+    @media(max-width:560px){
+      .manual-task-grid{grid-template-columns:1fr}
+      .manual-task-grid .full{grid-column:auto}
+      .manual-task-actions{justify-content:flex-start}
+    }
+
     /* Automatic Team_poker integration */
     .auto-integration-panel{
       margin:14px 0;
@@ -463,7 +526,7 @@
       <div class="card task-pool-card">
         <h2>Общий пул оценённых задач</h2>
         <p class="muted">
-          Зафиксированные оценки автоматически поступают из Team_poker в общий пул команды. Дополни оценки остальных ролей и добавь готовые задачи в спринт.
+          Оценки разработки автоматически поступают из Team_poker. Задачи аналитики, дизайна, QA и DevOps можно добавлять прямо здесь.
           Прочерк или 0 означает, что роль не участвует в задаче. Число указывается только для действительно задействованных ролей.
         </p>
 
@@ -491,6 +554,7 @@
             </select>
           </div>
           <div class="task-toolbar-right">
+            <button id="openManualTaskDialog">Добавить задачу</button>
             <span class="muted" id="taskPoolCount">0 задач</span>
             <button class="secondary" id="reloadTaskPool">Переподключить синхронизацию</button>
           </div>
@@ -612,6 +676,53 @@
 </section>
   </div>
 </main>
+
+<dialog id="manualTaskDialog" class="manual-task-dialog">
+  <form class="manual-task-form" onsubmit="return false">
+    <div class="manual-task-title-row">
+      <div>
+        <h2>Новая задача</h2>
+        <div class="muted">Добавление задачи напрямую в общий пул Team_calculator</div>
+      </div>
+      <button id="closeManualTaskDialog" class="manual-task-close" type="button" aria-label="Закрыть">×</button>
+    </div>
+
+    <div class="manual-task-grid">
+      <div class="full">
+        <label for="manualTaskTitle">Заголовок задачи</label>
+        <input id="manualTaskTitle" maxlength="300" placeholder="Подготовить аналитические требования">
+      </div>
+
+      <div class="full">
+        <label for="manualTaskUrl">Ссылка на задачу в GitLab</label>
+        <input id="manualTaskUrl" type="url" placeholder="https://gitlab.example/.../issues/123">
+      </div>
+
+      <div>
+        <label for="manualTaskRole">Роль</label>
+        <select id="manualTaskRole">
+          <option value="analytics">Аналитика</option>
+          <option value="design">Дизайн</option>
+          <option value="qa">QA</option>
+          <option value="devops">DevOps</option>
+        </select>
+      </div>
+
+      <div>
+        <label for="manualTaskEstimate">Оценка, человеко-дни</label>
+        <input id="manualTaskEstimate" type="number" min="0.5" step="0.5" value="1">
+      </div>
+    </div>
+
+    <div id="manualTaskMessage" class="manual-task-message"></div>
+
+    <div class="manual-task-actions">
+      <button id="cancelManualTask" class="secondary" type="button">Отмена</button>
+      <button id="createManualTask" type="button">Добавить в пул</button>
+    </div>
+  </form>
+</dialog>
+
 <script src="./firebase-config.js"></script>
 <script>
 const defaultRoles=[
@@ -681,6 +792,14 @@ taskBody=document.getElementById("taskBody"),
 planningBody=document.getElementById("planningBody"),
 planningHistoryHead=document.getElementById("planningHistoryHead"),
 planningHistoryBody=document.getElementById("planningHistoryBody");
+
+const manualTaskDialog=document.getElementById("manualTaskDialog"),
+manualTaskTitle=document.getElementById("manualTaskTitle"),
+manualTaskUrl=document.getElementById("manualTaskUrl"),
+manualTaskRole=document.getElementById("manualTaskRole"),
+manualTaskEstimate=document.getElementById("manualTaskEstimate"),
+manualTaskMessage=document.getElementById("manualTaskMessage"),
+createManualTaskButton=document.getElementById("createManualTask");
 
 function isPreparationRole(role){
   const n=(role.name||"").toLowerCase();
@@ -1368,6 +1487,145 @@ window.TeamCalculatorIntegration={
   getTaskPool:()=>JSON.parse(JSON.stringify(taskPool))
 };
 
+
+function manualTaskDocumentId(){
+  const randomPart=
+    globalThis.crypto&&typeof globalThis.crypto.randomUUID==="function"
+      ? globalThis.crypto.randomUUID()
+      : `${Date.now()}_${Math.random().toString(36).slice(2)}`;
+  return `tc_${randomPart.replace(/[^a-zA-Z0-9_-]/g,"")}`;
+}
+
+function normalizeManualTaskUrl(rawValue){
+  const value=String(rawValue||"").trim();
+  if(!value)return null;
+
+  let parsed;
+  try{
+    parsed=new URL(value);
+  }catch{
+    throw new Error("Укажите корректную ссылку на задачу.");
+  }
+
+  if(!["http:","https:"].includes(parsed.protocol)){
+    throw new Error("Ссылка должна начинаться с http:// или https://");
+  }
+
+  return parsed.toString();
+}
+
+function openManualTaskDialog(){
+  manualTaskTitle.value="";
+  manualTaskUrl.value="";
+  manualTaskRole.value="analytics";
+  manualTaskEstimate.value="1";
+  manualTaskMessage.textContent="";
+  createManualTaskButton.disabled=false;
+
+  if(typeof manualTaskDialog.showModal==="function"){
+    manualTaskDialog.showModal();
+  }else{
+    manualTaskDialog.setAttribute("open","");
+  }
+
+  setTimeout(()=>manualTaskTitle.focus(),0);
+}
+
+function closeManualTaskDialog(){
+  if(typeof manualTaskDialog.close==="function"){
+    manualTaskDialog.close();
+  }else{
+    manualTaskDialog.removeAttribute("open");
+  }
+}
+
+async function createManualTask(){
+  const title=String(manualTaskTitle.value||"").trim();
+  const roleKey=String(manualTaskRole.value||"").trim();
+  const estimate=Number(manualTaskEstimate.value);
+
+  manualTaskMessage.textContent="";
+
+  if(!title){
+    manualTaskMessage.textContent="Укажите заголовок задачи.";
+    manualTaskTitle.focus();
+    return;
+  }
+
+  if(!["analytics","design","qa","devops"].includes(roleKey)){
+    manualTaskMessage.textContent="Выберите роль.";
+    return;
+  }
+
+  if(!Number.isFinite(estimate)||estimate<=0){
+    manualTaskMessage.textContent="Оценка должна быть больше 0.";
+    manualTaskEstimate.focus();
+    return;
+  }
+
+  let externalTaskUrl;
+  try{
+    externalTaskUrl=normalizeManualTaskUrl(manualTaskUrl.value);
+  }catch(e){
+    manualTaskMessage.textContent=e.message;
+    manualTaskUrl.focus();
+    return;
+  }
+
+  const id=manualTaskDocumentId();
+  const now=new Date().toISOString();
+  const estimates=emptyTaskEstimates();
+  estimates[roleKey]=estimate;
+
+  const task={
+    id,
+    identityKey:`manual:${id}`,
+    title,
+    externalTaskUrl,
+    source:"team_calculator",
+    createdAt:now,
+    updatedAt:now,
+    createdByUid:currentUser.uid,
+    createdByName:String(
+      currentProfile?.alias||currentUser.email||""
+    ).trim(),
+    planningStatus:"available",
+    estimates,
+    estimateSources:{
+      [roleKey]:"team_calculator"
+    },
+    estimateVersions:{},
+    sourceTaskIds:{},
+    finalizedAtByRole:{},
+    finalizedByRole:{},
+    teamByRole:{},
+    sessionByRole:{},
+    integration:{
+      transport:"manual",
+      createdIn:"team_calculator"
+    }
+  };
+
+  try{
+    createManualTaskButton.disabled=true;
+    manualTaskMessage.style.color="var(--muted)";
+    manualTaskMessage.textContent="Сохранение…";
+    setSyncState("Сохранение…","warn");
+
+    await saveTaskPoolItem(task);
+
+    setSyncState("Синхронизировано");
+    closeManualTaskDialog();
+    render();
+  }catch(e){
+    console.error(e);
+    createManualTaskButton.disabled=false;
+    manualTaskMessage.style.color="var(--bad)";
+    manualTaskMessage.textContent=`Не удалось добавить задачу: ${e.message}`;
+    setSyncState("Ошибка сохранения","bad");
+  }
+}
+
 async function saveTaskPoolItem(task){
   if(!currentUser||!firebaseDb)return;
   const normalized=normalizeTask(task);
@@ -1590,10 +1848,18 @@ function renderTaskPool(){
       action=`<div class="small-actions"><button ${ready?"":"disabled"} data-add-task="${task.id}">В спринт</button><button class="danger-inline" data-delete-task="${task.id}">Удалить</button></div>`;
     }
 
+    const positiveRoleNames=roleDefs
+      .filter(role=>Number(task.estimates[role.key])>0)
+      .map(role=>role.name);
+
+    const taskMeta=task.source==="team_poker"
+      ? `Team_poker · автоматически · ${esc(task.teamByRole?.backend?.name||task.teamByRole?.frontend?.name||"команда не указана")}`
+      : `Team_calculator · вручную${positiveRoleNames.length?` · ${esc(positiveRoleNames.join(", "))}`:""}${task.createdByName?` · ${esc(task.createdByName)}`:""}`;
+
     const tr=document.createElement("tr");
     tr.innerHTML=`<td class="task-title-cell">
         <div class="task-title">${title}</div>
-        <div class="task-meta">Team_poker · автоматически · ${esc(task.teamByRole?.backend?.name||task.teamByRole?.frontend?.name||"команда не указана")}</div>
+        <div class="task-meta">${taskMeta}</div>
       </td>
       ${estimates}
       <td class="num task-estimate-total">${fmt(taskTotalEstimate(task),1)}</td>
@@ -1970,6 +2236,25 @@ document.getElementById("reloadTaskPool").onclick=async()=>{
   }
 };
 taskPoolFilter.onchange=renderTaskPool;
+document.getElementById("openManualTaskDialog").onclick=openManualTaskDialog;
+document.getElementById("closeManualTaskDialog").onclick=closeManualTaskDialog;
+document.getElementById("cancelManualTask").onclick=closeManualTaskDialog;
+createManualTaskButton.onclick=createManualTask;
+manualTaskTitle.addEventListener("keydown",e=>{
+  if(e.key==="Enter"){
+    e.preventDefault();
+    createManualTask();
+  }
+});
+manualTaskEstimate.addEventListener("keydown",e=>{
+  if(e.key==="Enter"){
+    e.preventDefault();
+    createManualTask();
+  }
+});
+manualTaskDialog.addEventListener("click",event=>{
+  if(event.target===manualTaskDialog)closeManualTaskDialog();
+});
 document.getElementById("clearSprintTasks").onclick=()=>{
   if(selectedTaskIds.length&&!confirm("Очистить состав текущего спринта?"))return;
   selectedTaskIds=[];

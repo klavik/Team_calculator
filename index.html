@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Калькулятор ёмкости команды</title>
+  <title>Team_calculator — планирование спринта</title>
   <style>
     :root{
       --bg:#f6f7fb;--card:#fff;--text:#172033;--muted:#687084;--border:#dfe3ee;
@@ -244,18 +244,100 @@
     .security-note{font-size:12px;color:var(--muted);margin-top:10px}
     @media(max-width:760px){.account-settings-grid{grid-template-columns:1fr}}
 
+
+    /* Integration with Team_poker: concrete task pool and sprint planning */
+    .task-pool-card,.sprint-tasks-card{margin-bottom:0}
+    .task-toolbar{display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap;margin:12px 0}
+    .task-toolbar-left,.task-toolbar-right{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+    .task-table-wrap{max-width:100%;overflow-x:auto;border:1px solid var(--border);border-radius:14px}
+    .task-table{width:100%;min-width:980px;border-collapse:collapse;background:#fff}
+    .task-table th{position:sticky;top:0;z-index:1;background:#fafbfe;color:var(--muted);font-size:12px;white-space:nowrap}
+    .task-table td,.task-table th{padding:10px;border-bottom:1px solid var(--border);vertical-align:middle}
+    .task-table tr:last-child td{border-bottom:0}
+    .task-title-cell{min-width:240px}
+    .task-title{font-weight:800}
+    .task-meta{color:var(--muted);font-size:11px;margin-top:3px}
+    .task-link{color:var(--accent-dark);text-decoration:none}
+    .task-link:hover{text-decoration:underline}
+    .estimate-input{width:74px!important;min-width:74px!important;text-align:right}
+    .estimate-readonly{display:inline-flex;align-items:center;gap:5px;justify-content:flex-end;min-width:66px;font-weight:800}
+    .source-lock{font-size:11px;color:var(--accent-dark)}
+    .task-status{display:inline-block;border-radius:999px;padding:5px 8px;font-size:11px;font-weight:800;white-space:nowrap}
+    .task-status.ready{background:#e8f5ec;color:#137333}
+    .task-status.incomplete{background:#fff2dd;color:#b06000}
+    .task-status.planned{background:#e8f0fe;color:#1a5bc4}
+    .task-status.done{background:#e8f5ec;color:#137333}
+    .import-panel{margin:12px 0;border:1px solid var(--border);border-radius:14px;background:#fafbfe;padding:12px}
+    .import-panel summary{cursor:pointer;font-weight:800}
+    .import-panel textarea{min-height:170px;resize:vertical;font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;font-size:12px;margin-top:10px}
+    .import-help{font-size:12px;color:var(--muted);margin-top:8px}
+    .import-status{margin-top:10px;font-size:12px}
+    .import-status.ok{color:#137333}.import-status.bad{color:var(--bad)}.import-status.warn{color:#b06000}
+    .task-empty{padding:22px;text-align:center;color:var(--muted)}
+    .sprint-summary-row{display:flex;gap:10px;flex-wrap:wrap;margin:10px 0 14px}
+    .sprint-summary-pill{border:1px solid var(--border);background:#fafbfe;border-radius:999px;padding:6px 10px;font-size:12px}
+    .completion-toggle{display:flex;align-items:center;gap:7px;white-space:nowrap}
+    .completion-toggle input{width:auto}
+    .task-estimate-total{font-weight:800;white-space:nowrap}
+    .task-warning{color:#b06000;font-size:11px;margin-top:3px}
+    .plan-grid{
+      grid-template-columns:minmax(150px,1.05fr) minmax(90px,.5fr) minmax(90px,.5fr) minmax(90px,.5fr) minmax(240px,1.55fr) minmax(100px,.6fr)!important;
+    }
+    .section-task-pool,.section-sprint-tasks{width:100%}
+    .section-main{margin-top:0}
+    .legacy-task-model{opacity:.82}
+    @media(max-width:900px){.task-table{min-width:900px}}
+
+
+    /* Automatic Team_poker integration */
+    .auto-integration-panel{
+      margin:14px 0;
+      padding:12px 14px;
+      border:1px solid #bfe6ca;
+      border-radius:14px;
+      background:#f1fbf4;
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      gap:14px;
+      flex-wrap:wrap;
+    }
+    .auto-integration-main{
+      display:flex;
+      align-items:flex-start;
+      gap:10px;
+      min-width:0;
+    }
+    .auto-integration-dot{
+      width:10px;
+      height:10px;
+      border-radius:50%;
+      margin-top:5px;
+      flex:0 0 auto;
+      background:#1e8e3e;
+      box-shadow:0 0 0 4px rgba(30,142,62,.12);
+    }
+    .auto-integration-title{font-weight:800}
+    .auto-integration-note{font-size:12px;color:var(--muted);margin-top:2px}
+    .auto-integration-state{
+      font-size:12px;
+      font-weight:800;
+      color:#137333;
+      white-space:nowrap;
+    }
+
 </style>
 </head>
 <body>
 <header>
-  <h1>Калькулятор ёмкости команды по ролям</h1>
-  <p>Считает ёмкость команды, помогает зафиксировать план-факт спринта по ролям и смотреть историю планирования.</p>
+  <h1>Team_calculator</h1>
+  <p>Планирует спринт по конкретным оценённым задачам, считает загрузку ролей и фиксирует план-факт.</p>
 </header>
 
 
 <div class="auth-screen" id="authScreen">
   <div class="auth-card">
-    <h1>Вход в калькулятор</h1>
+    <h1>Вход в Team_calculator</h1>
     <p>
       Учётные записи создаются администратором заранее в Firebase Console. Публичной регистрации нет.
     </p>
@@ -344,7 +426,7 @@
 </div>
 <div class="save-actions">
 <button id="saveSprint">Сохранить</button>
-<button class="secondary" id="saveAsSprint">Сохранить копию</button>
+<button class="secondary" id="saveAsSprint">Копировать настройки</button>
 <button class="secondary" id="newSprint">Новый набор</button>
 <button class="danger-inline" id="deleteSprint">Удалить текущий</button>
 </div>
@@ -369,32 +451,95 @@
 <div class="summary">
 <div class="metric"><div class="label">Всего сотрудников</div><div class="value" id="totalPeople">0</div></div>
 <div class="metric"><div class="label">Всего доступно</div><div class="value" id="totalCapacity">0</div></div>
-<div class="metric highlight"><div class="label">Узкое место поставки</div><div class="value" id="bottleneck">—</div></div>
-<div class="metric highlight"><div class="label">Потолок сквозных задач</div><div class="value" id="maxTasks">—</div></div>
-<div class="metric highlight"><div class="label">Потолок задач разработки</div><div class="value" id="devTasksMax">—</div></div>
+<div class="metric highlight"><div class="label">Самая загруженная роль</div><div class="value" id="bottleneck">—</div></div>
+<div class="metric highlight"><div class="label">Задач в спринте</div><div class="value" id="maxTasks">0</div></div>
+<div class="metric highlight"><div class="label">Выполнено задач</div><div class="value" id="devTasksMax">0</div></div>
 </div>
 <details class="interpretation-details"><summary>Интерпретация</summary><div class="muted" id="interpretation">Заполните данные по ролям и потребление одной задачи.</div></details>
 
 </div></section>
+
+    <section class="section-task-pool">
+      <div class="card task-pool-card">
+        <h2>Общий пул оценённых задач</h2>
+        <p class="muted">
+          Зафиксированные оценки автоматически поступают из Team_poker в общий пул команды. Дополни оценки остальных ролей и добавь готовые задачи в спринт.
+          Пустое значение означает «ещё не оценено», а 0 — «роль не участвует».
+        </p>
+
+        <div class="auto-integration-panel">
+          <div class="auto-integration-main">
+            <span class="auto-integration-dot" aria-hidden="true"></span>
+            <div>
+              <div class="auto-integration-title">Автоматическая синхронизация с Team_poker</div>
+              <div class="auto-integration-note">
+                После фиксации оценки задача появляется в общем пуле без копирования и вставки JSON.
+              </div>
+            </div>
+          </div>
+          <div id="taskPoolRealtimeStatus" class="auto-integration-state">Подключение…</div>
+        </div>
+
+<div class="task-toolbar">
+          <div class="task-toolbar-left">
+            <label for="taskPoolFilter" style="margin:0">Показывать</label>
+            <select id="taskPoolFilter">
+              <option value="all">Все задачи</option>
+              <option value="incomplete">Требуют дооценки</option>
+              <option value="ready">Готовы к планированию</option>
+              <option value="planned">Добавлены в текущий спринт</option>
+            </select>
+          </div>
+          <div class="task-toolbar-right">
+            <span class="muted" id="taskPoolCount">0 задач</span>
+            <button class="secondary" id="reloadTaskPool">Переподключить синхронизацию</button>
+          </div>
+        </div>
+
+        <div class="task-table-wrap">
+          <table class="task-table">
+            <thead id="taskPoolHead"></thead>
+            <tbody id="taskPoolBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section class="section-sprint-tasks">
+      <div class="card sprint-tasks-card">
+        <h2>Задачи текущего спринта</h2>
+        <p class="muted">
+          План по ролям рассчитывается как сумма оценок выбранных задач. Факт — сумма оценок задач, отмеченных выполненными.
+        </p>
+        <div class="sprint-summary-row" id="sprintTaskSummary"></div>
+        <div class="task-table-wrap">
+          <table class="task-table">
+            <thead id="sprintTasksHead"></thead>
+            <tbody id="sprintTasksBody"></tbody>
+          </table>
+        </div>
+        <div class="button-row">
+          <button class="secondary" id="clearSprintTasks">Очистить состав спринта</button>
+        </div>
+      </div>
+    </section>
+
     <section class="section-main">
       <div class="main-left"><div class="card card-plan">
-<h2>План спринта по ролям</h2>
+<h2>Загрузка спринта по ролям</h2>
 <p class="muted">
-          Зафиксируй, сколько задач набрали на планировании и сколько фактически сделали к концу спринта по каждой роли.
-          Эти значения сохраняются вместе со спринтом и попадают в историю план-факт.
+          План и факт рассчитываются автоматически в человеко-днях по конкретным задачам текущего спринта.
+          Светлая линия показывает план, заполнение — выполненный объём.
         </p>
         <div class="plan-grid-wrap">
           <div class="plan-grid" id="planningBody"></div>
         </div>
-<div class="button-row">
-<button class="secondary" id="fillPlanByLimit">Заполнить по потолку</button>
-<button class="secondary" id="clearPlan">Очистить план</button><button class="secondary" id="copyPlanToFact">План → факт</button><button class="secondary" id="clearFact">Очистить факт</button>
-</div>
+
 </div></div>
       <aside class="main-right"><div class="card card-ceilings">
-<h2>Потолок задач по ролям</h2>
+<h2>Свободная ёмкость по ролям</h2>
 <div id="roleCeilings"></div>
-<p class="footer-note">Для аналитика и дизайнера показывается потолок задач подготовки на спринт, но они не ограничивают поставку текущего спринта. QA показывает потолок сквозных задач и пересчёт в задачи разработки.</p>
+<p class="footer-note">Показывается ёмкость роли, плановая нагрузка выбранных задач и остаток. Аналитик и дизайнер могут не участвовать в определении узкого места, но их оценки сохраняются.</p>
 </div></aside>
     </section>
     <section class="section-history"><div class="card card-history">
@@ -406,7 +551,7 @@
 </table>
 </div>
 <p class="footer-note">
-          История строится по сохранённым наборам. В ячейках: план / факт / потолок роли и отклонение факта от плана.
+          История строится по сохранённым спринтам. В ячейках: план / факт / ёмкость роли в человеко-днях.
         </p>
 </div></section>
     <section class="section-settings">
@@ -423,7 +568,7 @@
 <div><label for="workdays">Рабочих дней в периоде</label><input id="workdays" min="1" step="1" type="number" value="10"/></div>
 <div><label for="utilization">Коэффициент полезной загрузки</label><input id="utilization" max="1" min="0" step="0.05" type="number" value="0.7"/></div>
 <div><label for="buffer">Резерв на незапланированное, %</label><input id="buffer" max="80" min="0" step="5" type="number" value="0"/></div>
-<div><label for="devIssuesPerCrossTask">Dev-задач на 1 сквозную</label><input id="devIssuesPerCrossTask" min="1" step="1" type="number" value="2"/></div>
+<div style="display:none"><input id="devIssuesPerCrossTask" type="hidden" value="2"/></div>
 <div><label for="excludePrepRoles">Аналитик / дизайнер</label><select id="excludePrepRoles"><option selected="" value="yes">Не ограничивают текущий спринт</option><option value="no">Учитывать как ограничение</option></select></div>
 </div>
 <p class="footer-note">Формула: <b>ёмкость роли = (люди × рабочие дни − отсутствия) × коэффициент × (1 − резерв)</b>. Для поставки текущего спринта аналитик и дизайнер по умолчанию не считаются ограничением, потому что основную подготовку выполняют до планирования.</p>
@@ -439,9 +584,9 @@
 <button class="secondary" id="saveData">Сохранить</button>
 </div>
 </div></div>
-          <div><div class="card">
-<h2>Потребление одной типовой задачи</h2>
-<p class="muted">Укажите, сколько человеко-дней по каждой роли требует одна задача. Для аналитика/дизайнера это скорее подготовка следующего спринта, а не ограничение текущей поставки.</p>
+          <div><div class="card legacy-task-model" style="display:none">
+<h2>Справочная модель типовой задачи</h2>
+<p class="muted">Этот блок сохранён только для справочных расчётов. Планирование текущего спринта выполняется по конкретным задачам из пула.</p>
 <table class="roles-table">
 <thead><tr><th>Роль</th><th class="num">ч.д. на 1 задачу</th><th class="num">Ёмкость роли</th><th class="num">Потолок задач роли</th></tr></thead>
 <tbody id="taskBody"></tbody>
@@ -480,6 +625,12 @@ const defaultRoles=[
 let roles=JSON.parse(JSON.stringify(defaultRoles));
 let currentSprintId=null;
 let savedSprintSets={};
+let taskPool={};
+const TEAM_CALCULATOR_WORKSPACE_ID =
+  String(window.TEAM_CALCULATOR_WORKSPACE_ID || "main").trim() || "main";
+let selectedTaskIds=[];
+let completedTaskIds=[];
+let sprintTaskSnapshots={};
 let currentUser=null;
 let currentProfile=null;
 let firebaseApp=null;
@@ -489,6 +640,7 @@ let firebaseModules=null;
 let isHydrating=false;
 let saveTimer=null;
 let appLoaded=false;
+let unsubscribeTaskPool=null;
 
 const periodName=document.getElementById("periodName"),
 workdays=document.getElementById("workdays"),
@@ -499,6 +651,16 @@ excludePrepRoles=document.getElementById("excludePrepRoles"),
 sprintName=document.getElementById("sprintName"),
 savedSprintSelect=document.getElementById("savedSprintSelect"),
 savedSprintsList=document.getElementById("savedSprintsList"),
+taskImportJson=document.getElementById("taskImportJson"),
+taskImportStatus=document.getElementById("taskImportStatus"),
+taskPoolFilter=document.getElementById("taskPoolFilter"),
+taskPoolHead=document.getElementById("taskPoolHead"),
+taskPoolBody=document.getElementById("taskPoolBody"),
+taskPoolCount=document.getElementById("taskPoolCount"),
+taskPoolRealtimeStatus=document.getElementById("taskPoolRealtimeStatus"),
+sprintTasksHead=document.getElementById("sprintTasksHead"),
+sprintTasksBody=document.getElementById("sprintTasksBody"),
+sprintTaskSummary=document.getElementById("sprintTaskSummary"),
 authScreen=document.getElementById("authScreen"),
 authStatus=document.getElementById("authStatus"),
 loginEmail=document.getElementById("loginEmail"),
@@ -542,6 +704,113 @@ function normalizeRoles(){
 }
 
 
+function roleKeyFromName(name){
+  const n=String(name||"").trim().toLowerCase();
+  if(n.includes("аналит")||n.includes("analyst")||n==="ba")return"analytics";
+  if(n.includes("дизайн")||n.includes("design"))return"design";
+  if(n.includes("backend")||n.includes("бэкенд")||n.includes("бекенд"))return"backend";
+  if(n.includes("frontend")||n.includes("фронтенд"))return"frontend";
+  if(n==="qa"||n.includes("тест"))return"qa";
+  if(n.includes("devops")||n.includes("девопс"))return"devops";
+  return "custom_"+n.replace(/[^a-zа-я0-9]+/gi,"_").replace(/^_+|_+$/g,"");
+}
+
+function roleLabelByKey(key){
+  const found=roles.find(r=>roleKeyFromName(r.name)===key);
+  if(found)return found.name;
+  return ({analytics:"Аналитик",design:"Дизайнер",backend:"Backend",frontend:"Frontend",qa:"QA",devops:"DevOps"})[key]||key;
+}
+
+function taskEstimateKeys(){
+  return roles.map(r=>roleKeyFromName(r.name));
+}
+
+function emptyTaskEstimates(){
+  const result={};
+  taskEstimateKeys().forEach(key=>result[key]=null);
+  return result;
+}
+
+function normalizeTask(task){
+  const normalized=JSON.parse(JSON.stringify(task||{}));
+  normalized.estimates=Object.assign(emptyTaskEstimates(),normalized.estimates||{});
+  normalized.estimateSources=Object.assign({},normalized.estimateSources||{});
+  normalized.estimateVersions=Object.assign({},normalized.estimateVersions||{});
+  normalized.sourceTaskIds=Object.assign({},normalized.sourceTaskIds||{});
+  normalized.finalizedAtByRole=Object.assign({},normalized.finalizedAtByRole||{});
+  normalized.teamByRole=Object.assign({},normalized.teamByRole||{});
+  normalized.sessionByRole=Object.assign({},normalized.sessionByRole||{});
+  return normalized;
+}
+
+function isEstimateFilled(value){
+  return value!==null&&value!==undefined&&value!==""&&Number(value)>=0&&isFinite(Number(value));
+}
+
+function isTaskReady(task){
+  const normalized=normalizeTask(task);
+  return taskEstimateKeys().every(key=>isEstimateFilled(normalized.estimates[key]));
+}
+
+function taskTotalEstimate(task){
+  const normalized=normalizeTask(task);
+  return taskEstimateKeys().reduce((sum,key)=>sum+(isEstimateFilled(normalized.estimates[key])?Number(normalized.estimates[key]):0),0);
+}
+
+function currentTaskSnapshot(taskId){
+  return sprintTaskSnapshots[taskId]||taskPool[taskId]||null;
+}
+
+function selectedTaskObjects(){
+  return selectedTaskIds.map(id=>currentTaskSnapshot(id)).filter(Boolean);
+}
+
+function completedTaskObjects(){
+  const done=new Set(completedTaskIds);
+  return selectedTaskIds.filter(id=>done.has(id)).map(id=>currentTaskSnapshot(id)).filter(Boolean);
+}
+
+function recalculateRolePlanFact(){
+  const selected=selectedTaskObjects();
+  const completed=completedTaskObjects();
+  roles.forEach(role=>{
+    const key=roleKeyFromName(role.name);
+    role.planned=selected.reduce((sum,task)=>{
+      const value=normalizeTask(task).estimates[key];
+      return sum+(isEstimateFilled(value)?Number(value):0);
+    },0);
+    role.actual=completed.reduce((sum,task)=>{
+      const value=normalizeTask(task).estimates[key];
+      return sum+(isEstimateFilled(value)?Number(value):0);
+    },0);
+  });
+}
+
+function integrationIdentity(payload){
+  const url=String(payload.externalTaskUrl||"").trim().toLowerCase().replace(/\/+$/,"");
+  return url?`url:${url}`:`task:${String(payload.taskId||"").trim()}`;
+}
+
+function hashString(value){
+  let h=2166136261;
+  for(let i=0;i<value.length;i++){
+    h^=value.charCodeAt(i);
+    h=Math.imul(h,16777619);
+  }
+  return (h>>>0).toString(36);
+}
+
+function taskDocumentId(payload){
+  return `tp_${hashString(integrationIdentity(payload))}`;
+}
+
+function setTaskImportStatus(text,type=""){
+  if(!taskImportStatus)return;
+  taskImportStatus.textContent=text||"";
+  taskImportStatus.className="import-status"+(type?` ${type}`:"");
+}
+
+
 
 function getCurrentInputState(){
   return {
@@ -553,46 +822,57 @@ function getCurrentInputState(){
     devIssuesPerCrossTask: devIssuesPerCrossTask.value,
     excludePrepRoles: excludePrepRoles.value,
     sprintName: sprintName.value,
-    currentSprintId: currentSprintId
+    currentSprintId: currentSprintId,
+    selectedTaskIds: JSON.parse(JSON.stringify(selectedTaskIds)),
+    completedTaskIds: JSON.parse(JSON.stringify(completedTaskIds)),
+    sprintTaskSnapshots: JSON.parse(JSON.stringify(sprintTaskSnapshots))
   };
 }
 
 function getCurrentResultSnapshot(){
+  recalculateRolePlanFact();
   const caps=roles.map(r=>capacity(r));
-  let bottleneck=null,maxTasks=Infinity;
+  let bottleneck=null;
+  let highestLoad=-1;
+
   roles.forEach((role,idx)=>{
-    const task=Number(role.task)||0;
-    const taskCap=task>0?caps[idx]/task:Infinity;
-    if(task>0&&!isExcludedFromDelivery(role)&&taskCap<maxTasks){
-      maxTasks=taskCap;
+    const cap=caps[idx];
+    const load=cap>0?(Number(role.planned)||0)/cap:((Number(role.planned)||0)>0?Infinity:0);
+    if(!isExcludedFromDelivery(role)&&load>highestLoad){
+      highestLoad=load;
       bottleneck=role.name;
     }
   });
-  const devParts=Math.max(1,Number(devIssuesPerCrossTask.value)||2);
+
   const roleLimits=roles.map((role,idx)=>{
-    const task=Number(role.task)||0;
-    const limit=task>0?caps[idx]/task:Infinity;
+    const cap=caps[idx];
+    const planned=Number(role.planned)||0;
+    const actual=Number(role.actual)||0;
     return {
       role: role.name,
-      capacity: caps[idx],
-      taskCost: task,
-      limit: isFinite(limit)?limit:null,
-      planned: Number(role.planned)||0,
-      actual: Number(role.actual)||0,
-      planFactDelta: (Number(role.actual)||0) - (Number(role.planned)||0),
-      planFactPct: (Number(role.planned)||0)>0 ? ((Number(role.actual)||0)/(Number(role.planned)||0)) : null,
-      load: isFinite(limit)&&limit>0?(Number(role.planned)||0)/limit:null,
-      actualLoad: isFinite(limit)&&limit>0?(Number(role.actual)||0)/limit:null,
+      capacity: cap,
+      limit: cap,
+      planned,
+      actual,
+      planFactDelta: actual-planned,
+      planFactPct: planned>0?actual/planned:null,
+      load: cap>0?planned/cap:null,
+      actualLoad: cap>0?actual/cap:null,
       excludedFromDelivery: isExcludedFromDelivery(role)
     };
   });
+
   return {
     totalPeople: roles.reduce((a,r)=>a+(Number(r.people)||0),0),
     totalCapacity: caps.reduce((a,b)=>a+b,0),
-    bottleneck: bottleneck,
-    crossTaskLimit: isFinite(maxTasks)?Math.floor(maxTasks):null,
-    developmentTaskLimit: isFinite(maxTasks)?Math.floor(maxTasks)*devParts:null,
-    roleLimits: roleLimits
+    bottleneck,
+    highestLoad: isFinite(highestLoad)?highestLoad:null,
+    taskCount: selectedTaskIds.length,
+    completedTaskCount: completedTaskIds.filter(id=>selectedTaskIds.includes(id)).length,
+    crossTaskLimit: selectedTaskIds.length,
+    developmentTaskLimit: completedTaskIds.filter(id=>selectedTaskIds.includes(id)).length,
+    roleLimits,
+    taskSnapshots: JSON.parse(JSON.stringify(sprintTaskSnapshots))
   };
 }
 
@@ -610,6 +890,7 @@ function makeSprintId(){
 
 function applyInputState(state){
   if(!state)return;
+  isHydrating=true;
   roles=JSON.parse(JSON.stringify(state.roles||defaultRoles));
   if(state.periodName)periodName.value=state.periodName;
   if(state.workdays!==undefined)workdays.value=state.workdays;
@@ -619,6 +900,11 @@ function applyInputState(state){
   if(state.excludePrepRoles!==undefined)excludePrepRoles.value=state.excludePrepRoles;
   if(state.sprintName!==undefined)sprintName.value=state.sprintName;
   currentSprintId=state.currentSprintId||null;
+  selectedTaskIds=Array.isArray(state.selectedTaskIds)?JSON.parse(JSON.stringify(state.selectedTaskIds)):[];
+  completedTaskIds=Array.isArray(state.completedTaskIds)?JSON.parse(JSON.stringify(state.completedTaskIds)):[];
+  sprintTaskSnapshots=state.sprintTaskSnapshots?JSON.parse(JSON.stringify(state.sprintTaskSnapshots)):{};
+  isHydrating=false;
+  recalculateRolePlanFact();
   saveState();
   render();
 }
@@ -636,8 +922,16 @@ async function saveSprintSet(forceNew=false){
   }
 
   const sprints=getSavedSprints();
+  const previousSprint=currentSprintId?sprints[currentSprintId]:null;
   const id=forceNew||!currentSprintId?makeSprintId():currentSprintId;
+  const previousTaskIds=forceNew?[]:(Array.isArray(previousSprint?.input?.selectedTaskIds)?previousSprint.input.selectedTaskIds:[]);
   currentSprintId=id;
+  selectedTaskIds.forEach(taskId=>{
+    if(!sprintTaskSnapshots[taskId]&&taskPool[taskId]){
+      sprintTaskSnapshots[taskId]=JSON.parse(JSON.stringify(taskPool[taskId]));
+    }
+  });
+  recalculateRolePlanFact();
   const inputState=getCurrentInputState();
   inputState.currentSprintId=id;
   const saved={
@@ -655,6 +949,53 @@ async function saveSprintSet(forceNew=false){
       fsMod.doc(firebaseDb,"users",currentUser.uid,"sprints",id),
       saved
     );
+
+    const changedTaskIds=new Set([...previousTaskIds,...selectedTaskIds]);
+    if(changedTaskIds.size){
+      const taskBatch=fsMod.writeBatch(firebaseDb);
+
+      previousTaskIds.filter(taskId=>!selectedTaskIds.includes(taskId)).forEach(taskId=>{
+        taskBatch.set(
+          fsMod.doc(firebaseDb,"workspaces",TEAM_CALCULATOR_WORKSPACE_ID,"taskPool",taskId),
+          {
+            plannedSprintId:null,
+            plannedSprintName:null,
+            plannedByUid:null,
+            plannedByName:null,
+            planningStatus:"available",
+            updatedAt:new Date().toISOString()
+          },
+          {merge:true}
+        );
+        if(taskPool[taskId]?.plannedSprintId===id){
+          taskPool[taskId].plannedSprintId=null;
+          taskPool[taskId].plannedSprintName=null;
+          taskPool[taskId].planningStatus="available";
+        }
+      });
+
+      selectedTaskIds.forEach(taskId=>{
+        taskBatch.set(
+          fsMod.doc(firebaseDb,"workspaces",TEAM_CALCULATOR_WORKSPACE_ID,"taskPool",taskId),
+          {
+            plannedSprintId:id,
+            plannedSprintName:name,
+            plannedByUid:currentUser.uid,
+            plannedByName:(currentProfile?.alias||currentUser.email||"").trim(),
+            planningStatus:completedTaskIds.includes(taskId)?"completed":"planned",
+            updatedAt:new Date().toISOString()
+          },
+          {merge:true}
+        );
+        if(taskPool[taskId]){
+          taskPool[taskId].plannedSprintId=id;
+          taskPool[taskId].plannedSprintName=name;
+          taskPool[taskId].planningStatus=completedTaskIds.includes(taskId)?"completed":"planned";
+        }
+      });
+      await taskBatch.commit();
+    }
+
     sprints[id]=saved;
     setSavedSprints(sprints);
     await saveCurrentStateNow();
@@ -689,18 +1030,44 @@ async function deleteSprintSet(id){
     return;
   }
   const sprints=getSavedSprints();
-  if(!sprints[id]){
+  const sprint=sprints[id];
+  if(!sprint){
     alert("Сохранённый набор не найден.");
     return;
   }
-  if(!confirm(`Удалить набор «${sprints[id].name}»?`))return;
+  if(!confirm(`Удалить набор «${sprint.name}»?`))return;
 
   try{
     const {fsMod}=await loadFirebaseModules();
-    await fsMod.deleteDoc(fsMod.doc(firebaseDb,"users",currentUser.uid,"sprints",id));
+    const batch=fsMod.writeBatch(firebaseDb);
+    batch.delete(fsMod.doc(firebaseDb,"users",currentUser.uid,"sprints",id));
+
+    const taskIds=Array.isArray(sprint.input?.selectedTaskIds)?sprint.input.selectedTaskIds:[];
+    taskIds.forEach(taskId=>{
+      if(taskPool[taskId]?.plannedSprintId===id){
+        batch.set(
+          fsMod.doc(firebaseDb,"workspaces",TEAM_CALCULATOR_WORKSPACE_ID,"taskPool",taskId),
+          {plannedSprintId:null,plannedSprintName:null,plannedByUid:null,plannedByName:null,planningStatus:"available",updatedAt:new Date().toISOString()},
+          {merge:true}
+        );
+        taskPool[taskId].plannedSprintId=null;
+        taskPool[taskId].plannedSprintName=null;
+        taskPool[taskId].planningStatus="available";
+      }
+    });
+
+    await batch.commit();
     delete sprints[id];
     setSavedSprints(sprints);
-    if(currentSprintId===id)currentSprintId=null;
+
+    if(currentSprintId===id){
+      currentSprintId=null;
+      selectedTaskIds=[];
+      completedTaskIds=[];
+      sprintTaskSnapshots={};
+      recalculateRolePlanFact();
+    }
+
     savedSprintSelect.value="";
     await saveCurrentStateNow();
     renderSavedSprints();
@@ -714,9 +1081,26 @@ async function deleteSprintSet(id){
 function startNewSprintSet(){
   currentSprintId=null;
   sprintName.value="";
+  selectedTaskIds=[];
+  completedTaskIds=[];
+  sprintTaskSnapshots={};
   savedSprintSelect.value="";
+  recalculateRolePlanFact();
   saveState();
   renderSavedSprints();
+  render();
+  sprintName.focus();
+}
+
+function copyCurrentSprintSettings(){
+  const sourceName=(sprintName.value||"Спринт").trim();
+  currentSprintId=null;
+  sprintName.value=`${sourceName} — копия`;
+  selectedTaskIds=[];
+  completedTaskIds=[];
+  sprintTaskSnapshots={};
+  recalculateRolePlanFact();
+  saveState();
   render();
   sprintName.focus();
 }
@@ -767,11 +1151,11 @@ function renderSavedSprints(){
     row.className="saved-sprint-row"+(item.id===currentSprintId?" active":"");
     row.innerHTML=`<div>
         <div class="saved-sprint-name">${esc(item.name)} ${item.id===currentSprintId?'<span class="prep-pill">открыт</span>':""}</div>
-        <div class="saved-sprint-meta">Обновлён: ${updated} · потолок: ${res.crossTaskLimit??"—"} сквозн. · dev-задач: ${res.developmentTaskLimit??"—"} · узкое место: ${esc(res.bottleneck||"—")} · план-факт сохранён</div>
+        <div class="saved-sprint-meta">Обновлён: ${updated} · задач: ${res.taskCount??res.crossTaskLimit??"—"} · выполнено: ${res.completedTaskCount??res.developmentTaskLimit??"—"} · самая загруженная роль: ${esc(res.bottleneck||"—")}</div>
       </div>
       <div class="small-actions">
         <button class="secondary" data-open-sprint="${item.id}">Открыть</button>
-        <button class="secondary" data-copy-sprint="${item.id}">Копия</button>
+        <button class="secondary" data-copy-sprint="${item.id}">Копировать настройки</button>
         <button class="danger-inline" data-delete-sprint="${item.id}">Удалить</button>
       </div>`;
     savedSprintsList.appendChild(row);
@@ -785,17 +1169,512 @@ function renderSavedSprints(){
     const state=JSON.parse(JSON.stringify(item.input||{}));
     state.sprintName=(item.name||"Набор")+" — копия";
     state.currentSprintId=null;
+    state.selectedTaskIds=[];
+    state.completedTaskIds=[];
+    state.sprintTaskSnapshots={};
     applyInputState(state);
-    saveSprintSet(true);
   });
   document.querySelectorAll("[data-delete-sprint]").forEach(btn=>btn.onclick=()=>deleteSprintSet(btn.dataset.deleteSprint));
 }
 
+
+
+function stopTaskPoolRealtime(){
+  if(typeof unsubscribeTaskPool==="function"){
+    unsubscribeTaskPool();
+  }
+  unsubscribeTaskPool=null;
+}
+
+async function startTaskPoolRealtime(){
+  stopTaskPoolRealtime();
+  if(!currentUser||!firebaseDb)return;
+
+  const {fsMod}=await loadFirebaseModules();
+  const collectionRef=fsMod.collection(
+    firebaseDb,
+    "workspaces",
+    TEAM_CALCULATOR_WORKSPACE_ID,
+    "taskPool"
+  );
+
+  if(taskPoolRealtimeStatus){
+    taskPoolRealtimeStatus.textContent="Подключение…";
+  }
+
+  unsubscribeTaskPool=fsMod.onSnapshot(
+    collectionRef,
+    {includeMetadataChanges:true},
+    snapshot=>{
+      const nextPool={};
+      snapshot.forEach(docSnap=>{
+        nextPool[docSnap.id]=normalizeTask(
+          Object.assign({id:docSnap.id},docSnap.data())
+        );
+      });
+      taskPool=nextPool;
+
+      if(taskPoolRealtimeStatus){
+        taskPoolRealtimeStatus.textContent=snapshot.metadata.fromCache
+          ?"Общий пул · показаны кэшированные данные"
+          :"Общий пул · синхронизация активна";
+      }
+
+      if(appLoaded)render();
+    },
+    error=>{
+      console.error(error);
+      if(taskPoolRealtimeStatus){
+        taskPoolRealtimeStatus.textContent="Ошибка синхронизации";
+      }
+      setSyncState("Ошибка загрузки пула","bad");
+    }
+  );
+}
+
+async function loadTaskPoolFromFirestore(){
+  if(!currentUser||!firebaseDb)return;
+  const {fsMod}=await loadFirebaseModules();
+  const snap=await fsMod.getDocs(
+    fsMod.collection(firebaseDb,"workspaces",TEAM_CALCULATOR_WORKSPACE_ID,"taskPool")
+  );
+  taskPool={};
+  snap.forEach(docSnap=>{
+    const task=normalizeTask(Object.assign({id:docSnap.id},docSnap.data()));
+    taskPool[docSnap.id]=task;
+  });
+}
+
+function validateTeamPokerPayload(payload){
+  if(!payload||typeof payload!=="object")throw new Error("Ожидался JSON-объект.");
+  if(!payload.taskId)throw new Error("Не заполнено поле taskId.");
+  if(!payload.title)throw new Error("Не заполнено поле title.");
+  if(!["backend","frontend"].includes(payload.estimatedRole)){
+    throw new Error("estimatedRole должен быть backend или frontend.");
+  }
+  if(!isFinite(Number(payload.finalEstimate))||Number(payload.finalEstimate)<=0){
+    throw new Error("finalEstimate должен быть положительным числом.");
+  }
+  if(payload.source&&payload.source!=="team_poker"){
+    throw new Error("Источник должен быть team_poker.");
+  }
+}
+
+async function upsertTeamPokerTask(payload){
+  validateTeamPokerPayload(payload);
+  const id=taskDocumentId(payload);
+  const role=payload.estimatedRole;
+  const existing=normalizeTask(taskPool[id]||{});
+  const incomingVersion=Math.max(1,Number(payload.estimateVersion)||1);
+  const existingVersion=Number(existing.estimateVersions?.[role]||0);
+
+  if(existingVersion>incomingVersion){
+    throw new Error(`${payload.title}: импортирована более старая версия оценки ${incomingVersion}; в пуле уже v${existingVersion}.`);
+  }
+
+  const now=new Date().toISOString();
+  const merged=normalizeTask({
+    ...existing,
+    id,
+    identityKey:integrationIdentity(payload),
+    title:payload.title,
+    externalTaskUrl:payload.externalTaskUrl||existing.externalTaskUrl||null,
+    source:"team_poker",
+    updatedAt:now,
+    createdAt:existing.createdAt||now,
+    estimates:{...existing.estimates,[role]:Number(payload.finalEstimate)},
+    estimateSources:{...existing.estimateSources,[role]:"team_poker"},
+    estimateVersions:{...existing.estimateVersions,[role]:incomingVersion},
+    sourceTaskIds:{...existing.sourceTaskIds,[role]:payload.taskId},
+    finalizedAtByRole:{...existing.finalizedAtByRole,[role]:payload.finalizedAt||null},
+    teamByRole:{...existing.teamByRole,[role]:payload.team||null},
+    sessionByRole:{...existing.sessionByRole,[role]:payload.session||null}
+  });
+
+  const {fsMod}=await loadFirebaseModules();
+  await fsMod.setDoc(
+    fsMod.doc(firebaseDb,"workspaces",TEAM_CALCULATOR_WORKSPACE_ID,"taskPool",id),
+    merged,
+    {merge:true}
+  );
+
+  taskPool[id]=merged;
+
+  if(selectedTaskIds.includes(id)&&!currentSprintId){
+    sprintTaskSnapshots[id]=JSON.parse(JSON.stringify(merged));
+    recalculateRolePlanFact();
+  }
+
+  return merged;
+}
+
+async function importTeamPokerPayload(){
+  const raw=(taskImportJson.value||"").trim();
+  if(!raw){
+    setTaskImportStatus("Вставьте JSON из Team_poker.","warn");
+    return;
+  }
+
+  try{
+    const parsed=JSON.parse(raw);
+    const items=Array.isArray(parsed)?parsed:[parsed];
+    if(!items.length)throw new Error("Массив импорта пуст.");
+
+    setTaskImportStatus("Импорт…","warn");
+    let imported=0;
+    const warnings=[];
+
+    for(const item of items){
+      try{
+        await upsertTeamPokerTask(item);
+        imported++;
+      }catch(e){
+        warnings.push(e.message);
+      }
+    }
+
+    render();
+    if(imported&&warnings.length){
+      setTaskImportStatus(`Импортировано: ${imported}. Ошибки: ${warnings.join(" | ")}`,"warn");
+    }else if(imported){
+      setTaskImportStatus(`Импортировано задач: ${imported}.`,"ok");
+      taskImportJson.value="";
+    }else{
+      setTaskImportStatus(warnings.join(" | ")||"Ничего не импортировано.","bad");
+    }
+  }catch(e){
+    console.error(e);
+    setTaskImportStatus(`Ошибка импорта: ${e.message}`,"bad");
+  }
+}
+
+
+window.TeamCalculatorIntegration={
+  importEstimate:async(payload)=>{
+    const task=await upsertTeamPokerTask(payload);
+    render();
+    return task;
+  },
+  importEstimates:async(payloads)=>{
+    const items=Array.isArray(payloads)?payloads:[payloads];
+    const result=[];
+    for(const payload of items)result.push(await upsertTeamPokerTask(payload));
+    render();
+    return result;
+  },
+  getTaskPool:()=>JSON.parse(JSON.stringify(taskPool))
+};
+
+async function saveTaskPoolItem(task){
+  if(!currentUser||!firebaseDb)return;
+  const normalized=normalizeTask(task);
+  normalized.updatedAt=new Date().toISOString();
+  taskPool[normalized.id]=normalized;
+  const {fsMod}=await loadFirebaseModules();
+  await fsMod.setDoc(
+    fsMod.doc(firebaseDb,"workspaces",TEAM_CALCULATOR_WORKSPACE_ID,"taskPool",normalized.id),
+    normalized,
+    {merge:true}
+  );
+}
+
+async function updateTaskEstimate(taskId,roleKey,rawValue){
+  const task=normalizeTask(taskPool[taskId]);
+  if(!task)return;
+  if(task.estimateSources[roleKey]==="team_poker"){
+    alert("Эта оценка зафиксирована в Team_poker и редактируется повторным импортом новой версии.");
+    render();
+    return;
+  }
+
+  const value=String(rawValue).trim()===""?null:Number(rawValue);
+  if(value!==null&&(!isFinite(value)||value<0)){
+    alert("Оценка должна быть числом не меньше 0.");
+    render();
+    return;
+  }
+
+  task.estimates[roleKey]=value;
+  if(value===null){
+    delete task.estimateSources[roleKey];
+  }else{
+    task.estimateSources[roleKey]="team_calculator";
+  }
+
+  try{
+    setSyncState("Сохранение…","warn");
+    await saveTaskPoolItem(task);
+    if(selectedTaskIds.includes(taskId)&&!currentSprintId){
+      sprintTaskSnapshots[taskId]=JSON.parse(JSON.stringify(task));
+      recalculateRolePlanFact();
+    }
+    setSyncState("Синхронизировано");
+    render();
+  }catch(e){
+    console.error(e);
+    setSyncState("Ошибка сохранения","bad");
+    alert(`Не удалось сохранить оценку: ${e.message}`);
+  }
+}
+
+async function deleteTaskFromPool(taskId){
+  const task=taskPool[taskId];
+  if(!task)return;
+  if(selectedTaskIds.includes(taskId)){
+    alert("Сначала уберите задачу из текущего спринта.");
+    return;
+  }
+  if(task.plannedSprintId){
+    alert("Задача связана с сохранённым спринтом. Сначала верните её в пул.");
+    return;
+  }
+  if(!confirm(`Удалить задачу «${task.title||taskId}» из пула?`))return;
+
+  try{
+    const {fsMod}=await loadFirebaseModules();
+    await fsMod.deleteDoc(fsMod.doc(firebaseDb,"workspaces",TEAM_CALCULATOR_WORKSPACE_ID,"taskPool",taskId));
+    delete taskPool[taskId];
+    render();
+  }catch(e){
+    console.error(e);
+    alert(`Не удалось удалить задачу: ${e.message}`);
+  }
+}
+
+function addTaskToSprint(taskId){
+  const task=taskPool[taskId];
+  if(!task)return;
+  if(!isTaskReady(task)){
+    alert("Сначала заполните оценки всех ролей. Для роли, которая не участвует, укажите 0.");
+    return;
+  }
+  if(!selectedTaskIds.includes(taskId)){
+    selectedTaskIds.push(taskId);
+    sprintTaskSnapshots[taskId]=JSON.parse(JSON.stringify(task));
+  }
+  recalculateRolePlanFact();
+  saveState();
+  render();
+}
+
+async function removeTaskFromSprint(taskId){
+  selectedTaskIds=selectedTaskIds.filter(id=>id!==taskId);
+  completedTaskIds=completedTaskIds.filter(id=>id!==taskId);
+  delete sprintTaskSnapshots[taskId];
+  recalculateRolePlanFact();
+  saveState();
+
+  if(currentSprintId&&taskPool[taskId]?.plannedSprintId===currentSprintId){
+    const task=normalizeTask(taskPool[taskId]);
+    task.plannedSprintId=null;
+    task.plannedSprintName=null;
+    task.planningStatus="available";
+    try{await saveTaskPoolItem(task)}catch(e){console.error(e)}
+  }
+  render();
+}
+
+async function toggleTaskCompleted(taskId,completed){
+  if(completed){
+    if(!completedTaskIds.includes(taskId))completedTaskIds.push(taskId);
+  }else{
+    completedTaskIds=completedTaskIds.filter(id=>id!==taskId);
+  }
+  recalculateRolePlanFact();
+  saveState();
+
+  if(currentSprintId&&taskPool[taskId]){
+    const task=normalizeTask(taskPool[taskId]);
+    task.planningStatus=completed?"completed":"planned";
+    task.plannedSprintId=currentSprintId;
+    task.plannedSprintName=sprintName.value||task.plannedSprintName||"";
+    try{await saveTaskPoolItem(task)}catch(e){console.error(e)}
+  }
+  render();
+}
+
+function updateSprintTaskSnapshot(taskId){
+  if(!taskPool[taskId])return;
+  sprintTaskSnapshots[taskId]=JSON.parse(JSON.stringify(taskPool[taskId]));
+  recalculateRolePlanFact();
+  saveState();
+  render();
+}
+
+async function releaseTaskToPool(taskId){
+  const task=normalizeTask(taskPool[taskId]);
+  if(!task)return;
+  task.plannedSprintId=null;
+  task.plannedSprintName=null;
+  task.planningStatus="available";
+  try{
+    await saveTaskPoolItem(task);
+    render();
+  }catch(e){
+    console.error(e);
+    alert(`Не удалось вернуть задачу в пул: ${e.message}`);
+  }
+}
+
+function renderTaskPool(){
+  const roleDefs=roles.map(role=>({key:roleKeyFromName(role.name),name:role.name}));
+  taskPoolHead.innerHTML=`<tr>
+    <th>Задача</th>
+    ${roleDefs.map(r=>`<th class="num">${esc(r.name)}, ч.д.</th>`).join("")}
+    <th class="num">Итого</th>
+    <th>Статус</th>
+    <th></th>
+  </tr>`;
+
+  const filter=taskPoolFilter.value||"all";
+  let items=Object.values(taskPool).map(normalizeTask).sort((a,b)=>String(b.updatedAt||"").localeCompare(String(a.updatedAt||"")));
+
+  items=items.filter(task=>{
+    const ready=isTaskReady(task);
+    const planned=selectedTaskIds.includes(task.id);
+    if(filter==="ready")return ready&&!planned;
+    if(filter==="incomplete")return !ready;
+    if(filter==="planned")return planned;
+    return true;
+  });
+
+  const allCount=Object.keys(taskPool).length;
+  const readyCount=Object.values(taskPool).filter(isTaskReady).length;
+  taskPoolCount.textContent=`${allCount} всего · ${readyCount} готовы`;
+
+  if(!items.length){
+    taskPoolBody.innerHTML='<tr><td class="task-empty" colspan="20">Нет задач для выбранного фильтра.</td></tr>';
+    return;
+  }
+
+  taskPoolBody.innerHTML="";
+  items.forEach(task=>{
+    const ready=isTaskReady(task);
+    const selected=selectedTaskIds.includes(task.id);
+    const plannedElsewhere=task.plannedSprintId&&task.plannedSprintId!==currentSprintId&&!selected;
+    const title=task.externalTaskUrl
+      ? `<a class="task-link" href="${esc(task.externalTaskUrl)}" target="_blank" rel="noopener">${esc(task.title||task.id)}</a>`
+      : esc(task.title||task.id);
+
+    const estimates=roleDefs.map(role=>{
+      const value=task.estimates[role.key];
+      const source=task.estimateSources[role.key];
+      if(source==="team_poker"){
+        const version=task.estimateVersions[role.key]||1;
+        return `<td class="num"><span class="estimate-readonly" title="Оценка из Team_poker, версия ${version}">${fmt(Number(value),1)} <span class="source-lock">🔒</span></span></td>`;
+      }
+      return `<td class="num"><input class="estimate-input" type="number" min="0" step="0.5" value="${isEstimateFilled(value)?value:""}" data-task-estimate="${task.id}" data-role-key="${role.key}" placeholder="—"></td>`;
+    }).join("");
+
+    let statusHtml;
+    if(selected){
+      statusHtml='<span class="task-status planned">В текущем спринте</span>';
+    }else if(plannedElsewhere){
+      statusHtml=`<span class="task-status planned">${esc(task.plannedSprintName||"Запланирована")}</span>`;
+    }else if(ready){
+      statusHtml='<span class="task-status ready">Готова</span>';
+    }else{
+      const missing=roleDefs.filter(r=>!isEstimateFilled(task.estimates[r.key])).map(r=>r.name);
+      statusHtml=`<span class="task-status incomplete">Нужна дооценка</span><div class="task-warning">${esc(missing.join(", "))}</div>`;
+    }
+
+    let action;
+    if(selected){
+      action=`<button class="secondary" data-remove-task="${task.id}">Убрать</button>`;
+    }else if(plannedElsewhere){
+      action=`<button class="secondary" data-release-task="${task.id}">Вернуть в пул</button>`;
+    }else{
+      action=`<div class="small-actions"><button ${ready?"":"disabled"} data-add-task="${task.id}">В спринт</button><button class="danger-inline" data-delete-task="${task.id}">Удалить</button></div>`;
+    }
+
+    const tr=document.createElement("tr");
+    tr.innerHTML=`<td class="task-title-cell">
+        <div class="task-title">${title}</div>
+        <div class="task-meta">Team_poker · автоматически · ${esc(task.teamByRole?.backend?.name||task.teamByRole?.frontend?.name||"команда не указана")}</div>
+      </td>
+      ${estimates}
+      <td class="num task-estimate-total">${fmt(taskTotalEstimate(task),1)}</td>
+      <td>${statusHtml}</td>
+      <td>${action}</td>`;
+    taskPoolBody.appendChild(tr);
+  });
+
+  document.querySelectorAll("[data-task-estimate]").forEach(input=>{
+    input.onchange=()=>updateTaskEstimate(input.dataset.taskEstimate,input.dataset.roleKey,input.value);
+  });
+  document.querySelectorAll("[data-add-task]").forEach(btn=>btn.onclick=()=>addTaskToSprint(btn.dataset.addTask));
+  document.querySelectorAll("[data-remove-task]").forEach(btn=>btn.onclick=()=>removeTaskFromSprint(btn.dataset.removeTask));
+  document.querySelectorAll("[data-release-task]").forEach(btn=>btn.onclick=()=>releaseTaskToPool(btn.dataset.releaseTask));
+  document.querySelectorAll("[data-delete-task]").forEach(btn=>btn.onclick=()=>deleteTaskFromPool(btn.dataset.deleteTask));
+}
+
+function renderSprintTasks(){
+  const roleDefs=roles.map(role=>({key:roleKeyFromName(role.name),name:role.name}));
+  sprintTasksHead.innerHTML=`<tr>
+    <th>Задача</th>
+    ${roleDefs.map(r=>`<th class="num">${esc(r.name)}</th>`).join("")}
+    <th class="num">Итого</th>
+    <th>Выполнение</th>
+    <th></th>
+  </tr>`;
+
+  const tasks=selectedTaskIds.map(id=>({id,task:currentTaskSnapshot(id)})).filter(x=>x.task);
+  const completedSet=new Set(completedTaskIds);
+
+  sprintTaskSummary.innerHTML=`
+    <span class="sprint-summary-pill"><b>${tasks.length}</b> задач в плане</span>
+    <span class="sprint-summary-pill"><b>${tasks.filter(x=>completedSet.has(x.id)).length}</b> выполнено</span>
+    <span class="sprint-summary-pill"><b>${fmt(tasks.reduce((s,x)=>s+taskTotalEstimate(x.task),0),1)}</b> ч.д. план</span>
+    <span class="sprint-summary-pill"><b>${fmt(tasks.filter(x=>completedSet.has(x.id)).reduce((s,x)=>s+taskTotalEstimate(x.task),0),1)}</b> ч.д. факт</span>
+  `;
+
+  if(!tasks.length){
+    sprintTasksBody.innerHTML='<tr><td class="task-empty" colspan="20">В спринт пока не добавлено ни одной задачи.</td></tr>';
+    return;
+  }
+
+  sprintTasksBody.innerHTML="";
+  tasks.forEach(({id,task})=>{
+    const normalized=normalizeTask(task);
+    const done=completedSet.has(id);
+    const poolTask=taskPool[id];
+    const estimateChanged=poolTask&&JSON.stringify(normalizeTask(poolTask).estimates)!==JSON.stringify(normalized.estimates);
+    const title=normalized.externalTaskUrl
+      ? `<a class="task-link" href="${esc(normalized.externalTaskUrl)}" target="_blank" rel="noopener">${esc(normalized.title||id)}</a>`
+      : esc(normalized.title||id);
+
+    const tr=document.createElement("tr");
+    tr.innerHTML=`<td class="task-title-cell">
+        <div class="task-title">${title}</div>
+        ${estimateChanged?'<div class="task-warning">В пуле есть обновлённая оценка</div>':""}
+      </td>
+      ${roleDefs.map(role=>`<td class="num">${fmt(Number(normalized.estimates[role.key]||0),1)}</td>`).join("")}
+      <td class="num task-estimate-total">${fmt(taskTotalEstimate(normalized),1)}</td>
+      <td><label class="completion-toggle"><input type="checkbox" data-complete-task="${id}" ${done?"checked":""}> Выполнена</label></td>
+      <td>
+        <div class="small-actions">
+          ${estimateChanged?`<button class="secondary" data-update-snapshot="${id}">Обновить оценку</button>`:""}
+          <button class="secondary" data-remove-task="${id}">Убрать</button>
+        </div>
+      </td>`;
+    sprintTasksBody.appendChild(tr);
+  });
+
+  document.querySelectorAll("[data-complete-task]").forEach(input=>{
+    input.onchange=()=>toggleTaskCompleted(input.dataset.completeTask,input.checked);
+  });
+  document.querySelectorAll("[data-update-snapshot]").forEach(btn=>btn.onclick=()=>updateSprintTaskSnapshot(btn.dataset.updateSnapshot));
+  document.querySelectorAll("#sprintTasksBody [data-remove-task]").forEach(btn=>btn.onclick=()=>removeTaskFromSprint(btn.dataset.removeTask));
+}
+
 function render(){
   normalizeRoles();
+  recalculateRolePlanFact();
+
   const caps=roles.map(r=>capacity(r));
   const totalCapacity=caps.reduce((a,b)=>a+b,0);
   const totalPeople=roles.reduce((a,r)=>a+(Number(r.people)||0),0);
+
   rolesBody.innerHTML="";
   roles.forEach((role,idx)=>{
     const cap=caps[idx],pct=totalCapacity>0?cap/totalCapacity*100:0;
@@ -809,143 +1688,116 @@ function render(){
   });
 
   taskBody.innerHTML="";
-  let bottleneck=null,maxTasks=Infinity;
   roles.forEach((role,idx)=>{
     const cap=caps[idx],task=Number(role.task)||0,taskCap=task>0?cap/task:Infinity,excluded=isExcludedFromDelivery(role);
-    if(task>0&&!excluded&&taskCap<maxTasks){maxTasks=taskCap;bottleneck=role.name}
     const tr=document.createElement("tr");
     tr.innerHTML=`<td>${esc(role.name)} ${excluded?'<span class="prep-pill">подготовка</span>':""}</td>
       <td class="num"><input type="number" min="0" step="0.5" value="${role.task||0}" data-idx="${idx}" data-field="task"></td>
       <td class="num">${fmt(cap)}</td>
-      <td class="num">${excluded?(task>0?fmt(taskCap,1)+" / подготовка":"не ограничивает"):(task>0?fmt(taskCap,1):"не ограничивает")}</td>`;
+      <td class="num">${task>0?fmt(taskCap,1):"—"}</td>`;
     taskBody.appendChild(tr);
   });
 
-  const devParts=Math.max(1,Number(devIssuesPerCrossTask.value)||2);
+  let bottleneck=null;
+  let highestLoad=-1;
+  roles.forEach((role,idx)=>{
+    const cap=caps[idx];
+    const load=cap>0?(Number(role.planned)||0)/cap:((Number(role.planned)||0)>0?Infinity:0);
+    if(!isExcludedFromDelivery(role)&&load>highestLoad){
+      highestLoad=load;
+      bottleneck=role.name;
+    }
+  });
+
   document.getElementById("totalPeople").textContent=fmt(totalPeople,1);
   document.getElementById("totalCapacity").textContent=fmt(totalCapacity)+" ч.д.";
-  document.getElementById("bottleneck").textContent=bottleneck||"—";
-  document.getElementById("maxTasks").textContent=isFinite(maxTasks)?fmt(Math.floor(maxTasks),0):"—";
-  document.getElementById("devTasksMax").textContent=isFinite(maxTasks)?fmt(Math.floor(maxTasks)*devParts,0):"—";
+  document.getElementById("bottleneck").textContent=selectedTaskIds.length?(bottleneck||"—"):"—";
+  document.getElementById("maxTasks").textContent=fmt(selectedTaskIds.length,0);
+  document.getElementById("devTasksMax").textContent=fmt(completedTaskIds.filter(id=>selectedTaskIds.includes(id)).length,0);
+
+  renderTaskPool();
+  renderSprintTasks();
   renderRoleCeilings(caps,bottleneck);
   renderPlanningTable(caps);
   renderPlanningHistory();
   renderBars(caps);
   renderFormula(caps);
-  renderInterpretation(bottleneck,maxTasks);
+  renderInterpretation(bottleneck,highestLoad);
   renderSavedSprints();
   bindDynamicInputs();
 }
-
 
 function renderPlanningTable(caps){
   planningBody.innerHTML="";
 
   const headers=[
     "Роль",
-    "План, задач",
-    "Факт, задач",
-    "План / факт / потолок",
-    "План-факт",
-    "Комментарий"
+    "Ёмкость, ч.д.",
+    "План, ч.д.",
+    "Факт, ч.д.",
+    "План / факт / ёмкость",
+    "Остаток"
   ];
 
   headers.forEach(h=>{
     const div=document.createElement("div");
     div.className="plan-head";
-    div.innerHTML=h;
+    div.textContent=h;
     planningBody.appendChild(div);
   });
 
   roles.forEach((role,idx)=>{
     const cap=caps[idx];
-    const task=Number(role.task)||0;
-    const limit=task>0?cap/task:Infinity;
     const planned=Number(role.planned)||0;
     const actual=Number(role.actual)||0;
     const excluded=isExcludedFromDelivery(role);
-
-    const planPct=isFinite(limit)&&limit>0?Math.min(140,planned/limit*100):0;
-    const factPct=isFinite(limit)&&limit>0?Math.min(140,actual/limit*100):0;
-    const factOfPlanPct=planned>0?actual/planned*100:null;
-    const load=isFinite(limit)&&limit>0?planned/limit:null;
-    const actualLoad=isFinite(limit)&&limit>0?actual/limit:null;
+    const load=cap>0?planned/cap:null;
+    const actualLoad=cap>0?actual/cap:null;
+    const remaining=cap-planned;
+    const planPct=cap>0?Math.min(100,planned/cap*100):0;
+    const factPct=cap>0?Math.min(100,actual/cap*100):0;
 
     let rowClass="";
     if((load!==null&&load>1.2)||(actualLoad!==null&&actualLoad>1.2))rowClass="plan-row-over-hard";
     else if((load!==null&&load>1)||(actualLoad!==null&&actualLoad>1))rowClass="plan-row-over-soft";
 
-    let deltaText="—";
-    let deltaClass="";
-    if(planned>0 || actual>0){
-      const delta=actual-planned;
-      const pct=planned>0?actual/planned:null;
-      const sign=delta>0?"+":"";
-      deltaText=`${sign}${fmt(delta,0)}`;
-      if(pct===null){
-        deltaClass=actual>0?"fact-warn":"";
-      }else if(pct>=0.9&&pct<=1.1){
-        deltaClass="fact-good";
-      }else if(pct>=0.7&&pct<=1.3){
-        deltaClass="fact-warn";
-      }else{
-        deltaClass="fact-bad";
-      }
-    }
-
-    let comment="";
-    if(excluded){
-      comment="подготовка будущего потока; не ограничивает поставку";
-    }else if(!isFinite(limit)){
-      comment="потребление роли на задачу не задано";
-    }else if(load!==null&&load<=1){
-      comment="план в пределах потолка";
-    }else if(load!==null&&load<=1.2){
-      comment="план выше потолка, нужен резерв/контроль";
-    }else{
-      comment="план существенно выше потолка";
-    }
-    if(actual>0 && actualLoad!==null && actualLoad>1){
-      comment += "; факт выше потолка роли";
-    }
-
     const roleCell=document.createElement("div");
     roleCell.className=`plan-cell plan-role ${rowClass}`;
     roleCell.innerHTML=`<span>${esc(role.name)}</span>${excluded?'<span class="prep-pill">подготовка</span>':""}`;
 
+    const capCell=document.createElement("div");
+    capCell.className=`plan-cell plan-number-cell ${rowClass}`;
+    capCell.innerHTML=`<b>${fmt(cap,1)}</b>`;
+
     const planCell=document.createElement("div");
     planCell.className=`plan-cell plan-number-cell ${rowClass}`;
-    planCell.innerHTML=`<input class="plan-input" type="number" min="0" step="1" value="${planned}" data-idx="${idx}" data-field="planned">`;
+    planCell.innerHTML=`<b>${fmt(planned,1)}</b>`;
 
     const factCell=document.createElement("div");
     factCell.className=`plan-cell fact-number-cell ${rowClass}`;
-    factCell.innerHTML=`<input class="fact-input" type="number" min="0" step="1" value="${actual}" data-idx="${idx}" data-field="actual">`;
+    factCell.innerHTML=`<b>${fmt(actual,1)}</b>`;
 
     const barCell=document.createElement("div");
     barCell.className=`plan-cell plan-bar-cell ${rowClass}`;
-    const planLabel=isFinite(limit)?`${fmt(planned,0)} план / ${fmt(limit,1)} потолок`:`${fmt(planned,0)} план`;
-    const factLabel=planned>0&&factOfPlanPct!==null?`${fmt(actual,0)} факт · ${fmt(factOfPlanPct,0)}% от плана`:`${fmt(actual,0)} факт`;
+    const factOfPlan=planned>0?actual/planned*100:0;
     barCell.innerHTML=`
       <div class="plan-bar-meta">
-        <span>${planLabel}</span>
-        <span>${factLabel}</span>
+        <span>${fmt(planned,1)} план / ${fmt(cap,1)} ёмкость</span>
+        <span>${fmt(actual,1)} факт${planned>0?` · ${fmt(factOfPlan,0)}% от плана`:""}</span>
       </div>
-      <div class="plan-bar" title="План — светлая линия, факт — заполнение внутри линии">
+      <div class="plan-bar" title="Светлая линия — план, заполнение — выполненный объём">
         <div class="plan-target" style="width:${planPct}%"></div>
         <div class="fact-fill ${actual>planned?'over-plan':''}" style="width:${factPct}%"></div>
         <div class="plan-cap-line"></div>
       </div>
     `;
 
-    const deltaCell=document.createElement("div");
-    deltaCell.className=`plan-cell delta-cell ${rowClass}`;
-    deltaCell.innerHTML=`<span class="${deltaClass}">${deltaText}</span>`;
+    const remainingCell=document.createElement("div");
+    remainingCell.className=`plan-cell delta-cell ${rowClass}`;
+    const remainingClass=remaining<0?"fact-bad":remaining<cap*.15?"fact-warn":"fact-good";
+    remainingCell.innerHTML=`<span class="${remainingClass}">${remaining>=0?"":"−"}${fmt(Math.abs(remaining),1)} ч.д.</span>`;
 
-    const commentCell=document.createElement("div");
-    commentCell.className=`plan-cell ${rowClass}`;
-    commentCell.innerHTML=`<span class="plan-comment">${comment}</span>`;
-
-    [roleCell,planCell,factCell,barCell,deltaCell,commentCell].forEach(c=>planningBody.appendChild(c));
+    [roleCell,capCell,planCell,factCell,barCell,remainingCell].forEach(c=>planningBody.appendChild(c));
   });
 }
 
@@ -966,7 +1818,7 @@ function renderPlanningHistory(){
     });
   });
 
-  planningHistoryHead.innerHTML=`<tr><th>Спринт</th><th>Потолок</th><th>Dev-задач</th><th>Узкое место</th>${roleNames.map(r=>`<th class="num">${esc(r)}<br><span class="muted">план/факт/потолок</span></th>`).join("")}</tr>`;
+  planningHistoryHead.innerHTML=`<tr><th>Спринт</th><th class="num">Задач</th><th class="num">Выполнено</th><th>Самая загруженная роль</th>${roleNames.map(r=>`<th class="num">${esc(r)}<br><span class="muted">план/факт/ёмкость</span></th>`).join("")}</tr>`;
   planningHistoryBody.innerHTML="";
 
   items.forEach(item=>{
@@ -980,69 +1832,43 @@ function renderPlanningHistory(){
       if(!r)return '<td class="num">—</td>';
       const planned=Number(r.planned)||0;
       const actual=Number(r.actual)||0;
-      const limit=r.limit===null||r.limit===undefined?null:Number(r.limit);
-      const load=limit&&limit>0?planned/limit:null;
-      const factLoad=limit&&limit>0?actual/limit:null;
-      const delta=actual-planned;
+      const cap=Number(r.capacity??r.limit??0);
+      const load=cap>0?planned/cap:null;
       let cls="";
       if(load!==null&&load>1.2)cls="hard-over-capacity";
       else if(load!==null&&load>1)cls="over-capacity";
-      if(factLoad!==null&&factLoad>1.2)cls="hard-over-capacity";
-      else if(factLoad!==null&&factLoad>1&&cls==="")cls="over-capacity";
-
-      let deltaClass="";
-      if(planned>0||actual>0){
-        const pct=planned>0?actual/planned:null;
-        if(pct===null)deltaClass=actual>0?"fact-warn":"";
-        else if(pct>=0.9&&pct<=1.1)deltaClass="fact-good";
-        else if(pct>=0.7&&pct<=1.3)deltaClass="fact-warn";
-        else deltaClass="fact-bad";
-      }
-
-      const limitText=limit===null?"—":fmt(limit,1);
-      const sign=delta>0?"+":"";
-      return `<td class="num ${cls}">${fmt(planned,0)} / <b>${fmt(actual,0)}</b> / ${limitText}<br><span class="${deltaClass}">${sign}${fmt(delta,0)}</span></td>`;
+      return `<td class="num ${cls}">${fmt(planned,1)} / <b>${fmt(actual,1)}</b> / ${fmt(cap,1)}</td>`;
     }).join("");
 
     const tr=document.createElement("tr");
-    tr.innerHTML=`<td><b>${esc(item.name)}</b></td><td class="num">${res.crossTaskLimit??"—"}</td><td class="num">${res.developmentTaskLimit??"—"}</td><td>${esc(res.bottleneck||"—")}</td>${cells}`;
+    tr.innerHTML=`<td><b>${esc(item.name)}</b></td>
+      <td class="num">${res.taskCount??res.crossTaskLimit??"—"}</td>
+      <td class="num">${res.completedTaskCount??res.developmentTaskLimit??"—"}</td>
+      <td>${esc(res.bottleneck||"—")}</td>${cells}`;
     planningHistoryBody.appendChild(tr);
   });
 }
 
 function renderRoleCeilings(caps,bottleneck){
   const root=document.getElementById("roleCeilings");
-  const devParts=Math.max(1,Number(devIssuesPerCrossTask.value)||2);
-  const data=roles.map((role,idx)=>{
-    const cap=caps[idx],task=Number(role.task)||0,limit=task>0?cap/task:Infinity,excluded=isExcludedFromDelivery(role);
-    return{role,cap,task,limit,excluded};
-  });
-  const finite=data.filter(x=>isFinite(x.limit)&&!x.excluded).map(x=>x.limit);
-  const maxLimit=Math.max(...finite,1);
   root.innerHTML="";
-  data.forEach(item=>{
-    const roleName=(item.role.name||"").toLowerCase();
-    const isQa=roleName.includes("qa")||roleName.includes("тест");
-    const isBot=item.role.name===bottleneck&&isFinite(item.limit)&&!item.excluded;
-    const width=isFinite(item.limit)?Math.max(2,Math.min(100,item.limit/maxLimit*100)):100;
-    let valueText;
-    if(!isFinite(item.limit)){
-      valueText="не ограничивает";
-    }else if(isQa){
-      const cross=Math.floor(item.limit),dev=cross*devParts;
-      valueText=`${fmt(cross,0)} сквозн.<span class="qa-secondary">≈ ${fmt(dev,0)} задач разработки</span>`;
-    }else{
-      valueText=`${fmt(Math.floor(item.limit),0)} задач`;
-    }
-    const detail=item.task>0?`${fmt(item.cap)} ч.д. / ${fmt(item.task)} ч.д. на задачу = ${fmt(item.limit,1)}`:`${fmt(item.cap)} ч.д.; потребление роли на задачу не задано`;
-    let extra="";
-    if(item.excluded)extra=`<span class="role-secondary">Это потолок задач подготовки на спринт. Роль не ограничивает поставку текущего спринта.</span>`;
-    else if(isQa&&isFinite(item.limit))extra=`<span class="role-secondary">Для QA это потолок сквозных задач; задачи разработки считаются как сквозные × ${fmt(devParts,0)}.</span>`;
+
+  roles.forEach((role,idx)=>{
+    const cap=caps[idx];
+    const planned=Number(role.planned)||0;
+    const remaining=cap-planned;
+    const load=cap>0?planned/cap:0;
+    const isBot=selectedTaskIds.length&&role.name===bottleneck&&!isExcludedFromDelivery(role);
+    const width=Math.max(0,Math.min(100,load*100));
+
     const div=document.createElement("div");
     div.className="ceiling-item";
-    div.innerHTML=`<div class="ceiling-head"><span><b>${esc(item.role.name)}</b> ${item.excluded?'<span class="prep-pill">подготовка</span>':""} ${isBot?'<span class="pill bad">узкое место</span>':""}</span><span class="ceiling-value">${valueText}</span></div>
-      <div class="bar-wrap"><div class="bar ${isBot?"bottleneck-bar":""}" style="width:${width}%"></div></div>
-      <div class="ceiling-sub">${detail}${extra}</div>`;
+    div.innerHTML=`<div class="ceiling-head">
+        <span><b>${esc(role.name)}</b> ${isExcludedFromDelivery(role)?'<span class="prep-pill">подготовка</span>':""} ${isBot?'<span class="pill bad">макс. загрузка</span>':""}</span>
+        <span class="ceiling-value">${remaining>=0?fmt(remaining,1)+" ч.д. свободно":fmt(Math.abs(remaining),1)+" ч.д. перегруз"}</span>
+      </div>
+      <div class="bar-wrap"><div class="bar ${load>1?"bottleneck-bar":""}" style="width:${width}%"></div></div>
+      <div class="ceiling-sub">${fmt(planned,1)} ч.д. план / ${fmt(cap,1)} ч.д. ёмкость · ${fmt(load*100,0)}%</div>`;
     root.appendChild(div);
   });
 }
@@ -1068,12 +1894,24 @@ function renderFormula(caps){
   document.getElementById("formulaBox").textContent=lines.join("\n");
 }
 
-function renderInterpretation(bottleneck,maxTasks){
+function renderInterpretation(bottleneck,highestLoad){
   const el=document.getElementById("interpretation");
-  if(!bottleneck||!isFinite(maxTasks)){el.innerHTML="Если для роли указано <b>0 ч.д. на задачу</b> или роль исключена из расчёта поставки, она не ограничивает количество сквозных задач текущего спринта.";return}
-  const rounded=Math.floor(maxTasks),devParts=Math.max(1,Number(devIssuesPerCrossTask.value)||2),devTasks=rounded*devParts,level=rounded>=4?"":"bad";
-  const prepText=excludePrepRoles.value==="yes"?"Аналитик и дизайнер исключены из ограничения поставки текущего спринта и учитываются как подготовка следующих задач. ":"";
-  el.innerHTML=`<span class="pill ${level}">узкое место поставки: ${esc(bottleneck)}</span><p>${prepText}По введённому профилю одной задачи текущий период выдерживает примерно <b>${fmt(rounded,0)}</b> сквозных задач по ролям поставки.</p><p><b>Важно по QA:</b> потолок QA считается именно в сквозных задачах. Если одна сквозная задача разработки обычно состоит из ${fmt(devParts,0)} development-задач, например backend + frontend, то <b>${fmt(rounded,0)} сквозные задачи = ${fmt(devTasks,0)} задач разработки</b>.</p><p>Если задача требует последовательной работы backend → frontend → QA, дополнительно проверьте календарную реализуемость, а не только сумму человеко-дней.</p>`;
+  if(!selectedTaskIds.length){
+    el.innerHTML="Добавьте готовые оценённые задачи из пула в текущий спринт. Плановая нагрузка по ролям будет рассчитана автоматически.";
+    return;
+  }
+
+  const overloaded=roles.filter(role=>{
+    const cap=capacity(role);
+    return !isExcludedFromDelivery(role)&&cap>0&&(Number(role.planned)||0)>cap;
+  });
+
+  const completion=selectedTaskIds.length?completedTaskIds.filter(id=>selectedTaskIds.includes(id)).length/selectedTaskIds.length*100:0;
+  const overloadText=overloaded.length
+    ? `<p><span class="pill bad">Перегрузка</span> Превышена ёмкость: <b>${overloaded.map(r=>esc(r.name)).join(", ")}</b>.</p>`
+    : `<p><span class="pill">План в пределах ёмкости</span> Все учитываемые роли помещаются в доступные человеко-дни.</p>`;
+
+  el.innerHTML=`<p>В спринте <b>${selectedTaskIds.length}</b> задач, выполнено <b>${completedTaskIds.filter(id=>selectedTaskIds.includes(id)).length}</b> (${fmt(completion,0)}%). Самая загруженная роль: <b>${esc(bottleneck||"—")}</b>${isFinite(highestLoad)?` · ${fmt(highestLoad*100,0)}%`:""}.</p>${overloadText}<p>План фиксируется снимком оценок задач. Последующая переоценка в пуле не меняет сохранённый спринт, пока пользователь явно не обновит оценку задачи в составе спринта.</p>`;
 }
 
 function bindDynamicInputs(){
@@ -1103,38 +1941,38 @@ function loadState(){
 periodName.onchange=()=>{if(periodName.value==="sprint")workdays.value=10;if(periodName.value==="quarter")workdays.value=60;saveState();render()};
 [workdays,utilization,buffer,devIssuesPerCrossTask,excludePrepRoles].forEach(el=>el.addEventListener("input",()=>{if(periodName.value!=="custom"&&((periodName.value==="sprint"&&workdays.value!=10)||(periodName.value==="quarter"&&workdays.value!=60)))periodName.value="custom";saveState();render()}));
 document.getElementById("saveSprint").onclick=()=>saveSprintSet(false);
-document.getElementById("saveAsSprint").onclick=()=>saveSprintSet(true);
+document.getElementById("saveAsSprint").onclick=copyCurrentSprintSettings;
 document.getElementById("deleteSprint").onclick=()=>deleteSprintSet(currentSprintId);
 document.getElementById("newSprint").onclick=()=>startNewSprintSet();
 savedSprintSelect.onchange=()=>{if(savedSprintSelect.value)loadSprintSet(savedSprintSelect.value)};
 sprintName.addEventListener("input",()=>{currentSprintId=currentSprintId;saveState();renderSavedSprints();});
-document.getElementById("addRole").onclick=()=>{roles.push({name:"Новая роль",people:1,absence:0,task:0,planned:0,actual:0});render()};
-document.getElementById("resetDefaults").onclick=()=>{roles=JSON.parse(JSON.stringify(defaultRoles));periodName.value="sprint";workdays.value=10;utilization.value=.7;buffer.value=0;devIssuesPerCrossTask.value=2;excludePrepRoles.value="yes";currentSprintId=null;sprintName.value="";savedSprintSelect.value="";saveState();render()};
-document.getElementById("saveData").onclick=()=>{saveState();alert("Сохранено в Firestore.")};
-document.getElementById("fillPlanByLimit").onclick=()=>{
-  const caps=roles.map(r=>capacity(r));
-  roles.forEach((r,idx)=>{
-    const task=Number(r.task)||0;
-    if(task>0){
-      const limit=caps[idx]/task;
-      r.planned=Math.floor(limit);
-    }
-  });
-  saveState();
-  render();
+document.getElementById("addRole").onclick=()=>{roles.push({name:"Новая роль",people:1,absence:0,task:0,planned:0,actual:0});saveState();render()};
+document.getElementById("resetDefaults").onclick=()=>{roles=JSON.parse(JSON.stringify(defaultRoles));periodName.value="sprint";workdays.value=10;utilization.value=.7;buffer.value=0;devIssuesPerCrossTask.value=2;excludePrepRoles.value="yes";currentSprintId=null;sprintName.value="";selectedTaskIds=[];completedTaskIds=[];sprintTaskSnapshots={};savedSprintSelect.value="";recalculateRolePlanFact();saveState();render()};
+document.getElementById("saveData").onclick=async()=>{
+  clearTimeout(saveTimer);
+  await saveCurrentStateNow();
+  alert("Сохранено.");
 };
-document.getElementById("clearPlan").onclick=()=>{
-  roles.forEach(r=>r.planned=0);
-  saveState();
-  render();
+document.getElementById("reloadTaskPool").onclick=async()=>{
+  try{
+    setSyncState("Подключение…","warn");
+    await loadTaskPoolFromFirestore();
+    await startTaskPoolRealtime();
+    render();
+    setSyncState("Синхронизировано");
+  }catch(e){
+    console.error(e);
+    setSyncState("Ошибка загрузки","bad");
+    alert(`Не удалось переподключить пул задач: ${e.message}`);
+  }
 };
-document.getElementById("copyPlanToFact").onclick=()=>{
-  roles.forEach(r=>r.actual=Number(r.planned)||0);
-  saveState();
-  render();
-};
-document.getElementById("clearFact").onclick=()=>{
-  roles.forEach(r=>r.actual=0);
+taskPoolFilter.onchange=renderTaskPool;
+document.getElementById("clearSprintTasks").onclick=()=>{
+  if(selectedTaskIds.length&&!confirm("Очистить состав текущего спринта?"))return;
+  selectedTaskIds=[];
+  completedTaskIds=[];
+  sprintTaskSnapshots={};
+  recalculateRolePlanFact();
   saveState();
   render();
 };
@@ -1142,12 +1980,38 @@ document.getElementById("setMTask").onclick=()=>{const t={"Аналитик":1.5
 document.getElementById("clearTask").onclick=()=>{roles.forEach(r=>r.task=0);render()};
 document.getElementById("copyFormula").onclick=async()=>{try{await navigator.clipboard.writeText(document.getElementById("formulaBox").textContent);alert("Расчёт скопирован.")}catch{alert("Не удалось скопировать автоматически. Выделите текст вручную.")}};
 document.getElementById("downloadCsv").onclick=()=>{
+  recalculateRolePlanFact();
   const wd=Number(workdays.value)||0,util=Number(utilization.value)||0,buf=Number(buffer.value)||0;
-  const rows=[["Спринт",sprintName.value||""],[],["Роль","Сотрудников","Рабочих дней","Отсутствия","Коэффициент","Резерв %","Доступно ч.д.","ч.д. на задачу","Потолок задач роли","План задач","Факт задач","План-факт","Загрузка плана %","Загрузка факта %","Учитывается как ограничение поставки"]];
-  roles.forEach(r=>{const cap=capacity(r),task=Number(r.task)||0,limit=task>0?cap/task:null,planned=Number(r.planned)||0,actual=Number(r.actual)||0,load=limit&&limit>0?planned/limit*100:null,actualLoad=limit&&limit>0?actual/limit*100:null;rows.push([r.name,r.people,wd,r.absence,util,buf,cap.toFixed(2),task,limit?limit.toFixed(2):"",planned,actual,actual-planned,load!==null?load.toFixed(0):"",actualLoad!==null?actualLoad.toFixed(0):"",isExcludedFromDelivery(r)?"нет":"да"])});
+  const roleDefs=roles.map(r=>({name:r.name,key:roleKeyFromName(r.name)}));
+  const rows=[
+    ["Спринт",sprintName.value||""],
+    ["Задач в плане",selectedTaskIds.length],
+    ["Выполнено задач",completedTaskIds.filter(id=>selectedTaskIds.includes(id)).length],
+    [],
+    ["Задачи",...roleDefs.map(r=>r.name+" ч.д."),"Итого ч.д.","Выполнена"]
+  ];
+
+  selectedTaskIds.forEach(id=>{
+    const task=normalizeTask(currentTaskSnapshot(id));
+    rows.push([
+      task.title||id,
+      ...roleDefs.map(r=>isEstimateFilled(task.estimates[r.key])?task.estimates[r.key]:""),
+      taskTotalEstimate(task),
+      completedTaskIds.includes(id)?"да":"нет"
+    ]);
+  });
+
+  rows.push([]);
+  rows.push(["Роль","Сотрудников","Рабочих дней","Отсутствия","Коэффициент","Резерв %","Ёмкость ч.д.","План ч.д.","Факт ч.д.","Остаток ч.д.","Загрузка плана %"]);
+
+  roles.forEach(r=>{
+    const cap=capacity(r),planned=Number(r.planned)||0,actual=Number(r.actual)||0,load=cap>0?planned/cap*100:null;
+    rows.push([r.name,r.people,wd,r.absence,util,buf,cap.toFixed(2),planned.toFixed(2),actual.toFixed(2),(cap-planned).toFixed(2),load!==null?load.toFixed(0):""]);
+  });
+
   const csv=rows.map(row=>row.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(";")).join("\n");
   const blob=new Blob(["\uFEFF"+csv],{type:"text/csv;charset=utf-8;"}),url=URL.createObjectURL(blob),a=document.createElement("a");
-  a.href=url;a.download="team_capacity.csv";a.click();URL.revokeObjectURL(url);
+  a.href=url;a.download="team_calculator_sprint.csv";a.click();URL.revokeObjectURL(url);
 };
 
 /* Firebase Authentication + Firestore-only application storage */
@@ -1199,9 +2063,14 @@ async function initializeFirebase(){
       currentUser=user;
       await loadUserWorkspace();
     }else{
+      stopTaskPoolRealtime();
       currentUser=null;
       currentProfile=null;
       savedSprintSets={};
+      taskPool={};
+      selectedTaskIds=[];
+      completedTaskIds=[];
+      sprintTaskSnapshots={};
       appLoaded=false;
       document.body.classList.add("auth-locked");
       authScreen.style.display="block";
@@ -1268,13 +2137,19 @@ async function loadUserWorkspace(){
     const appRef=fsMod.doc(firebaseDb,"users",currentUser.uid,"app","main");
     const appSnap=await fsMod.getDoc(appRef);
 
-    const sprintSnap=await fsMod.getDocs(
-      fsMod.collection(firebaseDb,"users",currentUser.uid,"sprints")
-    );
+    const [sprintSnap,taskSnap]=await Promise.all([
+      fsMod.getDocs(fsMod.collection(firebaseDb,"users",currentUser.uid,"sprints")),
+      fsMod.getDocs(fsMod.collection(firebaseDb,"workspaces",TEAM_CALCULATOR_WORKSPACE_ID,"taskPool"))
+    ]);
 
     savedSprintSets={};
     sprintSnap.forEach(docSnap=>{
       savedSprintSets[docSnap.id]=docSnap.data();
+    });
+
+    taskPool={};
+    taskSnap.forEach(docSnap=>{
+      taskPool[docSnap.id]=normalizeTask(Object.assign({id:docSnap.id},docSnap.data()));
     });
 
     isHydrating=true;
@@ -1289,18 +2164,26 @@ async function loadUserWorkspace(){
       if(state.excludePrepRoles!==undefined)excludePrepRoles.value=state.excludePrepRoles;
       if(state.sprintName!==undefined)sprintName.value=state.sprintName;
       currentSprintId=state.currentSprintId||null;
+      selectedTaskIds=Array.isArray(state.selectedTaskIds)?state.selectedTaskIds:[];
+      completedTaskIds=Array.isArray(state.completedTaskIds)?state.completedTaskIds:[];
+      sprintTaskSnapshots=state.sprintTaskSnapshots||{};
     }else{
       roles=JSON.parse(JSON.stringify(defaultRoles));
       currentSprintId=null;
       sprintName.value="";
+      selectedTaskIds=[];
+      completedTaskIds=[];
+      sprintTaskSnapshots={};
     }
     isHydrating=false;
 
+    recalculateRolePlanFact();
     updateAccountUi();
     authScreen.style.display="none";
     document.body.classList.remove("auth-locked");
     appLoaded=true;
     render();
+    await startTaskPoolRealtime();
     setSyncState("Синхронизировано");
     setAuthStatus("Вход выполнен.","ok");
   }catch(e){

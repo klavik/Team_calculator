@@ -436,7 +436,7 @@
 <div class="button-row">
 <button id="addRole">Добавить роль</button>
 <button class="secondary" id="resetDefaults">Сбросить к команде MARS</button>
-<button class="secondary" id="saveData">Сохранить в браузере</button>
+<button class="secondary" id="saveData">Сохранить</button>
 </div>
 </div></div>
           <div><div class="card">
@@ -1110,7 +1110,7 @@ savedSprintSelect.onchange=()=>{if(savedSprintSelect.value)loadSprintSet(savedSp
 sprintName.addEventListener("input",()=>{currentSprintId=currentSprintId;saveState();renderSavedSprints();});
 document.getElementById("addRole").onclick=()=>{roles.push({name:"Новая роль",people:1,absence:0,task:0,planned:0,actual:0});render()};
 document.getElementById("resetDefaults").onclick=()=>{roles=JSON.parse(JSON.stringify(defaultRoles));periodName.value="sprint";workdays.value=10;utilization.value=.7;buffer.value=0;devIssuesPerCrossTask.value=2;excludePrepRoles.value="yes";currentSprintId=null;sprintName.value="";savedSprintSelect.value="";saveState();render()};
-document.getElementById("saveData").onclick=()=>{saveState();alert("Сохранено в браузере.")};
+document.getElementById("saveData").onclick=()=>{saveState();alert("Сохранено в Firestore.")};
 document.getElementById("fillPlanByLimit").onclick=()=>{
   const caps=roles.map(r=>capacity(r));
   roles.forEach((r,idx)=>{

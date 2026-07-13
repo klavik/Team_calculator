@@ -464,7 +464,7 @@
         <h2>Общий пул оценённых задач</h2>
         <p class="muted">
           Зафиксированные оценки автоматически поступают из Team_poker в общий пул команды. Дополни оценки остальных ролей и добавь готовые задачи в спринт.
-          Пустое значение означает «ещё не оценено», а 0 — «роль не участвует».
+          Прочерк или 0 означает, что роль не участвует в задаче. Число указывается только для действительно задействованных ролей.
         </p>
 
         <div class="auto-integration-panel">
@@ -485,7 +485,7 @@
             <label for="taskPoolFilter" style="margin:0">Показывать</label>
             <select id="taskPoolFilter">
               <option value="all">Все задачи</option>
-              <option value="incomplete">Требуют дооценки</option>
+              <option value="incomplete">Без оценки</option>
               <option value="ready">Готовы к планированию</option>
               <option value="planned">Добавлены в текущий спринт</option>
             </select>
@@ -749,7 +749,10 @@ function isEstimateFilled(value){
 
 function isTaskReady(task){
   const normalized=normalizeTask(task);
-  return taskEstimateKeys().every(key=>isEstimateFilled(normalized.estimates[key]));
+  return taskEstimateKeys().some(key=>{
+    const value=normalized.estimates[key];
+    return isEstimateFilled(value)&&Number(value)>0;
+  });
 }
 
 function taskTotalEstimate(task){
@@ -1445,7 +1448,7 @@ function addTaskToSprint(taskId){
   const task=taskPool[taskId];
   if(!task)return;
   if(!isTaskReady(task)){
-    alert("Сначала заполните оценки всех ролей. Для роли, которая не участвует, укажите 0.");
+    alert("Для добавления в спринт нужна хотя бы одна оценка больше 0. Прочерк означает, что роль не участвует.");
     return;
   }
   if(!selectedTaskIds.includes(taskId)){
@@ -1563,7 +1566,7 @@ function renderTaskPool(){
         const version=task.estimateVersions[role.key]||1;
         return `<td class="num"><span class="estimate-readonly" title="Оценка из Team_poker, версия ${version}">${fmt(Number(value),1)} <span class="source-lock">🔒</span></span></td>`;
       }
-      return `<td class="num"><input class="estimate-input" type="number" min="0" step="0.5" value="${isEstimateFilled(value)?value:""}" data-task-estimate="${task.id}" data-role-key="${role.key}" placeholder="—"></td>`;
+      return `<td class="num"><input class="estimate-input" type="number" min="0" step="0.5" value="${isEstimateFilled(value)?value:""}" data-task-estimate="${task.id}" data-role-key="${role.key}" placeholder="—" title="Прочерк означает, что роль не участвует"></td>`;
     }).join("");
 
     let statusHtml;
@@ -1574,8 +1577,8 @@ function renderTaskPool(){
     }else if(ready){
       statusHtml='<span class="task-status ready">Готова</span>';
     }else{
-      const missing=roleDefs.filter(r=>!isEstimateFilled(task.estimates[r.key])).map(r=>r.name);
-      statusHtml=`<span class="task-status incomplete">Нужна дооценка</span><div class="task-warning">${esc(missing.join(", "))}</div>`;
+      statusHtml='<span class="task-status incomplete">Нет оценки</span>'
+        +'<div class="task-warning">Укажите хотя бы одну оценку больше 0</div>';
     }
 
     let action;

@@ -6,17 +6,71 @@ service cloud.firestore {
       return request.auth != null;
     }
 
+    function profile() {
+      return get(
+        /databases/$(database)/documents/users/$(request.auth.uid)
+      ).data;
+    }
+
+    function activeUser() {
+      return signedIn()
+        && profile().active == true;
+    }
+
+    function integrationUser() {
+      return activeUser()
+        && profile().role == "integration";
+    }
+
+    function adminUser() {
+      return activeUser()
+        && profile().role == "admin";
+    }
+
     function isOwner(userId) {
       return signedIn() && request.auth.uid == userId;
     }
 
+    function importedEstimateIsPreserved(roleName) {
+      return resource.data.estimateSources.get(roleName, null) != "team_poker"
+        || (
+          request.resource.data.estimateSources.get(roleName, null)
+            == resource.data.estimateSources.get(roleName, null)
+          && request.resource.data.estimates.get(roleName, null)
+            == resource.data.estimates.get(roleName, null)
+        );
+    }
+
+    function integrationMetadataIsPreserved() {
+      return request.resource.data.source
+          == resource.data.source
+        && request.resource.data.identityKey
+          == resource.data.identityKey
+        && request.resource.data.externalTaskUrl
+          == resource.data.externalTaskUrl
+        && request.resource.data.estimateVersions
+          == resource.data.estimateVersions
+        && request.resource.data.sourceTaskIds
+          == resource.data.sourceTaskIds
+        && request.resource.data.finalizedAtByRole
+          == resource.data.finalizedAtByRole
+        && request.resource.data.finalizedByRole
+          == resource.data.finalizedByRole
+        && request.resource.data.teamByRole
+          == resource.data.teamByRole
+        && request.resource.data.sessionByRole
+          == resource.data.sessionByRole
+        && importedEstimateIsPreserved("backend")
+        && importedEstimateIsPreserved("frontend");
+    }
+
     match /users/{userId} {
-      // Профиль создаётся администратором вручную через Firebase Console.
+      // Профили создаются администратором вручную.
       allow create, delete: if false;
 
       allow read: if isOwner(userId);
 
-      // Пользователь может менять только свой псевдоним и updatedAt.
+      // Обычный пользователь может менять только свой псевдоним.
       allow update: if isOwner(userId)
         && request.resource.data.diff(resource.data).affectedKeys()
           .hasOnly(['alias', 'updatedAt'])
@@ -30,6 +84,32 @@ service cloud.firestore {
 
       match /sprints/{sprintId} {
         allow read, write: if isOwner(userId);
+      }
+    }
+
+    // Общий пул задач Team_calculator.
+    match /workspaces/{workspaceId} {
+      allow read: if activeUser();
+      allow create, update: if adminUser();
+      allow delete: if false;
+
+      match /taskPool/{taskId} {
+        allow read: if activeUser();
+
+        // Новые задачи из Team_poker создаёт только технический пользователь.
+        allow create: if integrationUser();
+
+        // Интеграция обновляет оценки Team_poker.
+        // Обычные пользователи дополняют остальные роли и планируют спринт,
+        // но не могут изменить импортированные Backend/Frontend-оценки.
+        allow update: if integrationUser()
+          || (
+            activeUser()
+            && !integrationUser()
+            && integrationMetadataIsPreserved()
+          );
+
+        allow delete: if activeUser() && !integrationUser();
       }
     }
   }

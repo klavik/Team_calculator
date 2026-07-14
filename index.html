@@ -315,6 +315,41 @@
       background:#fff;
       box-shadow:0 1px 0 var(--border),0 4px 10px rgba(15,23,42,.06);
     }
+    .task-sort-button{
+      width:100%;
+      min-width:0;
+      padding:3px 2px!important;
+      border:0!important;
+      border-radius:6px!important;
+      background:transparent!important;
+      color:inherit!important;
+      box-shadow:none!important;
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      gap:4px;
+      font:inherit;
+      font-weight:800;
+      line-height:1.15;
+      white-space:normal;
+      cursor:pointer;
+    }
+    .task-sort-button:hover{
+      background:#f1f4f9!important;
+    }
+    .task-sort-button.task-sort-title{
+      justify-content:flex-start;
+      text-align:left;
+    }
+    .task-sort-indicator{
+      min-width:12px;
+      color:var(--accent);
+      font-size:11px;
+      font-weight:900;
+    }
+    .task-sort-button:not(.active) .task-sort-indicator{
+      color:#a6adbb;
+    }
     .task-pool-card .task-table{
       width:100%;
       min-width:0;
@@ -730,7 +765,7 @@
 <input id="sprintName" placeholder="Например: Sprint 2026-Q3-01" type="text" value="Sprint 1"/>
 </div>
 <div class="save-actions">
-<button id="saveSprint">Сохранить</button>
+<button id="saveSprint">Сохранить сейчас</button>
 <button class="secondary" id="saveAsSprint">Создать копию спринта</button>
 <button class="secondary" id="newSprint">Новый набор</button>
 <button class="secondary" id="restorePreviousState" disabled>Вернуть предыдущий план</button>
@@ -748,7 +783,7 @@
 </div>
 <div class="status-note" id="savedSprintsList"></div>
 <p class="footer-note">
-            Наборы сохраняются только в Firebase Cloud Firestore в профиле текущего пользователя.
+            Черновик сохраняется после 5 секунд бездействия, спринт — после 10 секунд. Повторные одинаковые состояния не записываются. Кнопка «Сохранить сейчас» запускает сохранение немедленно.
           </p>
 </div>
 </div></section>
@@ -1025,6 +1060,15 @@ let firebaseDb=null;
 let firebaseModules=null;
 let isHydrating=false;
 let saveTimer=null;
+let sprintAutoSaveTimer=null;
+let sprintSaveInProgress=false;
+let sprintAutoSaveQueued=false;
+let lastCurrentStateFingerprint="";
+const sprintFingerprints=new Map();
+const CURRENT_STATE_AUTOSAVE_DELAY=5000;
+const SPRINT_AUTOSAVE_DELAY=10000;
+const TASK_POOL_SORT_VERSION=2;
+let taskPoolSort={key:"title",direction:"asc"};
 let appLoaded=false;
 let unsubscribeTaskPool=null;
 
@@ -1281,6 +1325,33 @@ function taskDocumentId(payload){
   return `tp_${hashString(integrationIdentity(payload))}`;
 }
 
+function stateFingerprint(value){
+  return hashString(JSON.stringify(value));
+}
+
+function getSprintInputState(){
+  const state=getCurrentInputState();
+
+  // Сортировка пула — настройка интерфейса пользователя,
+  // а не часть содержимого конкретного спринта.
+  delete state.taskPoolSort;
+  delete state.taskPoolSortVersion;
+
+  return state;
+}
+
+function sprintPayloadFingerprint(name,input,result){
+  return stateFingerprint({name,input,result});
+}
+
+function currentStatePayload(){
+  return {
+    currentState:getCurrentInputState(),
+    result:getCurrentResultSnapshot()
+  };
+}
+
+
 function setTaskImportStatus(text,type=""){
   if(!taskImportStatus)return;
   taskImportStatus.textContent=text||"";
@@ -1300,6 +1371,8 @@ function getCurrentInputState(){
     excludePrepRoles: excludePrepRoles.value,
     sprintName: sprintName.value,
     currentSprintId: currentSprintId,
+    taskPoolSortVersion: TASK_POOL_SORT_VERSION,
+    taskPoolSort: JSON.parse(JSON.stringify(taskPoolSort)),
     selectedTaskIds: JSON.parse(JSON.stringify(selectedTaskIds)),
     completedTaskIds: JSON.parse(JSON.stringify(completedTaskIds)),
     sprintTaskSnapshots: JSON.parse(JSON.stringify(sprintTaskSnapshots))
@@ -1457,6 +1530,12 @@ function applyInputState(state){
   if(state.excludePrepRoles!==undefined)excludePrepRoles.value=state.excludePrepRoles;
   if(state.sprintName!==undefined)sprintName.value=state.sprintName;
   currentSprintId=state.currentSprintId||null;
+  taskPoolSort=
+    Number(state.taskPoolSortVersion||0)>=TASK_POOL_SORT_VERSION
+    &&state.taskPoolSort
+    &&state.taskPoolSort.key
+      ?JSON.parse(JSON.stringify(state.taskPoolSort))
+      :{key:"title",direction:"asc"};
   selectedTaskIds=Array.isArray(state.selectedTaskIds)?JSON.parse(JSON.stringify(state.selectedTaskIds)):[];
   completedTaskIds=Array.isArray(state.completedTaskIds)?JSON.parse(JSON.stringify(state.completedTaskIds)):[];
   sprintTaskSnapshots=state.sprintTaskSnapshots?JSON.parse(JSON.stringify(state.sprintTaskSnapshots)):{};
@@ -1466,54 +1545,169 @@ function applyInputState(state){
   render();
 }
 
-async function saveSprintSet(forceNew=false){
+async function saveSprintSet(
+  forceNew=false,
+  {silent=false,source="manual"}={}
+){
   const name=(sprintName.value||"").trim();
+
   if(!name){
-    alert("Введите имя спринта / набора.");
-    sprintName.focus();
-    return;
+    if(!silent){
+      alert("Введите имя спринта / набора.");
+      sprintName.focus();
+    }
+    return false;
   }
+
   if(!currentUser||!firebaseDb){
-    alert("Нет подключения к Firebase.");
-    return;
+    if(!silent)alert("Нет подключения к Firebase.");
+    return false;
   }
+
+  if(sprintSaveInProgress){
+    sprintAutoSaveQueued=true;
+    return false;
+  }
+
+  sprintSaveInProgress=true;
 
   const sprints=getSavedSprints();
   const previousSprint=currentSprintId?sprints[currentSprintId]:null;
   const id=forceNew||!currentSprintId?makeSprintId():currentSprintId;
-  const previousTaskIds=forceNew?[]:(Array.isArray(previousSprint?.input?.selectedTaskIds)?previousSprint.input.selectedTaskIds:[]);
+
+  const previousTaskIds=forceNew
+    ?[]
+    :(Array.isArray(previousSprint?.input?.selectedTaskIds)
+      ?previousSprint.input.selectedTaskIds
+      :[]);
+
+  const previousCompletedIds=forceNew
+    ?[]
+    :(Array.isArray(previousSprint?.input?.completedTaskIds)
+      ?previousSprint.input.completedTaskIds
+      :[]);
+
+  const previousName=forceNew
+    ?""
+    :String(previousSprint?.name||"");
+
   currentSprintId=id;
+
   selectedTaskIds.forEach(taskId=>{
     if(!sprintTaskSnapshots[taskId]&&taskPool[taskId]){
-      sprintTaskSnapshots[taskId]=JSON.parse(JSON.stringify(taskPool[taskId]));
+      sprintTaskSnapshots[taskId]=JSON.parse(
+        JSON.stringify(taskPool[taskId])
+      );
     }
   });
+
   recalculateRolePlanFact();
-  const inputState=getCurrentInputState();
+
+  const inputState=getSprintInputState();
   inputState.currentSprintId=id;
+
+  const resultState=getCurrentResultSnapshot();
+  const fingerprint=sprintPayloadFingerprint(
+    name,
+    inputState,
+    resultState
+  );
+
+  const previousFingerprint=
+    sprintFingerprints.get(id)
+    ||(
+      previousSprint
+        ?sprintPayloadFingerprint(
+          previousSprint.name||"",
+          previousSprint.input||{},
+          previousSprint.result||{}
+        )
+        :""
+    );
+
+  const previousTaskSet=new Set(previousTaskIds);
+  const currentTaskSet=new Set(selectedTaskIds);
+  const previousCompletedSet=new Set(previousCompletedIds);
+  const currentCompletedSet=new Set(completedTaskIds);
+
+  const removedTaskIds=previousTaskIds.filter(
+    taskId=>!currentTaskSet.has(taskId)
+  );
+
+  const addedTaskIds=selectedTaskIds.filter(
+    taskId=>!previousTaskSet.has(taskId)
+  );
+
+  const completionChangedIds=selectedTaskIds.filter(
+    taskId=>
+      previousTaskSet.has(taskId)
+      &&previousCompletedSet.has(taskId)!==currentCompletedSet.has(taskId)
+  );
+
+  const nameChanged=previousName!==name;
+
+  const tasksToPlan=new Set([
+    ...addedTaskIds,
+    ...completionChangedIds,
+    ...(nameChanged?selectedTaskIds:[])
+  ]);
+
+  const sprintChanged=
+    forceNew
+    ||!previousSprint
+    ||fingerprint!==previousFingerprint;
+
+  const taskLinksChanged=
+    removedTaskIds.length>0
+    ||tasksToPlan.size>0;
+
+  if(!sprintChanged&&!taskLinksChanged){
+    setSyncState("Автосохранено");
+    sprintSaveInProgress=false;
+    return true;
+  }
+
   const saved={
     id,
     name,
     updatedAt:new Date().toISOString(),
     input:inputState,
-    result:getCurrentResultSnapshot()
+    result:resultState
   };
 
   try{
-    setSyncState("Сохранение…","warn");
-    const {fsMod}=await loadFirebaseModules();
-    await fsMod.setDoc(
-      fsMod.doc(firebaseDb,"users",currentUser.uid,"sprints",id),
-      saved
+    setSyncState(
+      source==="autosave"?"Автосохранение…":"Сохранение…",
+      "warn"
     );
 
-    const changedTaskIds=new Set([...previousTaskIds,...selectedTaskIds]);
-    if(changedTaskIds.size){
+    const {fsMod}=await loadFirebaseModules();
+
+    if(sprintChanged){
+      await fsMod.setDoc(
+        fsMod.doc(
+          firebaseDb,
+          "users",
+          currentUser.uid,
+          "sprints",
+          id
+        ),
+        saved
+      );
+    }
+
+    if(taskLinksChanged){
       const taskBatch=fsMod.writeBatch(firebaseDb);
 
-      previousTaskIds.filter(taskId=>!selectedTaskIds.includes(taskId)).forEach(taskId=>{
+      removedTaskIds.forEach(taskId=>{
         taskBatch.set(
-          fsMod.doc(firebaseDb,"workspaces",TEAM_CALCULATOR_WORKSPACE_ID,"taskPool",taskId),
+          fsMod.doc(
+            firebaseDb,
+            "workspaces",
+            TEAM_CALCULATOR_WORKSPACE_ID,
+            "taskPool",
+            taskId
+          ),
           {
             plannedSprintId:null,
             plannedSprintName:null,
@@ -1524,6 +1718,7 @@ async function saveSprintSet(forceNew=false){
           },
           {merge:true}
         );
+
         if(taskPool[taskId]?.plannedSprintId===id){
           taskPool[taskId].plannedSprintId=null;
           taskPool[taskId].plannedSprintName=null;
@@ -1531,39 +1726,118 @@ async function saveSprintSet(forceNew=false){
         }
       });
 
-      selectedTaskIds.forEach(taskId=>{
+      tasksToPlan.forEach(taskId=>{
         taskBatch.set(
-          fsMod.doc(firebaseDb,"workspaces",TEAM_CALCULATOR_WORKSPACE_ID,"taskPool",taskId),
+          fsMod.doc(
+            firebaseDb,
+            "workspaces",
+            TEAM_CALCULATOR_WORKSPACE_ID,
+            "taskPool",
+            taskId
+          ),
           {
             plannedSprintId:id,
             plannedSprintName:name,
             plannedByUid:currentUser.uid,
-            plannedByName:(currentProfile?.alias||currentUser.email||"").trim(),
-            planningStatus:completedTaskIds.includes(taskId)?"completed":"planned",
+            plannedByName:(
+              currentProfile?.alias
+              ||currentUser.email
+              ||""
+            ).trim(),
+            planningStatus:currentCompletedSet.has(taskId)
+              ?"completed"
+              :"planned",
             updatedAt:new Date().toISOString()
           },
           {merge:true}
         );
+
         if(taskPool[taskId]){
           taskPool[taskId].plannedSprintId=id;
           taskPool[taskId].plannedSprintName=name;
-          taskPool[taskId].planningStatus=completedTaskIds.includes(taskId)?"completed":"planned";
+          taskPool[taskId].planningStatus=
+            currentCompletedSet.has(taskId)
+              ?"completed"
+              :"planned";
         }
       });
+
       await taskBatch.commit();
     }
 
     sprints[id]=saved;
     setSavedSprints(sprints);
+    sprintFingerprints.set(id,fingerprint);
+
+    // Сохранение текущего состояния выполнится только если оно
+    // действительно отличается от последней записанной версии.
     await saveCurrentStateNow();
+
     renderSavedSprints();
     savedSprintSelect.value=id;
-    setSyncState("Сохранено");
+
+    setSyncState(
+      source==="autosave"?"Автосохранено":"Сохранено"
+    );
+
+    return true;
   }catch(e){
     console.error(e);
     setSyncState("Ошибка сохранения","bad");
-    alert(`Не удалось сохранить спринт: ${e.message}`);
+
+    if(!silent){
+      alert(`Не удалось сохранить спринт: ${e.message}`);
+    }
+
+    return false;
+  }finally{
+    sprintSaveInProgress=false;
+
+    if(sprintAutoSaveQueued){
+      sprintAutoSaveQueued=false;
+      clearTimeout(sprintAutoSaveTimer);
+      sprintAutoSaveTimer=setTimeout(
+        runSprintAutoSave,
+        1000
+      );
+    }
   }
+}
+
+function scheduleSprintAutoSave(){
+  clearTimeout(sprintAutoSaveTimer);
+
+  if(
+    isHydrating
+    ||!appLoaded
+    ||!currentUser
+    ||!firebaseDb
+    ||!(sprintName.value||"").trim()
+  ){
+    return;
+  }
+
+  sprintAutoSaveTimer=setTimeout(
+    runSprintAutoSave,
+    SPRINT_AUTOSAVE_DELAY
+  );
+}
+
+async function runSprintAutoSave(){
+  if(
+    isHydrating
+    ||!appLoaded
+    ||!currentUser
+    ||!firebaseDb
+    ||!(sprintName.value||"").trim()
+  ){
+    return;
+  }
+
+  await saveSprintSet(
+    false,
+    {silent:true,source:"autosave"}
+  );
 }
 
 function loadSprintSet(id){
@@ -1703,13 +1977,21 @@ function renderSavedSprints(){
   const countEl=document.getElementById("savedSprintsCount");
 
   if(statusEl){
-    statusEl.textContent=currentItem?"открыт сохранённый":"новый / не сохранён";
-    statusEl.className=currentItem?"pill save-status":"pill save-status";
+    statusEl.textContent=currentItem
+      ?"автосохранение включено"
+      :((sprintName.value||"").trim()
+        ?"создание и автосохранение"
+        :"черновик");
+
+    statusEl.className="pill save-status";
   }
+
   if(hintEl){
     hintEl.textContent=currentItem
-      ? `Открыт набор «${currentItem.name}». Кнопка «Сохранить» обновит именно его.`
-      : "Это новый набор. «Сохранить» создаст спринт, а «Создать копию спринта» сохранит весь текущий план в новой копии.";
+      ? `Изменения в наборе «${currentItem.name}» сохраняются автоматически.`
+      : ((sprintName.value||"").trim()
+        ? "Новый спринт будет создан и сохранён автоматически."
+        : "Введите название спринта. Текущий черновик уже сохраняется автоматически.");
   }
   if(countEl){
     const n=items.length;
@@ -1726,7 +2008,7 @@ function renderSavedSprints(){
   if(currentSprintId&&sprints[currentSprintId])savedSprintSelect.value=currentSprintId;
 
   if(!items.length){
-    savedSprintsList.innerHTML="Сохранённых наборов пока нет. Введите название и нажмите «Сохранить».";
+    savedSprintsList.innerHTML="Сохранённых наборов пока нет. Введите название — спринт создастся автоматически.";
     return;
   }
 
@@ -2246,19 +2528,157 @@ async function releaseTaskToPool(taskId){
   }
 }
 
+
+function taskPoolStatusLabel(task){
+  const selected=selectedTaskIds.includes(task.id);
+  const plannedElsewhere=
+    task.plannedSprintId
+    &&task.plannedSprintId!==currentSprintId
+    &&!selected;
+
+  if(selected)return "В текущем спринте";
+  if(plannedElsewhere){
+    return task.plannedSprintName||"Запланирована";
+  }
+  return isTaskReady(task)?"Оценена":"Нет оценки";
+}
+
+function taskPoolSortValue(task,key){
+  if(key==="title"){
+    return String(task.title||task.id||"");
+  }
+
+  if(key==="total"){
+    return taskTotalEstimate(task);
+  }
+
+  if(key==="status"){
+    return taskPoolStatusLabel(task);
+  }
+
+  if(key.startsWith("role:")){
+    const roleKey=key.slice(5);
+    return Number(task.estimates?.[roleKey]||0);
+  }
+
+  return String(task.title||task.id||"");
+}
+
+function compareTaskPoolValues(a,b,key,direction){
+  const av=taskPoolSortValue(a,key);
+  const bv=taskPoolSortValue(b,key);
+  const multiplier=direction==="asc"?1:-1;
+
+  if(typeof av==="number"&&typeof bv==="number"){
+    const numeric=(av-bv)*multiplier;
+    if(numeric!==0)return numeric;
+  }else{
+    const text=String(av).localeCompare(
+      String(bv),
+      "ru",
+      {sensitivity:"base",numeric:true}
+    )*multiplier;
+
+    if(text!==0)return text;
+  }
+
+  return String(b.title||b.id||"").localeCompare(
+    String(a.title||a.id||""),
+    "ru",
+    {sensitivity:"base",numeric:true}
+  );
+}
+
+function taskPoolSortHeader(label,key,{titleClass=false,title=""}={}){
+  const active=taskPoolSort.key===key;
+  const indicator=active
+    ?(taskPoolSort.direction==="asc"?"▲":"▼")
+    :"↕";
+
+  const directionText=active
+    ?(taskPoolSort.direction==="asc"
+      ?"по возрастанию"
+      :"по убыванию")
+    :"сортировка не выбрана";
+
+  return `<button
+    class="task-sort-button${titleClass?" task-sort-title":""}${active?" active":""}"
+    type="button"
+    data-task-sort="${esc(key)}"
+    title="${esc(title||`${label}: ${directionText}`)}">
+      <span>${esc(label)}</span>
+      <span class="task-sort-indicator" aria-hidden="true">${indicator}</span>
+    </button>`;
+}
+
+function setTaskPoolSort(key){
+  if(taskPoolSort.key===key){
+    taskPoolSort.direction=
+      taskPoolSort.direction==="asc"
+        ?"desc"
+        :"asc";
+  }else{
+    taskPoolSort={
+      key,
+      direction:key==="title"?"asc":"desc"
+    };
+  }
+
+  saveState();
+  renderTaskPool();
+}
+
 function renderTaskPool(){
   const roleDefs=roles.map(role=>({key:roleKeyFromName(role.name),name:role.name}));
+  const validSortKeys=new Set([
+    "title",
+    "total",
+    "status",
+    ...roleDefs.map(role=>`role:${role.key}`)
+  ]);
+
+  if(!validSortKeys.has(taskPoolSort.key)){
+    taskPoolSort={key:"title",direction:"asc"};
+  }
+
   taskPoolHead.innerHTML=`<tr>
-    <th>Задача</th>
-    ${roleDefs.map(r=>`<th class="num" title="${esc(r.name)}, человеко-дни">${esc(r.name)}</th>`).join("")}
-    <th class="num">Итого</th>
-    <th>Статус</th>
+    <th>${taskPoolSortHeader(
+      "Задача",
+      "title",
+      {
+        titleClass:true,
+        title:"Сортировать задачи по алфавиту"
+      }
+    )}</th>
+    ${roleDefs.map(role=>`<th class="num">${taskPoolSortHeader(
+      role.name,
+      `role:${role.key}`,
+      {title:`Сортировать по оценке: ${role.name}`}
+    )}</th>`).join("")}
+    <th class="num">${taskPoolSortHeader(
+      "Итого",
+      "total",
+      {title:"Сортировать по суммарной оценке"}
+    )}</th>
+    <th>${taskPoolSortHeader(
+      "Статус",
+      "status",
+      {title:"Сортировать по статусу"}
+    )}</th>
     <th></th>
   </tr>`;
 
+  taskPoolHead
+    .querySelectorAll("[data-task-sort]")
+    .forEach(button=>{
+      button.onclick=()=>setTaskPoolSort(
+        button.dataset.taskSort
+      );
+    });
+
   const filter=taskPoolFilter.value||"all";
   const directionFilter=taskDirectionFilter.value||"all";
-  let items=Object.values(taskPool).map(normalizeTask).sort((a,b)=>String(b.updatedAt||"").localeCompare(String(a.updatedAt||"")));
+  let items=Object.values(taskPool).map(normalizeTask);
 
   items=items.filter(task=>{
     const ready=isTaskReady(task);
@@ -2276,6 +2696,13 @@ function renderTaskPool(){
     return matchesStatus&&matchesDirection;
   });
 
+  items.sort((a,b)=>compareTaskPoolValues(
+    a,
+    b,
+    taskPoolSort.key,
+    taskPoolSort.direction
+  ));
+
   const allTasks=Object.values(taskPool).map(normalizeTask);
   const allCount=allTasks.length;
   const readyCount=allTasks.filter(isTaskReady).length;
@@ -2283,8 +2710,8 @@ function renderTaskPool(){
 
   taskPoolCount.textContent=
     filter==="all"&&directionFilter==="all"
-      ? `${allCount} всего · ${readyCount} готовы`
-      : `${shownCount} показано · ${allCount} всего · ${readyCount} готовы`;
+      ? `${allCount} всего · ${readyCount} оценены`
+      : `${shownCount} показано · ${allCount} всего · ${readyCount} оценены`;
 
   if(!items.length){
     taskPoolBody.innerHTML='<tr><td class="task-empty" colspan="20">Нет задач для выбранного фильтра.</td></tr>';
@@ -2730,9 +3157,16 @@ function bindDynamicInputs(){
 
 function saveState(){
   if(isHydrating||!currentUser||!firebaseDb)return;
+
   setSyncState("Есть изменения","warn");
+
   clearTimeout(saveTimer);
-  saveTimer=setTimeout(()=>saveCurrentStateNow(),700);
+  saveTimer=setTimeout(
+    ()=>saveCurrentStateNow(),
+    CURRENT_STATE_AUTOSAVE_DELAY
+  );
+
+  scheduleSprintAutoSave();
 }
 
 function loadState(){
@@ -2741,7 +3175,7 @@ function loadState(){
 
 periodName.onchange=()=>{if(periodName.value==="sprint")workdays.value=10;if(periodName.value==="quarter")workdays.value=60;saveState();render()};
 [workdays,utilization,buffer,devIssuesPerCrossTask,excludePrepRoles].forEach(el=>el.addEventListener("input",()=>{if(periodName.value!=="custom"&&((periodName.value==="sprint"&&workdays.value!=10)||(periodName.value==="quarter"&&workdays.value!=60)))periodName.value="custom";saveState();render()}));
-document.getElementById("saveSprint").onclick=()=>saveSprintSet(false);
+document.getElementById("saveSprint").onclick=()=>saveSprintSet(false,{silent:false,source:"manual"});
 document.getElementById("saveAsSprint").onclick=copyCurrentSprintSettings;
 restorePreviousStateButton.onclick=restorePreviousSprintState;
 document.getElementById("deleteSprint").onclick=()=>deleteSprintSet(currentSprintId);
@@ -2749,6 +3183,20 @@ document.getElementById("newSprint").onclick=()=>startNewSprintSet();
 savedSprintSelect.onchange=()=>{if(savedSprintSelect.value)loadSprintSet(savedSprintSelect.value)};
 sprintName.addEventListener("input",()=>{currentSprintId=currentSprintId;saveState();renderSavedSprints();});
 document.getElementById("addRole").onclick=()=>{roles.push({name:"Новая роль",people:1,absence:0,task:0,planned:0,actual:0});saveState();render()};
+
+document.addEventListener("visibilitychange",()=>{
+  if(document.visibilityState!=="hidden")return;
+
+  clearTimeout(saveTimer);
+  clearTimeout(sprintAutoSaveTimer);
+
+  saveCurrentStateNow();
+
+  if((sprintName.value||"").trim()){
+    runSprintAutoSave();
+  }
+});
+
 document.getElementById("resetDefaults").onclick=()=>{
   if(!confirm("Сбросить настройки и очистить текущий план? Перед сбросом будет создана резервная копия."))return;
   pushSprintRecoverySnapshot("сброс к команде MARS");
@@ -2961,6 +3409,10 @@ async function logout(){
       clearTimeout(saveTimer);
       await saveCurrentStateNow();
     }
+    if(sprintAutoSaveTimer){
+      clearTimeout(sprintAutoSaveTimer);
+      await runSprintAutoSave();
+    }
     const {authMod}=await loadFirebaseModules();
     await authMod.signOut(firebaseAuth);
   }catch(e){
@@ -3016,6 +3468,12 @@ async function loadUserWorkspace(){
       if(state.excludePrepRoles!==undefined)excludePrepRoles.value=state.excludePrepRoles;
       if(state.sprintName!==undefined)sprintName.value=state.sprintName;
       currentSprintId=state.currentSprintId||null;
+      taskPoolSort=
+        Number(state.taskPoolSortVersion||0)>=TASK_POOL_SORT_VERSION
+        &&state.taskPoolSort
+        &&state.taskPoolSort.key
+          ?JSON.parse(JSON.stringify(state.taskPoolSort))
+          :{key:"title",direction:"asc"};
       selectedTaskIds=Array.isArray(state.selectedTaskIds)?state.selectedTaskIds:[];
       completedTaskIds=Array.isArray(state.completedTaskIds)?state.completedTaskIds:[];
       sprintTaskSnapshots=state.sprintTaskSnapshots||{};
@@ -3023,6 +3481,7 @@ async function loadUserWorkspace(){
       roles=JSON.parse(JSON.stringify(defaultRoles));
       currentSprintId=null;
       sprintName.value="";
+      taskPoolSort={key:"title",direction:"asc"};
       selectedTaskIds=[];
       completedTaskIds=[];
       sprintTaskSnapshots={};
@@ -3030,6 +3489,24 @@ async function loadUserWorkspace(){
     isHydrating=false;
 
     recalculateRolePlanFact();
+
+    lastCurrentStateFingerprint=stateFingerprint(
+      currentStatePayload()
+    );
+
+    sprintFingerprints.clear();
+    Object.values(savedSprintSets).forEach(item=>{
+      if(!item?.id)return;
+      sprintFingerprints.set(
+        item.id,
+        sprintPayloadFingerprint(
+          item.name||"",
+          item.input||{},
+          item.result||{}
+        )
+      );
+    });
+
     updateAccountUi();
     authScreen.style.display="none";
     document.body.classList.remove("auth-locked");
@@ -3047,23 +3524,42 @@ async function loadUserWorkspace(){
 }
 
 async function saveCurrentStateNow(){
-  if(isHydrating||!currentUser||!firebaseDb)return;
+  if(isHydrating||!currentUser||!firebaseDb)return false;
+
+  const payload=currentStatePayload();
+  const fingerprint=stateFingerprint(payload);
+
+  if(fingerprint===lastCurrentStateFingerprint){
+    return true;
+  }
+
   try{
     const {fsMod}=await loadFirebaseModules();
+
     setSyncState("Сохранение…","warn");
+
     await fsMod.setDoc(
-      fsMod.doc(firebaseDb,"users",currentUser.uid,"app","main"),
+      fsMod.doc(
+        firebaseDb,
+        "users",
+        currentUser.uid,
+        "app",
+        "main"
+      ),
       {
-        currentState:getCurrentInputState(),
-        result:getCurrentResultSnapshot(),
+        ...payload,
         updatedAt:new Date().toISOString()
       },
       {merge:true}
     );
+
+    lastCurrentStateFingerprint=fingerprint;
     setSyncState("Синхронизировано");
+    return true;
   }catch(e){
     console.error(e);
     setSyncState("Ошибка сохранения","bad");
+    return false;
   }
 }
 

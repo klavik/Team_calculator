@@ -722,8 +722,8 @@
       </div>
 
       <div>
-        <label for="manualTaskEstimate">Оценка, человеко-дни</label>
-        <input id="manualTaskEstimate" type="number" min="0.5" step="0.5" value="1">
+        <label for="manualTaskEstimate">Оценка, человеко-дни</label><div class="muted small" style="margin-bottom:5px">0,25 → 0,5 → далее шаг 0,5</div>
+        <input id="manualTaskEstimate" type="number" min="0.25" step="any" value="1" inputmode="decimal" title="Допустимо: 0,25; 0,5; далее с шагом 0,5">
       </div>
     </div>
 
@@ -878,6 +878,53 @@ function normalizeTask(task){
 
 function isEstimateFilled(value){
   return value!==null&&value!==undefined&&value!==""&&Number(value)>=0&&isFinite(Number(value));
+}
+
+function isAllowedTaskEstimate(value,{allowZero=true}={}){
+  const number=Number(value);
+  if(!Number.isFinite(number)||number<0)return false;
+  if(allowZero&&number===0)return true;
+  if(Math.abs(number-0.25)<1e-9)return true;
+  return number>=0.5&&Math.abs(number*2-Math.round(number*2))<1e-9;
+}
+
+function taskEstimateScaleMessage({allowZero=true}={}){
+  return allowZero
+    ?"Допустимые значения: 0, 0,25, 0,5 и далее с шагом 0,5."
+    :"Допустимые значения: 0,25, 0,5 и далее с шагом 0,5.";
+}
+
+function nextTaskEstimate(current,direction,{allowZero=true}={}){
+  const value=Number(current);
+
+  if(direction>0){
+    if(!Number.isFinite(value)||value<=0)return 0.25;
+    if(value<0.5)return 0.5;
+    return Math.round((value+0.5)*2)/2;
+  }
+
+  if(!Number.isFinite(value)||value<=0){
+    return allowZero?0:0.25;
+  }
+  if(value<=0.25){
+    return allowZero?0:0.25;
+  }
+  if(value<=0.5){
+    return 0.25;
+  }
+  return Math.max(0.5,Math.round((value-0.5)*2)/2);
+}
+
+function bindEstimateScaleInput(input,{allowZero=true}={}){
+  input.addEventListener("keydown",event=>{
+    if(event.key!=="ArrowUp"&&event.key!=="ArrowDown")return;
+    event.preventDefault();
+    const direction=event.key==="ArrowUp"?1:-1;
+    input.value=String(
+      nextTaskEstimate(input.value,direction,{allowZero})
+    );
+    input.dispatchEvent(new Event("change",{bubbles:true}));
+  });
 }
 
 function isTaskReady(task){
@@ -1571,8 +1618,8 @@ async function createManualTask(){
     return;
   }
 
-  if(!Number.isFinite(estimate)||estimate<=0){
-    manualTaskMessage.textContent="Оценка должна быть больше 0.";
+  if(!isAllowedTaskEstimate(estimate,{allowZero:false})){
+    manualTaskMessage.textContent=taskEstimateScaleMessage({allowZero:false});
     manualTaskEstimate.focus();
     return;
   }
@@ -1663,8 +1710,8 @@ async function updateTaskEstimate(taskId,roleKey,rawValue){
   }
 
   const value=String(rawValue).trim()===""?null:Number(rawValue);
-  if(value!==null&&(!isFinite(value)||value<0)){
-    alert("Оценка должна быть числом не меньше 0.");
+  if(value!==null&&!isAllowedTaskEstimate(value,{allowZero:true})){
+    alert(taskEstimateScaleMessage({allowZero:true}));
     render();
     return;
   }
@@ -1852,7 +1899,7 @@ function renderTaskPool(){
         const version=task.estimateVersions[role.key]||1;
         return `<td class="num"><span class="estimate-readonly" title="Оценка из Team_poker, версия ${version}">${fmt(Number(value),1)} <span class="source-lock">🔒</span></span></td>`;
       }
-      return `<td class="num"><input class="estimate-input" type="number" min="0" step="0.5" value="${isEstimateFilled(value)?value:""}" data-task-estimate="${task.id}" data-role-key="${role.key}" placeholder="—" title="Прочерк означает, что роль не участвует"></td>`;
+      return `<td class="num"><input class="estimate-input" type="number" min="0" step="any" inputmode="decimal" value="${isEstimateFilled(value)?value:""}" data-task-estimate="${task.id}" data-role-key="${role.key}" placeholder="—" title="— или 0: роль не участвует; допустимо 0,25; 0,5; далее шаг 0,5"></td>`;
     }).join("");
 
     let statusHtml;
@@ -1898,6 +1945,7 @@ function renderTaskPool(){
 
   document.querySelectorAll("[data-task-estimate]").forEach(input=>{
     input.onchange=()=>updateTaskEstimate(input.dataset.taskEstimate,input.dataset.roleKey,input.value);
+    bindEstimateScaleInput(input,{allowZero:true});
   });
   document.querySelectorAll("[data-add-task]").forEach(btn=>btn.onclick=()=>addTaskToSprint(btn.dataset.addTask));
   document.querySelectorAll("[data-remove-task]").forEach(btn=>btn.onclick=()=>removeTaskFromSprint(btn.dataset.removeTask));
@@ -2281,6 +2329,7 @@ manualTaskEstimate.addEventListener("keydown",e=>{
     createManualTask();
   }
 });
+bindEstimateScaleInput(manualTaskEstimate,{allowZero:false});
 manualTaskDialog.addEventListener("click",event=>{
   if(event.target===manualTaskDialog)closeManualTaskDialog();
 });

@@ -545,12 +545,25 @@
 
 <div class="task-toolbar">
           <div class="task-toolbar-left">
-            <label for="taskPoolFilter" style="margin:0">Показывать</label>
+            <label for="taskPoolFilter" style="margin:0">Статус</label>
             <select id="taskPoolFilter">
               <option value="all">Все задачи</option>
               <option value="incomplete">Без оценки</option>
               <option value="ready">Готовы к планированию</option>
               <option value="planned">Добавлены в текущий спринт</option>
+            </select>
+
+            <label for="taskDirectionFilter" style="margin:0 0 0 6px">Направление</label>
+            <select
+              id="taskDirectionFilter"
+              title="Показывает задачи, где выбранное направление имеет оценку больше 0">
+              <option value="all">Все направления</option>
+              <option value="analytics">Аналитика</option>
+              <option value="design">Дизайн</option>
+              <option value="backend">Backend</option>
+              <option value="frontend">Frontend</option>
+              <option value="qa">QA</option>
+              <option value="devops">DevOps</option>
             </select>
           </div>
           <div class="task-toolbar-right">
@@ -765,6 +778,7 @@ savedSprintsList=document.getElementById("savedSprintsList"),
 taskImportJson=document.getElementById("taskImportJson"),
 taskImportStatus=document.getElementById("taskImportStatus"),
 taskPoolFilter=document.getElementById("taskPoolFilter"),
+taskDirectionFilter=document.getElementById("taskDirectionFilter"),
 taskPoolHead=document.getElementById("taskPoolHead"),
 taskPoolBody=document.getElementById("taskPoolBody"),
 taskPoolCount=document.getElementById("taskPoolCount"),
@@ -1788,20 +1802,34 @@ function renderTaskPool(){
   </tr>`;
 
   const filter=taskPoolFilter.value||"all";
+  const directionFilter=taskDirectionFilter.value||"all";
   let items=Object.values(taskPool).map(normalizeTask).sort((a,b)=>String(b.updatedAt||"").localeCompare(String(a.updatedAt||"")));
 
   items=items.filter(task=>{
     const ready=isTaskReady(task);
     const planned=selectedTaskIds.includes(task.id);
-    if(filter==="ready")return ready&&!planned;
-    if(filter==="incomplete")return !ready;
-    if(filter==="planned")return planned;
-    return true;
+
+    let matchesStatus=true;
+    if(filter==="ready")matchesStatus=ready&&!planned;
+    else if(filter==="incomplete")matchesStatus=!ready;
+    else if(filter==="planned")matchesStatus=planned;
+
+    const matchesDirection=
+      directionFilter==="all"
+      || Number(task.estimates?.[directionFilter]||0)>0;
+
+    return matchesStatus&&matchesDirection;
   });
 
-  const allCount=Object.keys(taskPool).length;
-  const readyCount=Object.values(taskPool).filter(isTaskReady).length;
-  taskPoolCount.textContent=`${allCount} всего · ${readyCount} готовы`;
+  const allTasks=Object.values(taskPool).map(normalizeTask);
+  const allCount=allTasks.length;
+  const readyCount=allTasks.filter(isTaskReady).length;
+  const shownCount=items.length;
+
+  taskPoolCount.textContent=
+    filter==="all"&&directionFilter==="all"
+      ? `${allCount} всего · ${readyCount} готовы`
+      : `${shownCount} показано · ${allCount} всего · ${readyCount} готовы`;
 
   if(!items.length){
     taskPoolBody.innerHTML='<tr><td class="task-empty" colspan="20">Нет задач для выбранного фильтра.</td></tr>';
@@ -2236,6 +2264,7 @@ document.getElementById("reloadTaskPool").onclick=async()=>{
   }
 };
 taskPoolFilter.onchange=renderTaskPool;
+taskDirectionFilter.onchange=renderTaskPool;
 document.getElementById("openManualTaskDialog").onclick=openManualTaskDialog;
 document.getElementById("closeManualTaskDialog").onclick=closeManualTaskDialog;
 document.getElementById("cancelManualTask").onclick=closeManualTaskDialog;

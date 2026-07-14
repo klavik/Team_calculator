@@ -67,6 +67,69 @@
       color:#174ea6;
       border-color:#9fc0f5;
     }
+    .sprint-lifecycle-panel{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:14px;
+      padding:12px 14px;
+      border:1px solid var(--border);
+      border-radius:14px;
+      background:#fafbfe;
+    }
+    .sprint-lifecycle-info{min-width:0}
+    .sprint-lifecycle-line{
+      display:flex;
+      align-items:center;
+      gap:9px;
+      flex-wrap:wrap;
+      margin-top:6px;
+    }
+    .sprint-lifecycle-badge{
+      display:inline-flex;
+      align-items:center;
+      border-radius:999px;
+      padding:6px 10px;
+      font-size:12px;
+      font-weight:900;
+      white-space:nowrap;
+    }
+    .sprint-lifecycle-badge.planning{background:#fff2dd;color:#9a5b00}
+    .sprint-lifecycle-badge.active{background:#e8f0fe;color:#1a5bc4}
+    .sprint-lifecycle-badge.completed{background:#e8f5ec;color:#137333}
+    .sprint-state-mini{
+      display:inline-flex;
+      align-items:center;
+      border-radius:999px;
+      padding:3px 7px;
+      font-size:10px;
+      font-weight:900;
+      vertical-align:middle;
+      margin-left:5px;
+    }
+    .sprint-state-mini.planning{background:#fff2dd;color:#9a5b00}
+    .sprint-state-mini.active{background:#e8f0fe;color:#1a5bc4}
+    .sprint-state-mini.completed{background:#e8f5ec;color:#137333}
+    .baseline-pill{
+      display:inline-flex;
+      align-items:center;
+      border-radius:999px;
+      padding:5px 8px;
+      background:#f1f3f7;
+      color:#4b5565;
+      font-size:11px;
+      font-weight:800;
+    }
+    .task-lifecycle-note{margin-top:4px;font-size:11px;font-weight:700}
+    .task-lifecycle-note.added{color:#1a5bc4}
+    .task-lifecycle-note.returned{color:#9a5b00}
+    .task-lifecycle-note.baseline{color:#596273}
+    @media(max-width:780px){
+      .sprint-lifecycle-panel{
+        align-items:flex-start;
+        flex-direction:column;
+      }
+    }
     .card-save .save-list-wrap{max-height:190px;overflow:auto;background:#fff}
     .card-summary{border-color:#ffd5a0;background:#fffaf3}
     .card-summary .summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr))!important;gap:12px}
@@ -764,6 +827,18 @@
 <label for="sprintName">Название спринта / набора</label>
 <input id="sprintName" placeholder="Например: Sprint 2026-Q3-01" type="text" value="Sprint 1"/>
 </div>
+
+<div class="sprint-lifecycle-panel">
+  <div class="sprint-lifecycle-info">
+    <label style="margin:0">Состояние спринта</label>
+    <div class="sprint-lifecycle-line">
+      <span id="sprintLifecycleBadge" class="sprint-lifecycle-badge planning">Планирование</span>
+      <span id="sprintLifecycleMeta" class="muted">Состав и оценки можно менять.</span>
+    </div>
+  </div>
+  <button id="sprintLifecycleAction" type="button">Начать спринт</button>
+</div>
+
 <div class="save-actions">
 <button id="saveSprint">Сохранить сейчас</button>
 <button class="secondary" id="saveAsSprint">Создать копию спринта</button>
@@ -864,7 +939,7 @@
       <div class="card sprint-tasks-card">
         <h2>Задачи текущего спринта</h2>
         <p class="muted">
-          План по ролям рассчитывается как сумма оценок выбранных задач. Факт — сумма оценок задач, отмеченных выполненными.
+          При запуске фиксируется исходный план. Выполнение отмечается только в состоянии «В работе». После завершения незавершённые задачи возвращаются в общий пул.
         </p>
         <div class="sprint-summary-row" id="sprintTaskSummary"></div>
         <div class="task-table-wrap">
@@ -1052,6 +1127,16 @@ const TEAM_CALCULATOR_WORKSPACE_ID =
 let selectedTaskIds=[];
 let completedTaskIds=[];
 let sprintTaskSnapshots={};
+
+const SPRINT_STATUS_PLANNING="planning";
+const SPRINT_STATUS_ACTIVE="active";
+const SPRINT_STATUS_COMPLETED="completed";
+
+let sprintLifecycleStatus=SPRINT_STATUS_PLANNING;
+let sprintStartedAt=null;
+let sprintCompletedAt=null;
+let sprintBaseline=null;
+let sprintReturnedTaskIds=[];
 let currentUser=null;
 let currentProfile=null;
 let firebaseApp=null;
@@ -1079,6 +1164,10 @@ buffer=document.getElementById("buffer"),
 devIssuesPerCrossTask=document.getElementById("devIssuesPerCrossTask"),
 excludePrepRoles=document.getElementById("excludePrepRoles"),
 sprintName=document.getElementById("sprintName"),
+saveSprintButton=document.getElementById("saveSprint"),
+sprintLifecycleBadge=document.getElementById("sprintLifecycleBadge"),
+sprintLifecycleMeta=document.getElementById("sprintLifecycleMeta"),
+sprintLifecycleAction=document.getElementById("sprintLifecycleAction"),
 savedSprintSelect=document.getElementById("savedSprintSelect"),
 savedSprintsList=document.getElementById("savedSprintsList"),
 taskImportJson=document.getElementById("taskImportJson"),
@@ -1360,6 +1449,379 @@ function setTaskImportStatus(text,type=""){
 
 
 
+
+function normalizeSprintLifecycleStatus(value){
+  return [
+    SPRINT_STATUS_PLANNING,
+    SPRINT_STATUS_ACTIVE,
+    SPRINT_STATUS_COMPLETED
+  ].includes(value)
+    ?value
+    :SPRINT_STATUS_PLANNING;
+}
+
+function sprintLifecycleLabel(status=sprintLifecycleStatus){
+  const normalized=normalizeSprintLifecycleStatus(status);
+  if(normalized===SPRINT_STATUS_ACTIVE)return "В работе";
+  if(normalized===SPRINT_STATUS_COMPLETED)return "Завершён";
+  return "Планирование";
+}
+
+function sprintLifecycleClass(status=sprintLifecycleStatus){
+  return normalizeSprintLifecycleStatus(status);
+}
+
+function sprintLifecycleIsCompleted(){
+  return sprintLifecycleStatus===SPRINT_STATUS_COMPLETED;
+}
+
+function sprintLifecycleIsActive(){
+  return sprintLifecycleStatus===SPRINT_STATUS_ACTIVE;
+}
+
+function formatLifecycleDate(value){
+  if(!value)return "";
+  const date=new Date(value);
+  return Number.isNaN(date.getTime())
+    ?String(value)
+    :date.toLocaleString(
+      "ru-RU",
+      {
+        day:"2-digit",
+        month:"2-digit",
+        year:"numeric",
+        hour:"2-digit",
+        minute:"2-digit"
+      }
+    );
+}
+
+function baselineTaskIds(){
+  return Array.isArray(sprintBaseline?.selectedTaskIds)
+    ?sprintBaseline.selectedTaskIds
+    :[];
+}
+
+function baselineTaskSet(){
+  return new Set(baselineTaskIds());
+}
+
+function baselineTotalEstimate(){
+  const snapshots=sprintBaseline?.taskSnapshots||{};
+  return baselineTaskIds().reduce(
+    (sum,id)=>sum+taskTotalEstimate(snapshots[id]||{}),
+    0
+  );
+}
+
+function captureSprintBaseline(){
+  const taskSnapshots={};
+
+  selectedTaskIds.forEach(taskId=>{
+    const snapshot=currentTaskSnapshot(taskId);
+    if(snapshot){
+      taskSnapshots[taskId]=JSON.parse(
+        JSON.stringify(snapshot)
+      );
+    }
+  });
+
+  return {
+    capturedAt:new Date().toISOString(),
+    selectedTaskIds:JSON.parse(
+      JSON.stringify(selectedTaskIds)
+    ),
+    completedTaskIds:JSON.parse(
+      JSON.stringify(completedTaskIds)
+    ),
+    taskSnapshots,
+    roles:JSON.parse(JSON.stringify(roles)),
+    settings:{
+      periodName:periodName.value,
+      workdays:workdays.value,
+      utilization:utilization.value,
+      buffer:buffer.value,
+      devIssuesPerCrossTask:devIssuesPerCrossTask.value,
+      excludePrepRoles:excludePrepRoles.value
+    },
+    result:getCurrentResultSnapshot()
+  };
+}
+
+function resetSprintLifecycle(){
+  sprintLifecycleStatus=SPRINT_STATUS_PLANNING;
+  sprintStartedAt=null;
+  sprintCompletedAt=null;
+  sprintBaseline=null;
+  sprintReturnedTaskIds=[];
+}
+
+function renderSprintLifecycle(){
+  sprintLifecycleStatus=normalizeSprintLifecycleStatus(
+    sprintLifecycleStatus
+  );
+
+  const label=sprintLifecycleLabel();
+  sprintLifecycleBadge.textContent=label;
+  sprintLifecycleBadge.className=
+    `sprint-lifecycle-badge ${sprintLifecycleClass()}`;
+
+  if(sprintLifecycleStatus===SPRINT_STATUS_PLANNING){
+    sprintLifecycleMeta.textContent=
+      "Состав и оценки можно менять. При старте будет зафиксирован исходный план.";
+    sprintLifecycleAction.textContent="Начать спринт";
+    sprintLifecycleAction.disabled=
+      !(sprintName.value||"").trim()
+      ||selectedTaskIds.length===0;
+  }else if(sprintLifecycleStatus===SPRINT_STATUS_ACTIVE){
+    const taskCount=baselineTaskIds().length;
+    const total=baselineTotalEstimate();
+
+    sprintLifecycleMeta.textContent=
+      `Начат ${formatLifecycleDate(sprintStartedAt)} · `
+      +`исходный план: ${taskCount} задач, ${fmt(total,1)} ч.д.`;
+
+    sprintLifecycleAction.textContent="Завершить спринт";
+    sprintLifecycleAction.disabled=false;
+  }else{
+    sprintLifecycleMeta.textContent=
+      `Завершён ${formatLifecycleDate(sprintCompletedAt)} · `
+      +`возвращено в пул: ${sprintReturnedTaskIds.length}`;
+
+    sprintLifecycleAction.textContent="Спринт завершён";
+    sprintLifecycleAction.disabled=true;
+  }
+
+  const readOnly=sprintLifecycleIsCompleted();
+
+  sprintName.disabled=readOnly;
+  saveSprintButton.disabled=readOnly;
+
+  [
+    periodName,
+    workdays,
+    utilization,
+    buffer,
+    devIssuesPerCrossTask,
+    excludePrepRoles
+  ].forEach(control=>{
+    if(control)control.disabled=readOnly;
+  });
+
+  [
+    "addRole",
+    "resetDefaults",
+    "clearSprintTasks"
+  ].forEach(id=>{
+    const control=document.getElementById(id);
+    if(control)control.disabled=readOnly;
+  });
+}
+
+async function startSprintLifecycle(){
+  if(sprintLifecycleStatus!==SPRINT_STATUS_PLANNING)return;
+
+  const name=(sprintName.value||"").trim();
+
+  if(!name){
+    alert("Сначала укажите название спринта.");
+    sprintName.focus();
+    return;
+  }
+
+  if(!selectedTaskIds.length){
+    alert("Добавьте в спринт хотя бы одну задачу.");
+    return;
+  }
+
+  const approved=confirm(
+    `Начать спринт «${name}»?\n\n`
+    +`Будет зафиксирован исходный план: `
+    +`${selectedTaskIds.length} задач.`
+  );
+
+  if(!approved)return;
+
+  pushSprintRecoverySnapshot("начало спринта");
+
+  const previous={
+    status:sprintLifecycleStatus,
+    startedAt:sprintStartedAt,
+    completedAt:sprintCompletedAt,
+    baseline:sprintBaseline,
+    returnedTaskIds:sprintReturnedTaskIds,
+    currentSprintId
+  };
+
+  sprintBaseline=captureSprintBaseline();
+  sprintLifecycleStatus=SPRINT_STATUS_ACTIVE;
+  sprintStartedAt=new Date().toISOString();
+  sprintCompletedAt=null;
+  sprintReturnedTaskIds=[];
+
+  saveState();
+  render();
+
+  const saved=await saveSprintSet(
+    false,
+    {silent:false,source:"manual"}
+  );
+
+  if(!saved){
+    sprintLifecycleStatus=previous.status;
+    sprintStartedAt=previous.startedAt;
+    sprintCompletedAt=previous.completedAt;
+    sprintBaseline=previous.baseline;
+    sprintReturnedTaskIds=previous.returnedTaskIds;
+    currentSprintId=previous.currentSprintId;
+    render();
+    return;
+  }
+
+  render();
+}
+
+async function completeSprintLifecycle(){
+  if(sprintLifecycleStatus!==SPRINT_STATUS_ACTIVE)return;
+
+  if(!currentSprintId){
+    const saved=await saveSprintSet(
+      false,
+      {silent:false,source:"manual"}
+    );
+    if(!saved)return;
+  }
+
+  const unfinishedTaskIds=selectedTaskIds.filter(
+    id=>!completedTaskIds.includes(id)
+  );
+
+  const approved=confirm(
+    `Завершить спринт «${(sprintName.value||"").trim()}»?\n\n`
+    +`Выполнено: ${completedTaskIds.filter(id=>selectedTaskIds.includes(id)).length}.\n`
+    +`Не выполнено: ${unfinishedTaskIds.length}.\n\n`
+    +(
+      unfinishedTaskIds.length
+        ? "Незавершённые задачи будут возвращены в общий пул."
+        : "Все задачи выполнены."
+    )
+  );
+
+  if(!approved)return;
+
+  pushSprintRecoverySnapshot("завершение спринта");
+
+  sprintLifecycleStatus=SPRINT_STATUS_COMPLETED;
+  sprintCompletedAt=new Date().toISOString();
+  sprintReturnedTaskIds=JSON.parse(
+    JSON.stringify(unfinishedTaskIds)
+  );
+
+  recalculateRolePlanFact();
+
+  const inputState=getSprintInputState();
+  inputState.currentSprintId=currentSprintId;
+
+  const resultState=getCurrentResultSnapshot();
+  const saved={
+    id:currentSprintId,
+    name:(sprintName.value||"").trim(),
+    updatedAt:new Date().toISOString(),
+    input:inputState,
+    result:resultState
+  };
+
+  try{
+    setSyncState("Завершение спринта…","warn");
+
+    const {fsMod}=await loadFirebaseModules();
+    const batch=fsMod.writeBatch(firebaseDb);
+
+    batch.set(
+      fsMod.doc(
+        firebaseDb,
+        "users",
+        currentUser.uid,
+        "sprints",
+        currentSprintId
+      ),
+      saved
+    );
+
+    unfinishedTaskIds.forEach(taskId=>{
+      batch.set(
+        fsMod.doc(
+          firebaseDb,
+          "workspaces",
+          TEAM_CALCULATOR_WORKSPACE_ID,
+          "taskPool",
+          taskId
+        ),
+        {
+          plannedSprintId:null,
+          plannedSprintName:null,
+          plannedByUid:null,
+          plannedByName:null,
+          planningStatus:"available",
+          updatedAt:new Date().toISOString()
+        },
+        {merge:true}
+      );
+    });
+
+    await batch.commit();
+
+    unfinishedTaskIds.forEach(taskId=>{
+      if(!taskPool[taskId])return;
+      taskPool[taskId].plannedSprintId=null;
+      taskPool[taskId].plannedSprintName=null;
+      taskPool[taskId].plannedByUid=null;
+      taskPool[taskId].plannedByName=null;
+      taskPool[taskId].planningStatus="available";
+    });
+
+    const sprints=getSavedSprints();
+    sprints[currentSprintId]=saved;
+    setSavedSprints(sprints);
+
+    sprintFingerprints.set(
+      currentSprintId,
+      sprintPayloadFingerprint(
+        saved.name,
+        saved.input,
+        saved.result
+      )
+    );
+
+    clearTimeout(sprintAutoSaveTimer);
+    await saveCurrentStateNow();
+
+    setSyncState("Спринт завершён");
+    render();
+  }catch(error){
+    console.error(error);
+
+    sprintLifecycleStatus=SPRINT_STATUS_ACTIVE;
+    sprintCompletedAt=null;
+    sprintReturnedTaskIds=[];
+
+    setSyncState("Ошибка завершения","bad");
+    alert(`Не удалось завершить спринт: ${error.message}`);
+    render();
+  }
+}
+
+async function handleSprintLifecycleAction(){
+  if(sprintLifecycleStatus===SPRINT_STATUS_PLANNING){
+    await startSprintLifecycle();
+    return;
+  }
+
+  if(sprintLifecycleStatus===SPRINT_STATUS_ACTIVE){
+    await completeSprintLifecycle();
+  }
+}
+
 function getCurrentInputState(){
   return {
     roles: JSON.parse(JSON.stringify(roles)),
@@ -1371,6 +1833,15 @@ function getCurrentInputState(){
     excludePrepRoles: excludePrepRoles.value,
     sprintName: sprintName.value,
     currentSprintId: currentSprintId,
+    sprintLifecycleStatus: sprintLifecycleStatus,
+    sprintStartedAt: sprintStartedAt,
+    sprintCompletedAt: sprintCompletedAt,
+    sprintBaseline: sprintBaseline
+      ?JSON.parse(JSON.stringify(sprintBaseline))
+      :null,
+    sprintReturnedTaskIds: JSON.parse(
+      JSON.stringify(sprintReturnedTaskIds)
+    ),
     taskPoolSortVersion: TASK_POOL_SORT_VERSION,
     taskPoolSort: JSON.parse(JSON.stringify(taskPoolSort)),
     selectedTaskIds: JSON.parse(JSON.stringify(selectedTaskIds)),
@@ -1419,6 +1890,12 @@ function getCurrentResultSnapshot(){
     highestLoad: isFinite(highestLoad)?highestLoad:null,
     taskCount: selectedTaskIds.length,
     completedTaskCount: completedTaskIds.filter(id=>selectedTaskIds.includes(id)).length,
+    sprintLifecycleStatus,
+    sprintStartedAt,
+    sprintCompletedAt,
+    baselineTaskCount:baselineTaskIds().length,
+    baselineTotalEstimate:baselineTotalEstimate(),
+    returnedTaskCount:sprintReturnedTaskIds.length,
     crossTaskLimit: selectedTaskIds.length,
     developmentTaskLimit: completedTaskIds.filter(id=>selectedTaskIds.includes(id)).length,
     roleLimits,
@@ -1530,6 +2007,17 @@ function applyInputState(state){
   if(state.excludePrepRoles!==undefined)excludePrepRoles.value=state.excludePrepRoles;
   if(state.sprintName!==undefined)sprintName.value=state.sprintName;
   currentSprintId=state.currentSprintId||null;
+  sprintLifecycleStatus=normalizeSprintLifecycleStatus(
+    state.sprintLifecycleStatus
+  );
+  sprintStartedAt=state.sprintStartedAt||null;
+  sprintCompletedAt=state.sprintCompletedAt||null;
+  sprintBaseline=state.sprintBaseline
+    ?JSON.parse(JSON.stringify(state.sprintBaseline))
+    :null;
+  sprintReturnedTaskIds=Array.isArray(state.sprintReturnedTaskIds)
+    ?JSON.parse(JSON.stringify(state.sprintReturnedTaskIds))
+    :[];
   taskPoolSort=
     Number(state.taskPoolSortVersion||0)>=TASK_POOL_SORT_VERSION
     &&state.taskPoolSort
@@ -1591,6 +2079,10 @@ async function saveSprintSet(
     ?""
     :String(previousSprint?.name||"");
 
+  const previousLifecycleStatus=normalizeSprintLifecycleStatus(
+    previousSprint?.input?.sprintLifecycleStatus
+  );
+
   currentSprintId=id;
 
   selectedTaskIds.forEach(taskId=>{
@@ -1645,11 +2137,17 @@ async function saveSprintSet(
   );
 
   const nameChanged=previousName!==name;
+  const lifecycleChanged=
+    previousLifecycleStatus!==sprintLifecycleStatus;
 
   const tasksToPlan=new Set([
     ...addedTaskIds,
     ...completionChangedIds,
-    ...(nameChanged?selectedTaskIds:[])
+    ...(
+      nameChanged||lifecycleChanged
+        ?selectedTaskIds
+        :[]
+    )
   ]);
 
   const sprintChanged=
@@ -1813,6 +2311,7 @@ function scheduleSprintAutoSave(){
     ||!currentUser
     ||!firebaseDb
     ||!(sprintName.value||"").trim()
+    ||sprintLifecycleIsCompleted()
   ){
     return;
   }
@@ -1830,6 +2329,7 @@ async function runSprintAutoSave(){
     ||!currentUser
     ||!firebaseDb
     ||!(sprintName.value||"").trim()
+    ||sprintLifecycleIsCompleted()
   ){
     return;
   }
@@ -1907,6 +2407,7 @@ async function deleteSprintSet(id){
 
     if(currentSprintId===id){
       currentSprintId=null;
+      resetSprintLifecycle();
       selectedTaskIds=[];
       completedTaskIds=[];
       sprintTaskSnapshots={};
@@ -1937,6 +2438,7 @@ function startNewSprintSet(){
 
   currentSprintId=null;
   sprintName.value="";
+  resetSprintLifecycle();
   selectedTaskIds=[];
   completedTaskIds=[];
   sprintTaskSnapshots={};
@@ -1955,8 +2457,10 @@ function copyCurrentSprintSettings(){
   currentSprintId=null;
   sprintName.value=`${sourceName} — копия`;
   savedSprintSelect.value="";
+  resetSprintLifecycle();
 
-  // Копия сохраняет весь сформированный план.
+  // Копия сохраняет весь сформированный план,
+  // но начинает новый жизненный цикл с этапа планирования.
   selectedTaskIds=JSON.parse(JSON.stringify(selectedTaskIds));
   completedTaskIds=JSON.parse(JSON.stringify(completedTaskIds));
   sprintTaskSnapshots=JSON.parse(JSON.stringify(sprintTaskSnapshots));
@@ -1978,7 +2482,11 @@ function renderSavedSprints(){
 
   if(statusEl){
     statusEl.textContent=currentItem
-      ?"автосохранение включено"
+      ?(
+        sprintLifecycleIsCompleted()
+          ?"только просмотр"
+          :"автосохранение включено"
+      )
       :((sprintName.value||"").trim()
         ?"создание и автосохранение"
         :"черновик");
@@ -1988,11 +2496,17 @@ function renderSavedSprints(){
 
   if(hintEl){
     hintEl.textContent=currentItem
-      ? `Изменения в наборе «${currentItem.name}» сохраняются автоматически.`
+      ?(
+        sprintLifecycleIsCompleted()
+          ?`Спринт «${currentItem.name}» завершён и открыт в режиме просмотра.`
+          :`Изменения в наборе «${currentItem.name}» сохраняются автоматически.`
+      )
       : ((sprintName.value||"").trim()
         ? "Новый спринт будет создан и сохранён автоматически."
         : "Введите название спринта. Текущий черновик уже сохраняется автоматически.");
   }
+  renderSprintLifecycle();
+
   if(countEl){
     const n=items.length;
     countEl.textContent=`${n} ${n===1?"набор":(n>=2&&n<=4?"набора":"наборов")}`;
@@ -2017,10 +2531,15 @@ function renderSavedSprints(){
     const res=item.result||{};
     const d=new Date(item.updatedAt);
     const updated=isNaN(d.getTime())?item.updatedAt:d.toLocaleString("ru-RU",{day:"2-digit",month:"2-digit",year:"2-digit",hour:"2-digit",minute:"2-digit"});
+    const lifecycleStatus=normalizeSprintLifecycleStatus(
+      item.input?.sprintLifecycleStatus
+    );
+    const lifecycleBadge=`<span class="sprint-state-mini ${lifecycleStatus}">${esc(sprintLifecycleLabel(lifecycleStatus))}</span>`;
+
     const row=document.createElement("div");
     row.className="saved-sprint-row"+(item.id===currentSprintId?" active":"");
     row.innerHTML=`<div>
-        <div class="saved-sprint-name">${esc(item.name)} ${item.id===currentSprintId?'<span class="prep-pill">открыт</span>':""}</div>
+        <div class="saved-sprint-name">${esc(item.name)} ${lifecycleBadge} ${item.id===currentSprintId?'<span class="prep-pill">открыт</span>':""}</div>
         <div class="saved-sprint-meta">Обновлён: ${updated} · задач: ${res.taskCount??res.crossTaskLimit??"—"} · выполнено: ${res.completedTaskCount??res.developmentTaskLimit??"—"} · самая загруженная роль: ${esc(res.bottleneck||"—")}</div>
       </div>
       <div class="small-actions">
@@ -2042,6 +2561,11 @@ function renderSavedSprints(){
     const state=JSON.parse(JSON.stringify(item.input||{}));
     state.sprintName=(item.name||"Набор")+" — копия";
     state.currentSprintId=null;
+    state.sprintLifecycleStatus=SPRINT_STATUS_PLANNING;
+    state.sprintStartedAt=null;
+    state.sprintCompletedAt=null;
+    state.sprintBaseline=null;
+    state.sprintReturnedTaskIds=[];
     state.selectedTaskIds=Array.isArray(state.selectedTaskIds)?state.selectedTaskIds:[];
     state.completedTaskIds=Array.isArray(state.completedTaskIds)?state.completedTaskIds:[];
     state.sprintTaskSnapshots=state.sprintTaskSnapshots||{};
@@ -2454,22 +2978,55 @@ async function deleteTaskFromPool(taskId){
 }
 
 function addTaskToSprint(taskId){
+  if(sprintLifecycleIsCompleted()){
+    alert("Завершённый спринт доступен только для просмотра.");
+    return;
+  }
+
   const task=taskPool[taskId];
   if(!task)return;
+
   if(!isTaskReady(task)){
     alert("Для добавления в спринт нужна хотя бы одна оценка больше 0. Прочерк означает, что роль не участвует.");
     return;
   }
+
+  if(
+    sprintLifecycleIsActive()
+    &&!confirm(
+      "Спринт уже идёт. Добавить задачу после старта? "
+      +"Она не войдёт в исходный план."
+    )
+  ){
+    return;
+  }
+
   if(!selectedTaskIds.includes(taskId)){
     selectedTaskIds.push(taskId);
     sprintTaskSnapshots[taskId]=JSON.parse(JSON.stringify(task));
   }
+
   recalculateRolePlanFact();
   saveState();
   render();
 }
 
 async function removeTaskFromSprint(taskId){
+  if(sprintLifecycleIsCompleted()){
+    alert("Завершённый спринт доступен только для просмотра.");
+    return;
+  }
+
+  if(
+    sprintLifecycleIsActive()
+    &&!confirm(
+      "Убрать задачу из идущего спринта? "
+      +"Исходный план останется зафиксированным."
+    )
+  ){
+    return;
+  }
+
   selectedTaskIds=selectedTaskIds.filter(id=>id!==taskId);
   completedTaskIds=completedTaskIds.filter(id=>id!==taskId);
   delete sprintTaskSnapshots[taskId];
@@ -2487,6 +3044,16 @@ async function removeTaskFromSprint(taskId){
 }
 
 async function toggleTaskCompleted(taskId,completed){
+  if(!sprintLifecycleIsActive()){
+    alert(
+      sprintLifecycleIsCompleted()
+        ?"Завершённый спринт доступен только для просмотра."
+        :"Отмечать выполнение задач можно после запуска спринта."
+    );
+    render();
+    return;
+  }
+
   if(completed){
     if(!completedTaskIds.includes(taskId))completedTaskIds.push(taskId);
   }else{
@@ -2506,6 +3073,10 @@ async function toggleTaskCompleted(taskId,completed){
 }
 
 function updateSprintTaskSnapshot(taskId){
+  if(sprintLifecycleIsCompleted()){
+    alert("Завершённый спринт доступен только для просмотра.");
+    return;
+  }
   if(!taskPool[taskId])return;
   sprintTaskSnapshots[taskId]=JSON.parse(JSON.stringify(taskPool[taskId]));
   recalculateRolePlanFact();
@@ -2536,9 +3107,22 @@ function taskPoolStatusLabel(task){
     &&task.plannedSprintId!==currentSprintId
     &&!selected;
 
-  if(selected)return "В текущем спринте";
+  if(selected){
+    if(
+      sprintLifecycleIsCompleted()
+      &&sprintReturnedTaskIds.includes(task.id)
+    ){
+      return "Возвращена в пул";
+    }
+
+    return sprintLifecycleIsCompleted()
+      ?"В завершённом спринте"
+      :"В текущем спринте";
+  }
   if(plannedElsewhere){
-    return task.plannedSprintName||"Запланирована";
+    return task.planningStatus==="completed"
+      ?`Выполнена · ${task.plannedSprintName||"завершённый спринт"}`
+      :(task.plannedSprintName||"Запланирована");
   }
   return isTaskReady(task)?"Оценена":"Нет оценки";
 }
@@ -2764,11 +3348,22 @@ function renderTaskPool(){
       </td>`;
     }).join("");
 
+    const returnedFromCompletedSprint=
+      selected
+      &&sprintLifecycleIsCompleted()
+      &&sprintReturnedTaskIds.includes(task.id);
+
     let statusHtml;
-    if(selected){
-      statusHtml='<span class="task-status planned">В текущем спринте</span>';
+    if(returnedFromCompletedSprint){
+      statusHtml='<span class="task-status incomplete">Возвращена в пул</span>';
+    }else if(selected){
+      statusHtml=sprintLifecycleIsCompleted()
+        ?'<span class="task-status done">В завершённом спринте</span>'
+        :'<span class="task-status planned">В текущем спринте</span>';
     }else if(plannedElsewhere){
-      statusHtml=`<span class="task-status planned">${esc(task.plannedSprintName||"Запланирована")}</span>`;
+      statusHtml=task.planningStatus==="completed"
+        ?`<span class="task-status done">Выполнена · ${esc(task.plannedSprintName||"завершённый спринт")}</span>`
+        :`<span class="task-status planned">${esc(task.plannedSprintName||"Запланирована")}</span>`;
     }else if(ready){
       statusHtml='<span class="task-status ready">Оценена</span>';
     }else{
@@ -2777,12 +3372,22 @@ function renderTaskPool(){
     }
 
     let action;
-    if(selected){
-      action=`<button class="secondary" data-remove-task="${task.id}">Убрать</button>`;
+    if(returnedFromCompletedSprint){
+      action='<button class="secondary" disabled>Спринт завершён</button>';
+    }else if(selected){
+      action=sprintLifecycleIsCompleted()
+        ?'<button class="secondary" disabled>История</button>'
+        :`<button class="secondary" data-remove-task="${task.id}">Убрать</button>`;
     }else if(plannedElsewhere){
-      action=`<button class="secondary" data-release-task="${task.id}">Вернуть в пул</button>`;
+      action=task.planningStatus==="completed"
+        ?'<button class="secondary" disabled>История</button>'
+        :`<button class="secondary" data-release-task="${task.id}">Вернуть в пул</button>`;
     }else{
-      action=`<div class="small-actions"><button ${ready?"":"disabled"} data-add-task="${task.id}">В спринт</button><button class="danger-inline" data-delete-task="${task.id}">Удалить</button></div>`;
+      const addDisabled=
+        !ready
+        ||sprintLifecycleIsCompleted();
+
+      action=`<div class="small-actions"><button ${addDisabled?"disabled":""} data-add-task="${task.id}">${sprintLifecycleIsCompleted()?"Спринт завершён":"В спринт"}</button><button class="danger-inline" data-delete-task="${task.id}">Удалить</button></div>`;
     }
 
     const positiveRoleNames=roleDefs
@@ -2849,11 +3454,19 @@ function renderSprintTasks(){
   const tasks=selectedTaskIds.map(id=>({id,task:currentTaskSnapshot(id)})).filter(x=>x.task);
   const completedSet=new Set(completedTaskIds);
 
+  const baselineIds=baselineTaskSet();
+
   sprintTaskSummary.innerHTML=`
-    <span class="sprint-summary-pill"><b>${tasks.length}</b> задач в плане</span>
+    <span class="sprint-summary-pill"><b>${tasks.length}</b> задач в составе</span>
     <span class="sprint-summary-pill"><b>${tasks.filter(x=>completedSet.has(x.id)).length}</b> выполнено</span>
-    <span class="sprint-summary-pill"><b>${fmt(tasks.reduce((s,x)=>s+taskTotalEstimate(x.task),0),1)}</b> ч.д. план</span>
-    <span class="sprint-summary-pill"><b>${fmt(tasks.filter(x=>completedSet.has(x.id)).reduce((s,x)=>s+taskTotalEstimate(x.task),0),1)}</b> ч.д. факт</span>
+    <span class="sprint-summary-pill"><b>${fmt(tasks.reduce((s,x)=>s+taskTotalEstimate(x.task),0),1)}</b> ч.д. текущий состав</span>
+    <span class="sprint-summary-pill"><b>${fmt(tasks.filter(x=>completedSet.has(x.id)).reduce((s,x)=>s+taskTotalEstimate(x.task),0),1)}</b> ч.д. выполнено</span>
+    ${sprintBaseline
+      ?`<span class="baseline-pill"><b>${baselineTaskIds().length}</b>&nbsp;задач и&nbsp;<b>${fmt(baselineTotalEstimate(),1)}</b>&nbsp;ч.д. в исходном плане</span>`
+      :""}
+    ${sprintReturnedTaskIds.length
+      ?`<span class="baseline-pill"><b>${sprintReturnedTaskIds.length}</b>&nbsp;возвращено в пул</span>`
+      :""}
   `;
 
   if(!tasks.length){
@@ -2865,26 +3478,53 @@ function renderSprintTasks(){
   tasks.forEach(({id,task})=>{
     const normalized=normalizeTask(task);
     const done=completedSet.has(id);
+    const inBaseline=baselineIds.has(id);
+    const returnedToPool=sprintReturnedTaskIds.includes(id);
     const poolTask=taskPool[id];
     const estimateChanged=poolTask&&JSON.stringify(normalizeTask(poolTask).estimates)!==JSON.stringify(normalized.estimates);
     const title=normalized.externalTaskUrl
       ? `<a class="task-link" href="${esc(normalized.externalTaskUrl)}" target="_blank" rel="noopener">${esc(normalized.title||id)}</a>`
       : esc(normalized.title||id);
 
+    let completionHtml;
+
+    if(sprintLifecycleStatus===SPRINT_STATUS_PLANNING){
+      completionHtml='<span class="muted">После запуска</span>';
+    }else if(sprintLifecycleStatus===SPRINT_STATUS_ACTIVE){
+      completionHtml=`<label class="completion-toggle"><input type="checkbox" data-complete-task="${id}" ${done?"checked":""}> Выполнена</label>`;
+    }else if(done){
+      completionHtml='<span class="task-status done">Выполнена</span>';
+    }else{
+      completionHtml='<span class="task-status incomplete">Не выполнена</span>';
+    }
+
+    const lifecycleNote=returnedToPool
+      ?'<div class="task-lifecycle-note returned">Возвращена в общий пул</div>'
+      :(sprintBaseline
+        ?(
+          inBaseline
+            ?'<div class="task-lifecycle-note baseline">В исходном плане</div>'
+            :'<div class="task-lifecycle-note added">Добавлена после старта</div>'
+        )
+        :"");
+
+    const actions=sprintLifecycleIsCompleted()
+      ?'<span class="muted">Только просмотр</span>'
+      :`<div class="small-actions">
+          ${estimateChanged?`<button class="secondary" data-update-snapshot="${id}">Обновить оценку</button>`:""}
+          <button class="secondary" data-remove-task="${id}">Убрать</button>
+        </div>`;
+
     const tr=document.createElement("tr");
     tr.innerHTML=`<td class="task-title-cell">
         <div class="task-title">${title}</div>
-        ${estimateChanged?'<div class="task-warning">В пуле есть обновлённая оценка</div>':""}
+        ${estimateChanged&&!sprintLifecycleIsCompleted()?'<div class="task-warning">В пуле есть обновлённая оценка</div>':""}
+        ${lifecycleNote}
       </td>
       ${roleDefs.map(role=>`<td class="num">${fmt(Number(normalized.estimates[role.key]||0),1)}</td>`).join("")}
       <td class="num task-estimate-total">${fmt(taskTotalEstimate(normalized),1)}</td>
-      <td><label class="completion-toggle"><input type="checkbox" data-complete-task="${id}" ${done?"checked":""}> Выполнена</label></td>
-      <td>
-        <div class="small-actions">
-          ${estimateChanged?`<button class="secondary" data-update-snapshot="${id}">Обновить оценку</button>`:""}
-          <button class="secondary" data-remove-task="${id}">Убрать</button>
-        </div>
-      </td>`;
+      <td>${completionHtml}</td>
+      <td>${actions}</td>`;
     sprintTasksBody.appendChild(tr);
   });
 
@@ -3143,15 +3783,26 @@ function renderInterpretation(bottleneck,highestLoad){
 }
 
 function bindDynamicInputs(){
+  const readOnly=sprintLifecycleIsCompleted();
+
   document.querySelectorAll("[data-idx][data-field]").forEach(input=>{
+    input.disabled=readOnly;
     input.oninput=e=>{
+      if(sprintLifecycleIsCompleted())return;
       const idx=Number(e.target.dataset.idx),field=e.target.dataset.field;
       roles[idx][field]=field==="name"?e.target.value:Number(e.target.value);
       saveState();render();
     };
   });
+
   document.querySelectorAll("[data-remove]").forEach(btn=>{
-    btn.onclick=()=>{roles.splice(Number(btn.dataset.remove),1);saveState();render()}
+    btn.disabled=readOnly;
+    btn.onclick=()=>{
+      if(sprintLifecycleIsCompleted())return;
+      roles.splice(Number(btn.dataset.remove),1);
+      saveState();
+      render();
+    };
   });
 }
 
@@ -3176,6 +3827,7 @@ function loadState(){
 periodName.onchange=()=>{if(periodName.value==="sprint")workdays.value=10;if(periodName.value==="quarter")workdays.value=60;saveState();render()};
 [workdays,utilization,buffer,devIssuesPerCrossTask,excludePrepRoles].forEach(el=>el.addEventListener("input",()=>{if(periodName.value!=="custom"&&((periodName.value==="sprint"&&workdays.value!=10)||(periodName.value==="quarter"&&workdays.value!=60)))periodName.value="custom";saveState();render()}));
 document.getElementById("saveSprint").onclick=()=>saveSprintSet(false,{silent:false,source:"manual"});
+sprintLifecycleAction.onclick=handleSprintLifecycleAction;
 document.getElementById("saveAsSprint").onclick=copyCurrentSprintSettings;
 restorePreviousStateButton.onclick=restorePreviousSprintState;
 document.getElementById("deleteSprint").onclick=()=>deleteSprintSet(currentSprintId);
@@ -3192,7 +3844,10 @@ document.addEventListener("visibilitychange",()=>{
 
   saveCurrentStateNow();
 
-  if((sprintName.value||"").trim()){
+  if(
+    (sprintName.value||"").trim()
+    &&!sprintLifecycleIsCompleted()
+  ){
     runSprintAutoSave();
   }
 });
@@ -3209,6 +3864,7 @@ document.getElementById("resetDefaults").onclick=()=>{
   excludePrepRoles.value="yes";
   currentSprintId=null;
   sprintName.value="";
+  resetSprintLifecycle();
   selectedTaskIds=[];
   completedTaskIds=[];
   sprintTaskSnapshots={};
@@ -3268,7 +3924,17 @@ manualTaskDialog.addEventListener("click",event=>{
   if(event.target===manualTaskDialog)closeManualTaskDialog();
 });
 document.getElementById("clearSprintTasks").onclick=()=>{
-  if(selectedTaskIds.length&&!confirm("Очистить состав текущего спринта?"))return;
+  if(sprintLifecycleIsCompleted()){
+    alert("Завершённый спринт доступен только для просмотра.");
+    return;
+  }
+
+  const message=sprintLifecycleIsActive()
+    ?"Очистить текущий состав идущего спринта? Исходный план останется в baseline, а задачи вернутся в общий пул."
+    :"Очистить состав текущего спринта?";
+
+  if(selectedTaskIds.length&&!confirm(message))return;
+
   selectedTaskIds=[];
   completedTaskIds=[];
   sprintTaskSnapshots={};
@@ -3285,10 +3951,15 @@ document.getElementById("downloadCsv").onclick=()=>{
   const roleDefs=roles.map(r=>({name:r.name,key:roleKeyFromName(r.name)}));
   const rows=[
     ["Спринт",sprintName.value||""],
-    ["Задач в плане",selectedTaskIds.length],
+    ["Состояние",sprintLifecycleLabel()],
+    ["Начат",sprintStartedAt?formatLifecycleDate(sprintStartedAt):""],
+    ["Завершён",sprintCompletedAt?formatLifecycleDate(sprintCompletedAt):""],
+    ["Задач в текущем составе",selectedTaskIds.length],
+    ["Задач в исходном плане",baselineTaskIds().length],
     ["Выполнено задач",completedTaskIds.filter(id=>selectedTaskIds.includes(id)).length],
+    ["Возвращено в пул",sprintReturnedTaskIds.length],
     [],
-    ["Задачи",...roleDefs.map(r=>r.name+" ч.д."),"Итого ч.д.","Выполнена"]
+    ["Задачи",...roleDefs.map(r=>r.name+" ч.д."),"Итого ч.д.","Выполнена","В исходном плане","Возвращена в пул"]
   ];
 
   selectedTaskIds.forEach(id=>{
@@ -3297,7 +3968,9 @@ document.getElementById("downloadCsv").onclick=()=>{
       task.title||id,
       ...roleDefs.map(r=>isEstimateFilled(task.estimates[r.key])?task.estimates[r.key]:""),
       taskTotalEstimate(task),
-      completedTaskIds.includes(id)?"да":"нет"
+      completedTaskIds.includes(id)?"да":"нет",
+      baselineTaskIds().includes(id)?"да":"нет",
+      sprintReturnedTaskIds.includes(id)?"да":"нет"
     ]);
   });
 
@@ -3368,6 +4041,7 @@ async function initializeFirebase(){
       currentProfile=null;
       savedSprintSets={};
       taskPool={};
+      resetSprintLifecycle();
       selectedTaskIds=[];
       completedTaskIds=[];
       sprintTaskSnapshots={};
@@ -3468,6 +4142,17 @@ async function loadUserWorkspace(){
       if(state.excludePrepRoles!==undefined)excludePrepRoles.value=state.excludePrepRoles;
       if(state.sprintName!==undefined)sprintName.value=state.sprintName;
       currentSprintId=state.currentSprintId||null;
+      sprintLifecycleStatus=normalizeSprintLifecycleStatus(
+        state.sprintLifecycleStatus
+      );
+      sprintStartedAt=state.sprintStartedAt||null;
+      sprintCompletedAt=state.sprintCompletedAt||null;
+      sprintBaseline=state.sprintBaseline
+        ?JSON.parse(JSON.stringify(state.sprintBaseline))
+        :null;
+      sprintReturnedTaskIds=Array.isArray(state.sprintReturnedTaskIds)
+        ?state.sprintReturnedTaskIds
+        :[];
       taskPoolSort=
         Number(state.taskPoolSortVersion||0)>=TASK_POOL_SORT_VERSION
         &&state.taskPoolSort
@@ -3481,6 +4166,7 @@ async function loadUserWorkspace(){
       roles=JSON.parse(JSON.stringify(defaultRoles));
       currentSprintId=null;
       sprintName.value="";
+      resetSprintLifecycle();
       taskPoolSort={key:"title",direction:"asc"};
       selectedTaskIds=[];
       completedTaskIds=[];

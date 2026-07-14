@@ -293,6 +293,21 @@
     /* Compact task-pool layout without horizontal scrolling */
     .task-pool-card .task-table-wrap{
       overflow-x:visible;
+      overflow-y:auto;
+      max-height:min(68vh,720px);
+      position:relative;
+    }
+    .task-pool-card .task-table thead{
+      position:sticky;
+      top:0;
+      z-index:5;
+    }
+    .task-pool-card .task-table thead th{
+      position:sticky;
+      top:0;
+      z-index:6;
+      background:#fff;
+      box-shadow:0 1px 0 var(--border),0 4px 10px rgba(15,23,42,.06);
     }
     .task-pool-card .task-table{
       width:100%;
@@ -395,6 +410,7 @@
       .task-pool-card .task-table-wrap{
         border:0;
         overflow:visible;
+        max-height:none;
       }
       .task-pool-card .task-table,
       .task-pool-card .task-table tbody{
@@ -2205,7 +2221,7 @@ function renderTaskPool(){
     }else if(plannedElsewhere){
       statusHtml=`<span class="task-status planned">${esc(task.plannedSprintName||"Запланирована")}</span>`;
     }else if(ready){
-      statusHtml='<span class="task-status ready">Готова</span>';
+      statusHtml='<span class="task-status ready">Оценена</span>';
     }else{
       statusHtml='<span class="task-status incomplete">Нет оценки</span>'
         +'<div class="task-warning">Укажите хотя бы одну оценку больше 0</div>';

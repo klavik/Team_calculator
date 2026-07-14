@@ -61,6 +61,12 @@
     .card-save .save-layout{grid-template-columns:1fr!important}
     .card-save .save-actions{justify-content:flex-start!important}
     .card-save .save-actions button{white-space:nowrap}
+    .card-save #restorePreviousState{border-color:#b8c2d8}
+    .card-save #restorePreviousState:not(:disabled){
+      background:#eef5ff;
+      color:#174ea6;
+      border-color:#9fc0f5;
+    }
     .card-save .save-list-wrap{max-height:190px;overflow:auto;background:#fff}
     .card-summary{border-color:#ffd5a0;background:#fffaf3}
     .card-summary .summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr))!important;gap:12px}
@@ -725,8 +731,9 @@
 </div>
 <div class="save-actions">
 <button id="saveSprint">Сохранить</button>
-<button class="secondary" id="saveAsSprint">Копировать настройки</button>
+<button class="secondary" id="saveAsSprint">Создать копию спринта</button>
 <button class="secondary" id="newSprint">Новый набор</button>
+<button class="secondary" id="restorePreviousState" disabled>Вернуть предыдущий план</button>
 <button class="danger-inline" id="deleteSprint">Удалить текущий</button>
 </div>
 </div>
@@ -1060,7 +1067,8 @@ rolesBody=document.getElementById("rolesBody"),
 taskBody=document.getElementById("taskBody"),
 planningBody=document.getElementById("planningBody"),
 planningHistoryHead=document.getElementById("planningHistoryHead"),
-planningHistoryBody=document.getElementById("planningHistoryBody");
+planningHistoryBody=document.getElementById("planningHistoryBody"),
+restorePreviousStateButton=document.getElementById("restorePreviousState");
 
 const manualTaskDialog=document.getElementById("manualTaskDialog"),
 manualTaskTitle=document.getElementById("manualTaskTitle"),
@@ -1357,6 +1365,86 @@ function makeSprintId(){
   return "sp_"+Date.now()+"_"+Math.random().toString(36).slice(2,8);
 }
 
+
+const SPRINT_RECOVERY_LIMIT=15;
+
+function sprintRecoveryStorageKey(){
+  const uid=currentUser?.uid||"anonymous";
+  return `teamCalculatorSprintRecovery:${uid}`;
+}
+
+function getSprintRecoveryHistory(){
+  try{
+    const parsed=JSON.parse(
+      localStorage.getItem(sprintRecoveryStorageKey())||"[]"
+    );
+    return Array.isArray(parsed)?parsed:[];
+  }catch{
+    return [];
+  }
+}
+
+function setSprintRecoveryHistory(history){
+  try{
+    localStorage.setItem(
+      sprintRecoveryStorageKey(),
+      JSON.stringify(history.slice(-SPRINT_RECOVERY_LIMIT))
+    );
+  }catch(error){
+    console.warn("Не удалось сохранить резервную копию спринта",error);
+  }
+  updateSprintRecoveryButton();
+}
+
+function updateSprintRecoveryButton(){
+  if(!restorePreviousStateButton)return;
+  const history=getSprintRecoveryHistory();
+  const last=history[history.length-1];
+
+  restorePreviousStateButton.disabled=!last;
+  restorePreviousStateButton.title=last
+    ? `Восстановить состояние до действия «${last.reason}» от ${new Date(last.savedAt).toLocaleString("ru-RU")}`
+    : "Резервных копий пока нет";
+}
+
+function pushSprintRecoverySnapshot(reason){
+  const state=getCurrentInputState();
+  const history=getSprintRecoveryHistory();
+  const serialized=JSON.stringify(state);
+  const previous=history[history.length-1];
+
+  if(previous?.serialized===serialized){
+    previous.reason=String(reason||"изменение");
+    previous.savedAt=new Date().toISOString();
+  }else{
+    history.push({
+      reason:String(reason||"изменение"),
+      savedAt:new Date().toISOString(),
+      state,
+      serialized
+    });
+  }
+
+  setSprintRecoveryHistory(history);
+}
+
+function restorePreviousSprintState(){
+  const history=getSprintRecoveryHistory();
+  const snapshot=history.pop();
+
+  if(!snapshot?.state){
+    updateSprintRecoveryButton();
+    alert("Резервная копия не найдена.");
+    return;
+  }
+
+  setSprintRecoveryHistory(history);
+  applyInputState(
+    JSON.parse(JSON.stringify(snapshot.state))
+  );
+  alert(`Восстановлено состояние до действия «${snapshot.reason}».`);
+}
+
 function applyInputState(state){
   if(!state)return;
   isHydrating=true;
@@ -1485,8 +1573,22 @@ function loadSprintSet(id){
     alert("Сохранённый набор не найден.");
     return;
   }
+
+  if(
+    selectedTaskIds.length
+    && id!==currentSprintId
+    && !confirm(
+      `Открыть другой спринт? Текущий план из ${selectedTaskIds.length} задач `
+      +"будет сохранён в локальной резервной копии."
+    )
+  ){
+    return;
+  }
+
+  pushSprintRecoverySnapshot("открытие другого спринта");
+
   currentSprintId=id;
-  const state=item.input||{};
+  const state=JSON.parse(JSON.stringify(item.input||{}));
   state.currentSprintId=id;
   state.sprintName=item.name||state.sprintName||"";
   applyInputState(state);
@@ -1548,6 +1650,17 @@ async function deleteSprintSet(id){
 }
 
 function startNewSprintSet(){
+  if(selectedTaskIds.length){
+    const approved=confirm(
+      `В текущем плане ${selectedTaskIds.length} задач. `
+      +"Создать пустой набор? Текущий план можно будет вернуть кнопкой "
+      +"«Вернуть предыдущий план»."
+    );
+    if(!approved)return;
+  }
+
+  pushSprintRecoverySnapshot("создание нового пустого набора");
+
   currentSprintId=null;
   sprintName.value="";
   selectedTaskIds=[];
@@ -1562,12 +1675,18 @@ function startNewSprintSet(){
 }
 
 function copyCurrentSprintSettings(){
+  pushSprintRecoverySnapshot("создание копии спринта");
+
   const sourceName=(sprintName.value||"Спринт").trim();
   currentSprintId=null;
   sprintName.value=`${sourceName} — копия`;
-  selectedTaskIds=[];
-  completedTaskIds=[];
-  sprintTaskSnapshots={};
+  savedSprintSelect.value="";
+
+  // Копия сохраняет весь сформированный план.
+  selectedTaskIds=JSON.parse(JSON.stringify(selectedTaskIds));
+  completedTaskIds=JSON.parse(JSON.stringify(completedTaskIds));
+  sprintTaskSnapshots=JSON.parse(JSON.stringify(sprintTaskSnapshots));
+
   recalculateRolePlanFact();
   saveState();
   render();
@@ -1590,7 +1709,7 @@ function renderSavedSprints(){
   if(hintEl){
     hintEl.textContent=currentItem
       ? `Открыт набор «${currentItem.name}». Кнопка «Сохранить» обновит именно его.`
-      : "Это новый набор. Кнопка «Сохранить» создаст сохранённый спринт.";
+      : "Это новый набор. «Сохранить» создаст спринт, а «Создать копию спринта» сохранит весь текущий план в новой копии.";
   }
   if(countEl){
     const n=items.length;
@@ -1624,7 +1743,7 @@ function renderSavedSprints(){
       </div>
       <div class="small-actions">
         <button class="secondary" data-open-sprint="${item.id}">Открыть</button>
-        <button class="secondary" data-copy-sprint="${item.id}">Копировать настройки</button>
+        <button class="secondary" data-copy-sprint="${item.id}">Создать копию</button>
         <button class="danger-inline" data-delete-sprint="${item.id}">Удалить</button>
       </div>`;
     savedSprintsList.appendChild(row);
@@ -1635,12 +1754,15 @@ function renderSavedSprints(){
     const sprints=getSavedSprints();
     const item=sprints[btn.dataset.copySprint];
     if(!item)return;
+
+    pushSprintRecoverySnapshot("создание копии сохранённого спринта");
+
     const state=JSON.parse(JSON.stringify(item.input||{}));
     state.sprintName=(item.name||"Набор")+" — копия";
     state.currentSprintId=null;
-    state.selectedTaskIds=[];
-    state.completedTaskIds=[];
-    state.sprintTaskSnapshots={};
+    state.selectedTaskIds=Array.isArray(state.selectedTaskIds)?state.selectedTaskIds:[];
+    state.completedTaskIds=Array.isArray(state.completedTaskIds)?state.completedTaskIds:[];
+    state.sprintTaskSnapshots=state.sprintTaskSnapshots||{};
     applyInputState(state);
   });
   document.querySelectorAll("[data-delete-sprint]").forEach(btn=>btn.onclick=()=>deleteSprintSet(btn.dataset.deleteSprint));
@@ -2621,12 +2743,32 @@ periodName.onchange=()=>{if(periodName.value==="sprint")workdays.value=10;if(per
 [workdays,utilization,buffer,devIssuesPerCrossTask,excludePrepRoles].forEach(el=>el.addEventListener("input",()=>{if(periodName.value!=="custom"&&((periodName.value==="sprint"&&workdays.value!=10)||(periodName.value==="quarter"&&workdays.value!=60)))periodName.value="custom";saveState();render()}));
 document.getElementById("saveSprint").onclick=()=>saveSprintSet(false);
 document.getElementById("saveAsSprint").onclick=copyCurrentSprintSettings;
+restorePreviousStateButton.onclick=restorePreviousSprintState;
 document.getElementById("deleteSprint").onclick=()=>deleteSprintSet(currentSprintId);
 document.getElementById("newSprint").onclick=()=>startNewSprintSet();
 savedSprintSelect.onchange=()=>{if(savedSprintSelect.value)loadSprintSet(savedSprintSelect.value)};
 sprintName.addEventListener("input",()=>{currentSprintId=currentSprintId;saveState();renderSavedSprints();});
 document.getElementById("addRole").onclick=()=>{roles.push({name:"Новая роль",people:1,absence:0,task:0,planned:0,actual:0});saveState();render()};
-document.getElementById("resetDefaults").onclick=()=>{roles=JSON.parse(JSON.stringify(defaultRoles));periodName.value="sprint";workdays.value=10;utilization.value=.7;buffer.value=0;devIssuesPerCrossTask.value=2;excludePrepRoles.value="yes";currentSprintId=null;sprintName.value="";selectedTaskIds=[];completedTaskIds=[];sprintTaskSnapshots={};savedSprintSelect.value="";recalculateRolePlanFact();saveState();render()};
+document.getElementById("resetDefaults").onclick=()=>{
+  if(!confirm("Сбросить настройки и очистить текущий план? Перед сбросом будет создана резервная копия."))return;
+  pushSprintRecoverySnapshot("сброс к команде MARS");
+  roles=JSON.parse(JSON.stringify(defaultRoles));
+  periodName.value="sprint";
+  workdays.value=10;
+  utilization.value=.7;
+  buffer.value=0;
+  devIssuesPerCrossTask.value=2;
+  excludePrepRoles.value="yes";
+  currentSprintId=null;
+  sprintName.value="";
+  selectedTaskIds=[];
+  completedTaskIds=[];
+  sprintTaskSnapshots={};
+  savedSprintSelect.value="";
+  recalculateRolePlanFact();
+  saveState();
+  render();
+};
 document.getElementById("saveData").onclick=async()=>{
   clearTimeout(saveTimer);
   await saveCurrentStateNow();
@@ -3013,6 +3155,7 @@ async function boot(){
 
 boot();
 
+updateSprintRecoveryButton();
 render();
 </script>
 </body>

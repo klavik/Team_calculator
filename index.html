@@ -409,6 +409,89 @@
       box-shadow:0 0 0 2px rgba(19,115,51,.12);
       font-weight:950;
     }
+
+    .gitlab-status-set{
+      display:flex;
+      align-items:flex-start;
+      flex-wrap:wrap;
+      gap:4px;
+      max-width:100%;
+    }
+    .gitlab-status-set.conflict{
+      padding:4px;
+      border:1px dashed #d14343;
+      border-radius:10px;
+      background:#fff7f7;
+    }
+    .gitlab-status-pill{
+      max-width:100%;
+    }
+    .gitlab-status-pill.status-backlog{
+      background:#eceff3;
+      color:#4d5767;
+      border:1px solid #d8dde5;
+    }
+    .gitlab-status-pill.status-open{
+      background:#e8f0fe;
+      color:#1a5bc4;
+      border:1px solid #c7d9fb;
+    }
+    .gitlab-status-pill.status-in-progress{
+      background:#eee8ff;
+      color:#6440b5;
+      border:1px solid #d9ccfb;
+    }
+    .gitlab-status-pill.status-on-hold{
+      background:#fff0d6;
+      color:#9a5b00;
+      border:1px solid #f3d29b;
+    }
+    .gitlab-status-pill.status-review{
+      background:#f3e8ff;
+      color:#7a32a8;
+      border:1px solid #dfc5f2;
+    }
+    .gitlab-status-pill.status-approved{
+      background:#e3f4f1;
+      color:#08766c;
+      border:1px solid #b8ded8;
+    }
+    .gitlab-status-pill.status-qa-dev{
+      background:#e3f3fb;
+      color:#0b6f94;
+      border:1px solid #b9dff0;
+    }
+    .gitlab-status-pill.status-ready-preprod{
+      background:#e4f2ff;
+      color:#176aa4;
+      border:1px solid #b9daf3;
+    }
+    .gitlab-status-pill.status-qa-preprod{
+      background:#e8ebff;
+      color:#4654a3;
+      border:1px solid #c8cff3;
+    }
+    .gitlab-status-pill.status-qa-return{
+      background:#fde8e7;
+      color:#b3261e;
+      border:1px solid #f0bdb9;
+    }
+    .gitlab-status-pill.status-goa-return{
+      background:#ffe8ef;
+      color:#a52254;
+      border:1px solid #efbfd0;
+    }
+    .gitlab-status-pill.status-other{
+      background:#eef1f6;
+      color:#465064;
+      border:1px solid #d8dde6;
+    }
+    .gitlab-status-pill.status-conflict{
+      background:#b3261e;
+      color:#fff;
+      border:1px solid #8f1d17;
+      font-weight:950;
+    }
     .sprint-ready-prod-row td{
       background:#f0faf3;
     }
@@ -503,6 +586,188 @@
     }
     .sprint-task-sort-button.active .task-sort-indicator{
       color:var(--accent);
+    }
+
+    /* Current sprint table: compact layout without horizontal scroll */
+    .sprint-tasks-card .task-table-wrap{
+      overflow-x:hidden;
+    }
+    .sprint-tasks-card .task-table{
+      width:100%;
+      min-width:0;
+      table-layout:fixed;
+    }
+    .sprint-tasks-card .task-table th,
+    .sprint-tasks-card .task-table td{
+      min-width:0;
+      padding:8px 6px;
+      overflow-wrap:anywhere;
+    }
+    .sprint-tasks-card .task-table th{
+      white-space:normal;
+      line-height:1.15;
+    }
+    .sprint-tasks-card .sprint-task-title-column,
+    .sprint-tasks-card .task-title-cell{
+      width:20%;
+      min-width:0;
+    }
+    .sprint-tasks-card .sprint-direction-column{
+      width:8%;
+    }
+    .sprint-tasks-card .sprint-status-column{
+      width:13%;
+    }
+    .sprint-tasks-card .sprint-assignee-column{
+      width:11%;
+    }
+    .sprint-tasks-card .sprint-role-column{
+      width:4%;
+      text-align:center!important;
+    }
+    .sprint-tasks-card .sprint-total-column{
+      width:5%;
+      text-align:center!important;
+    }
+    .sprint-tasks-card .sprint-completion-column{
+      width:8%;
+    }
+    .sprint-tasks-card .sprint-actions-column{
+      width:11%;
+    }
+    .sprint-tasks-card .sprint-direction-list,
+    .sprint-tasks-card .gitlab-assignees{
+      min-width:0;
+    }
+    .sprint-tasks-card .gitlab-assignees{
+      font-size:11px;
+    }
+    .sprint-tasks-card .completion-toggle{
+      align-items:flex-start;
+      white-space:normal;
+      font-size:11px;
+    }
+    .sprint-tasks-card .small-actions{
+      display:grid;
+      grid-template-columns:1fr;
+      gap:4px;
+      justify-content:stretch;
+    }
+    .sprint-tasks-card .small-actions button{
+      width:100%;
+      min-width:0;
+      padding:6px 5px;
+      font-size:10px;
+      white-space:normal;
+    }
+    .sprint-tasks-card .task-estimate-total{
+      white-space:normal;
+    }
+
+    /* Mobile/tablet card layout keeps every field visible */
+    @media(max-width:900px){
+      .sprint-tasks-card .task-table-wrap{
+        border:0;
+        overflow:visible;
+      }
+      .sprint-tasks-card .task-table,
+      .sprint-tasks-card .task-table tbody{
+        display:block;
+        width:100%;
+        min-width:0!important;
+      }
+      .sprint-tasks-card .task-table thead{
+        display:none;
+      }
+      .sprint-tasks-card .task-table tr{
+        display:grid;
+        grid-template-columns:repeat(2,minmax(0,1fr));
+        width:100%;
+        margin-bottom:12px;
+        overflow:hidden;
+        border:1px solid var(--border);
+        border-radius:14px;
+        background:#fff;
+      }
+      .sprint-tasks-card .task-table td{
+        display:flex;
+        align-items:flex-start;
+        justify-content:space-between;
+        gap:10px;
+        width:auto!important;
+        min-width:0;
+        min-height:46px;
+        padding:9px 10px;
+        border-right:1px solid var(--border);
+        border-bottom:1px solid var(--border);
+        text-align:right;
+      }
+      .sprint-tasks-card .task-table td:nth-child(even){
+        border-right:0;
+      }
+      .sprint-tasks-card .task-table td::before{
+        content:attr(data-label);
+        flex:0 0 42%;
+        color:var(--muted);
+        font-size:11px;
+        font-weight:850;
+        text-align:left;
+      }
+      .sprint-tasks-card .task-table .task-title-cell{
+        grid-column:1 / -1;
+        display:block;
+        width:auto;
+        padding:12px;
+        border-right:0;
+        text-align:left;
+      }
+      .sprint-tasks-card .task-table .task-title-cell::before{
+        display:none;
+      }
+      .sprint-tasks-card .sprint-status-cell,
+      .sprint-tasks-card .sprint-assignee-cell,
+      .sprint-tasks-card .sprint-actions-cell{
+        grid-column:1 / -1;
+        border-right:0;
+      }
+      .sprint-tasks-card .sprint-actions-cell{
+        align-items:center;
+      }
+      .sprint-tasks-card .sprint-actions-cell .small-actions{
+        width:min(260px,58%);
+      }
+      .sprint-tasks-card .gitlab-status-set,
+      .sprint-tasks-card .gitlab-assignees,
+      .sprint-tasks-card .sprint-direction-list{
+        justify-content:flex-end;
+        text-align:right;
+      }
+      .sprint-tasks-card .task-empty{
+        grid-column:1 / -1;
+        display:block!important;
+        border:1px solid var(--border)!important;
+        border-radius:14px;
+        text-align:center!important;
+      }
+      .sprint-tasks-card .task-empty::before{
+        display:none;
+      }
+    }
+
+    @media(max-width:560px){
+      .sprint-tasks-card .task-table tr{
+        grid-template-columns:1fr;
+      }
+      .sprint-tasks-card .task-table td{
+        grid-column:1!important;
+        border-right:0;
+      }
+      .sprint-tasks-card .task-table td::before{
+        flex-basis:40%;
+      }
+      .sprint-tasks-card .sprint-actions-cell .small-actions{
+        width:min(250px,60%);
+      }
     }
     .gitlab-assignees{
       display:grid;
@@ -3783,6 +4048,67 @@ function gitLabMetadataForSprintTask(taskId,snapshotTask){
     ||null;
 }
 
+function gitLabStatusClass(label){
+  const normalized=String(label||"")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g," ");
+
+  if(normalized==="backlog")return "status-backlog";
+  if(normalized==="open")return "status-open";
+  if(normalized==="in progress")return "status-in-progress";
+  if(normalized==="on hold")return "status-on-hold";
+  if(normalized==="review")return "status-review";
+  if(normalized==="approved")return "status-approved";
+  if(normalized==="qa (dev)")return "status-qa-dev";
+
+  if(normalized.startsWith("ready to preprod")){
+    return "status-ready-preprod";
+  }
+
+  if(normalized==="qa (preprod)"){
+    return "status-qa-preprod";
+  }
+
+  if(normalized.startsWith("ready to prod")){
+    return "ready-prod";
+  }
+
+  if(normalized.startsWith("qa return")){
+    return "status-qa-return";
+  }
+
+  if(normalized.startsWith("goa return")){
+    return "status-goa-return";
+  }
+
+  return "status-other";
+}
+
+function gitLabStatusLabelsForDisplay(metadata){
+  const matched=Array.isArray(metadata?.matchedStatusLabels)
+    ?metadata.matchedStatusLabels
+        .map(label=>String(label||"").trim())
+        .filter(Boolean)
+    :[];
+
+  if(matched.length){
+    return [...new Set(matched)];
+  }
+
+  const label=String(metadata?.statusLabel||"").trim();
+  return label?[label]:[];
+}
+
+function gitLabStatusLabelPill(label,title){
+  const readyToProd=/^Ready to PROD(?:\s|$)/i.test(label);
+  const text=readyToProd?`✓ ${label}`:label;
+
+  return `<span
+    class="gitlab-status-pill ${gitLabStatusClass(label)}"
+    title="${esc(title)}">${esc(text)}</span>`;
+}
+
 function gitLabStatusHtml(metadata,hasUrl){
   if(!hasUrl){
     return '<span class="gitlab-status-pill warn">Нет ссылки GitLab</span>';
@@ -3793,24 +4119,8 @@ function gitLabStatusHtml(metadata,hasUrl){
   }
 
   const state=String(metadata.statusState||"").trim();
-  const label=String(metadata.statusLabel||"").trim();
   const error=String(metadata.syncError||"").trim();
-
-  let text=label||"Статус не указан";
-  let cssClass=label?"ok":"warn";
-
-  if(state==="conflict"){
-    const matched=Array.isArray(metadata.matchedStatusLabels)
-      ?metadata.matchedStatusLabels.join(", ")
-      :"";
-    text=matched
-      ?`Конфликт: ${matched}`
-      :"Конфликт статусов";
-    cssClass="bad";
-  }else if(error&&!label){
-    text="Ошибка синхронизации";
-    cssClass="bad";
-  }
+  const labels=gitLabStatusLabelsForDisplay(metadata);
 
   const syncedAt=formatGitLabTimestamp(metadata.syncedAt);
   const title=[
@@ -3818,14 +4128,28 @@ function gitLabStatusHtml(metadata,hasUrl){
     syncedAt?`Обновлено: ${syncedAt}`:""
   ].filter(Boolean).join(" · ");
 
-  const readyToProd=isReadyToProdGitLabStatus(metadata);
-
-  if(readyToProd){
-    cssClass="ready-prod";
-    text=`✓ ${text}`;
+  if(state==="conflict"){
+    return `<div class="gitlab-status-set conflict" title="${esc(title)}">
+      <span class="gitlab-status-pill status-conflict">⚠ Конфликт</span>
+      ${labels.map(label=>gitLabStatusLabelPill(label,title)).join("")}
+    </div>`;
   }
 
-  return `<span class="gitlab-status-pill ${cssClass}" title="${esc(title)}">${esc(text)}</span>`;
+  if(error&&!labels.length){
+    return `<span
+      class="gitlab-status-pill bad"
+      title="${esc(title)}">Ошибка синхронизации</span>`;
+  }
+
+  if(!labels.length){
+    return `<span
+      class="gitlab-status-pill warn"
+      title="${esc(title)}">Статус не указан</span>`;
+  }
+
+  return `<div class="gitlab-status-set">
+    ${labels.map(label=>gitLabStatusLabelPill(label,title)).join("")}
+  </div>`;
 }
 
 function gitLabAssigneesHtml(metadata,hasUrl){
@@ -4615,16 +4939,16 @@ function renderSprintTasks(){
   }));
 
   sprintTasksHead.innerHTML=`<tr>
-    <th>${sprintTaskSortButton("title","Задача")}</th>
-    <th>${sprintTaskSortButton("direction","Направление")}</th>
-    <th>${sprintTaskSortButton("status","Статус GitLab")}</th>
-    <th>${sprintTaskSortButton("assignee","Исполнитель")}</th>
+    <th class="sprint-task-title-column">${sprintTaskSortButton("title","Задача")}</th>
+    <th class="sprint-direction-column">${sprintTaskSortButton("direction","Направление")}</th>
+    <th class="sprint-status-column">${sprintTaskSortButton("status","Статус GitLab")}</th>
+    <th class="sprint-assignee-column">${sprintTaskSortButton("assignee","Исполнитель")}</th>
     ${roleDefs.map(role=>
-      `<th class="num">${esc(role.name)}</th>`
+      `<th class="num sprint-role-column">${esc(role.name)}</th>`
     ).join("")}
-    <th class="num">Итого</th>
-    <th>Выполнение</th>
-    <th></th>
+    <th class="num sprint-total-column">Итого</th>
+    <th class="sprint-completion-column">Выполнение</th>
+    <th class="sprint-actions-column"></th>
   </tr>`;
 
   const allTasks=selectedTaskIds
@@ -4782,30 +5106,44 @@ function renderSprintTasks(){
         ${lifecycleNote}
         ${readyToProdNote}
       </td>
-      <td>${sprintTaskDirectionHtml(
-        normalized,
-        gitlabMetadata
-      )}</td>
-      <td>${gitLabStatusHtml(
-        gitlabMetadata,
-        hasGitLabUrl
-      )}</td>
-      <td>${gitLabAssigneesHtml(
-        gitlabMetadata,
-        hasGitLabUrl
-      )}</td>
+      <td
+        class="sprint-direction-cell"
+        data-label="Направление">${sprintTaskDirectionHtml(
+          normalized,
+          gitlabMetadata
+        )}</td>
+      <td
+        class="sprint-status-cell"
+        data-label="Статус GitLab">${gitLabStatusHtml(
+          gitlabMetadata,
+          hasGitLabUrl
+        )}</td>
+      <td
+        class="sprint-assignee-cell"
+        data-label="Исполнитель">${gitLabAssigneesHtml(
+          gitlabMetadata,
+          hasGitLabUrl
+        )}</td>
       ${roleDefs.map(role=>
-        `<td class="num">${fmt(
-          Number(normalized.estimates[role.key]||0),
-          1
-        )}</td>`
+        `<td
+          class="num sprint-role-cell"
+          data-label="${esc(role.name)}">${fmt(
+            Number(normalized.estimates[role.key]||0),
+            1
+          )}</td>`
       ).join("")}
-      <td class="num task-estimate-total">${fmt(
-        taskTotalEstimate(normalized),
-        1
-      )}</td>
-      <td>${completionHtml}</td>
-      <td>${actions}</td>`;
+      <td
+        class="num task-estimate-total sprint-total-cell"
+        data-label="Итого">${fmt(
+          taskTotalEstimate(normalized),
+          1
+        )}</td>
+      <td
+        class="sprint-completion-cell"
+        data-label="Выполнение">${completionHtml}</td>
+      <td
+        class="sprint-actions-cell"
+        data-label="Действия">${actions}</td>`;
 
     sprintTasksBody.appendChild(tr);
   });

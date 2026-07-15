@@ -60,6 +60,8 @@ service cloud.firestore {
           == resource.data.teamByRole
         && request.resource.data.sessionByRole
           == resource.data.sessionByRole
+        && request.resource.data.get("gitlab", null)
+          == resource.data.get("gitlab", null)
         && importedEstimateIsPreserved("backend")
         && importedEstimateIsPreserved("frontend");
     }
@@ -96,8 +98,17 @@ service cloud.firestore {
       match /taskPool/{taskId} {
         allow read: if activeUser();
 
-        // Новые задачи из Team_poker создаёт только технический пользователь.
-        allow create: if integrationUser();
+        // Задачи из Team_poker создаёт технический пользователь.
+        // Обычный активный пользователь может добавить ручную задачу
+        // только от своего имени и только с источником team_calculator.
+        allow create: if integrationUser()
+          || (
+            activeUser()
+            && !integrationUser()
+            && request.resource.data.id == taskId
+            && request.resource.data.source == "team_calculator"
+            && request.resource.data.createdByUid == request.auth.uid
+          );
 
         // Интеграция обновляет оценки Team_poker.
         // Обычные пользователи дополняют остальные роли и планируют спринт,
@@ -110,6 +121,27 @@ service cloud.firestore {
           );
 
         allow delete: if activeUser() && !integrationUser();
+      }
+
+      // Очередь запросов к корпоративному GitLab.
+      // Браузер не пишет сюда напрямую: задание создаёт Cloudflare Worker
+      // под техническим пользователем integration.
+      match /gitlab_jobs/{jobId} {
+        allow read: if activeUser();
+
+        allow create: if integrationUser()
+          && request.resource.data.schemaVersion == 1
+          && request.resource.data.type
+            == "sync_gitlab_issue_metadata"
+          && request.resource.data.status == "pending"
+          && request.resource.data.idempotencyKey == jobId
+          && request.resource.data.workspaceId == workspaceId
+          && request.resource.data.tasks is list
+          && request.resource.data.tasks.size() > 0
+          && request.resource.data.tasks.size() <= 100;
+
+        // Коннектор использует серверные IAM-права и не ограничен Rules.
+        allow update, delete: if false;
       }
     }
   }

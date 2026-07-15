@@ -402,6 +402,108 @@
       background:#fdecea;
       color:#b3261e;
     }
+    .gitlab-status-pill.ready-prod{
+      background:#137333;
+      color:#fff;
+      border:1px solid #0d5d28;
+      box-shadow:0 0 0 2px rgba(19,115,51,.12);
+      font-weight:950;
+    }
+    .sprint-ready-prod-row td{
+      background:#f0faf3;
+    }
+    .sprint-ready-prod-row td:first-child{
+      box-shadow:inset 4px 0 0 #1b8f45;
+    }
+    .sprint-ready-prod-note{
+      margin-top:4px;
+      color:#137333;
+      font-size:11px;
+      font-weight:900;
+    }
+    .sprint-direction-list{
+      display:flex;
+      flex-wrap:wrap;
+      gap:4px;
+      min-width:110px;
+    }
+    .sprint-direction-pill{
+      display:inline-flex;
+      align-items:center;
+      padding:4px 7px;
+      border-radius:999px;
+      background:#edf2ff;
+      color:#315da8;
+      font-size:11px;
+      font-weight:850;
+      white-space:nowrap;
+    }
+    .sprint-task-toolbar{
+      display:flex;
+      align-items:flex-end;
+      justify-content:space-between;
+      gap:12px;
+      flex-wrap:wrap;
+      margin:12px 0;
+      padding:10px 12px;
+      border:1px solid var(--border);
+      border-radius:12px;
+      background:#fafbfe;
+    }
+    .sprint-task-filters{
+      display:flex;
+      align-items:flex-end;
+      gap:10px;
+      flex-wrap:wrap;
+    }
+    .sprint-task-filters label{
+      display:grid;
+      gap:5px;
+      margin:0;
+      color:var(--muted);
+      font-size:11px;
+      font-weight:800;
+    }
+    .sprint-task-filters select{
+      min-width:160px;
+      max-width:240px;
+    }
+    .sprint-task-toolbar > .muted{
+      padding-bottom:9px;
+      white-space:nowrap;
+    }
+    .sprint-task-sort-button{
+      width:100%;
+      min-width:0;
+      padding:3px 2px!important;
+      border:0!important;
+      border-radius:6px!important;
+      background:transparent!important;
+      color:inherit!important;
+      box-shadow:none!important;
+      display:inline-flex;
+      align-items:center;
+      justify-content:flex-start;
+      gap:4px;
+      font:inherit;
+      font-weight:800;
+      line-height:1.15;
+      white-space:normal;
+      cursor:pointer;
+      text-align:left;
+    }
+    .sprint-task-sort-button:hover{
+      background:#f1f4f9!important;
+    }
+    .sprint-task-sort-button .task-sort-indicator{
+      min-width:12px;
+      color:#a6adbb;
+      font-size:11px;
+      font-weight:900;
+    }
+    .sprint-task-sort-button.active .task-sort-indicator{
+      color:var(--accent);
+    }
     .gitlab-assignees{
       display:grid;
       gap:3px;
@@ -426,6 +528,23 @@
       .sprint-gitlab-toolbar .muted{
         flex:auto;
         text-align:left;
+      }
+      .sprint-task-toolbar{
+        align-items:stretch;
+        flex-direction:column;
+      }
+      .sprint-task-filters{
+        align-items:stretch;
+        display:grid;
+        grid-template-columns:1fr;
+        width:100%;
+      }
+      .sprint-task-filters select{
+        width:100%;
+        max-width:none;
+      }
+      .sprint-task-toolbar > .muted{
+        padding-bottom:0;
       }
     }
 
@@ -1020,6 +1139,43 @@
             Статус и исполнители ещё не запрашивались.
           </span>
         </div>
+
+        <div class="sprint-task-toolbar">
+          <div class="sprint-task-filters">
+            <label>
+              <span>Направление</span>
+              <select id="sprintTaskDirectionFilter">
+                <option value="all">Все направления</option>
+              </select>
+            </label>
+
+            <label>
+              <span>Статус</span>
+              <select id="sprintTaskStatusFilter">
+                <option value="all">Все статусы</option>
+              </select>
+            </label>
+
+            <label>
+              <span>Исполнитель</span>
+              <select id="sprintTaskAssigneeFilter">
+                <option value="all">Все исполнители</option>
+              </select>
+            </label>
+
+            <button
+              class="secondary"
+              id="resetSprintTaskFilters"
+              type="button">
+              Сбросить фильтры
+            </button>
+          </div>
+
+          <span class="muted" id="sprintTaskVisibleCount">
+            Показано 0 задач
+          </span>
+        </div>
+
         <div class="task-table-wrap">
           <table class="task-table">
             <thead id="sprintTasksHead"></thead>
@@ -1239,6 +1395,11 @@ let unsubscribeGitLabJob=null;
 let gitLabSyncInProgress=false;
 const automaticGitLabSyncKeys=new Set();
 
+let sprintTaskSort={
+  key:"title",
+  direction:"asc"
+};
+
 const periodName=document.getElementById("periodName"),
 workdays=document.getElementById("workdays"),
 utilization=document.getElementById("utilization"),
@@ -1265,6 +1426,11 @@ sprintTasksBody=document.getElementById("sprintTasksBody"),
 sprintTaskSummary=document.getElementById("sprintTaskSummary"),
 syncSprintGitLabButton=document.getElementById("syncSprintGitLab"),
 sprintGitLabSyncStatus=document.getElementById("sprintGitLabSyncStatus"),
+sprintTaskDirectionFilter=document.getElementById("sprintTaskDirectionFilter"),
+sprintTaskStatusFilter=document.getElementById("sprintTaskStatusFilter"),
+sprintTaskAssigneeFilter=document.getElementById("sprintTaskAssigneeFilter"),
+resetSprintTaskFiltersButton=document.getElementById("resetSprintTaskFilters"),
+sprintTaskVisibleCount=document.getElementById("sprintTaskVisibleCount"),
 authScreen=document.getElementById("authScreen"),
 authStatus=document.getElementById("authStatus"),
 loginEmail=document.getElementById("loginEmail"),
@@ -3652,6 +3818,13 @@ function gitLabStatusHtml(metadata,hasUrl){
     syncedAt?`Обновлено: ${syncedAt}`:""
   ].filter(Boolean).join(" · ");
 
+  const readyToProd=isReadyToProdGitLabStatus(metadata);
+
+  if(readyToProd){
+    cssClass="ready-prod";
+    text=`✓ ${text}`;
+  }
+
   return `<span class="gitlab-status-pill ${cssClass}" title="${esc(title)}">${esc(text)}</span>`;
 }
 
@@ -3930,28 +4103,581 @@ function maybeAutoSyncSprintGitLab(){
   }
 }
 
+
+const SPRINT_DIRECTION_ORDER=[
+  "analytics",
+  "design",
+  "backend",
+  "frontend",
+  "qa",
+  "devops"
+];
+
+const SPRINT_DIRECTION_LABELS={
+  analytics:"Аналитика",
+  design:"Дизайн",
+  backend:"Backend",
+  frontend:"Frontend",
+  qa:"QA",
+  devops:"DevOps"
+};
+
+function normalizeSprintDirectionKey(value){
+  const normalized=String(value||"")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g,"");
+
+  const aliases={
+    analytics:"analytics",
+    analyst:"analytics",
+    analysis:"analytics",
+    аналитика:"analytics",
+    design:"design",
+    designer:"design",
+    дизайн:"design",
+    backend:"backend",
+    back:"backend",
+    бэкенд:"backend",
+    бекенд:"backend",
+    frontend:"frontend",
+    front:"frontend",
+    фронтенд:"frontend",
+    qa:"qa",
+    testing:"qa",
+    test:"qa",
+    тестирование:"qa",
+    devops:"devops",
+    девопс:"devops"
+  };
+
+  return aliases[normalized]||"";
+}
+
+function sprintTaskDirectionKeys(task,metadata){
+  const labels=Array.isArray(metadata?.labels)
+    ?metadata.labels
+    :[];
+
+  const scopeDirections=labels
+    .map(label=>{
+      const match=String(label||"").trim().match(/^scope::(.+)$/i);
+      return match
+        ?normalizeSprintDirectionKey(match[1])
+        :"";
+    })
+    .filter(Boolean);
+
+  if(scopeDirections.length){
+    return [...new Set(scopeDirections)].sort(
+      (left,right)=>
+        SPRINT_DIRECTION_ORDER.indexOf(left)
+        -SPRINT_DIRECTION_ORDER.indexOf(right)
+    );
+  }
+
+  const normalized=normalizeTask(task);
+  const estimates=normalized.estimates||{};
+
+  return SPRINT_DIRECTION_ORDER.filter(
+    key=>Number(estimates[key]||0)>0
+  );
+}
+
+function sprintTaskDirectionText(task,metadata){
+  const keys=sprintTaskDirectionKeys(task,metadata);
+  return keys.length
+    ?keys.map(key=>SPRINT_DIRECTION_LABELS[key]||key).join(", ")
+    :"Без направления";
+}
+
+function sprintTaskDirectionHtml(task,metadata){
+  const keys=sprintTaskDirectionKeys(task,metadata);
+
+  if(!keys.length){
+    return '<span class="muted">Без направления</span>';
+  }
+
+  return `<div class="sprint-direction-list">
+    ${keys.map(key=>
+      `<span class="sprint-direction-pill">${esc(
+        SPRINT_DIRECTION_LABELS[key]||key
+      )}</span>`
+    ).join("")}
+  </div>`;
+}
+
+function gitLabMatchedStatusLabels(metadata){
+  if(Array.isArray(metadata?.matchedStatusLabels)){
+    return metadata.matchedStatusLabels
+      .map(label=>String(label||"").trim())
+      .filter(Boolean);
+  }
+
+  const label=String(metadata?.statusLabel||"").trim();
+  return label?[label]:[];
+}
+
+function isReadyToProdGitLabStatus(metadata){
+  return gitLabMatchedStatusLabels(metadata).some(
+    label=>/^Ready to PROD(?:\s|$)/i.test(label)
+  );
+}
+
+function sprintTaskStatusSortText(metadata,hasUrl){
+  if(!hasUrl)return "Нет ссылки GitLab";
+  if(!metadata)return "Не синхронизировано";
+
+  const labels=gitLabMatchedStatusLabels(metadata);
+  if(labels.length)return labels.join(", ");
+
+  if(metadata.statusState==="conflict")return "Конфликт статусов";
+  if(metadata.syncError)return "Ошибка синхронизации";
+
+  return "Статус не указан";
+}
+
+function sprintTaskStatusFilterKeys(metadata,hasUrl){
+  if(!hasUrl)return ["__no_url__"];
+  if(!metadata)return ["__unsynced__"];
+
+  const labels=gitLabMatchedStatusLabels(metadata);
+  const result=[...labels];
+
+  if(metadata.statusState==="conflict"){
+    result.push("__conflict__");
+  }
+
+  if(metadata.syncError){
+    result.push("__error__");
+  }
+
+  if(!labels.length&&metadata.statusState!=="conflict"){
+    result.push("__missing__");
+  }
+
+  return [...new Set(result)];
+}
+
+function sprintTaskAssigneeEntries(metadata,hasUrl){
+  if(!hasUrl||!metadata)return [];
+
+  return (Array.isArray(metadata.assignees)
+    ?metadata.assignees
+    :[])
+    .map(person=>{
+      const username=String(person?.username||"").trim();
+      const name=String(
+        person?.name||username||"Исполнитель"
+      ).trim();
+
+      return {
+        key:username
+          ?`user:${username.toLowerCase()}`
+          :`name:${name.toLowerCase()}`,
+        name,
+        username
+      };
+    })
+    .filter(person=>person.name);
+}
+
+function sprintTaskAssigneeSortText(metadata,hasUrl){
+  if(!hasUrl)return "Нет ссылки GitLab";
+  if(!metadata)return "Не синхронизировано";
+
+  const people=sprintTaskAssigneeEntries(metadata,hasUrl);
+  return people.length
+    ?people.map(person=>person.name).join(", ")
+    :"Не назначен";
+}
+
+function sprintTaskAssigneeFilterKeys(metadata,hasUrl){
+  if(!hasUrl)return ["__no_url__"];
+  if(!metadata)return ["__unsynced__"];
+
+  const people=sprintTaskAssigneeEntries(metadata,hasUrl);
+  return people.length
+    ?people.map(person=>person.key)
+    :["__unassigned__"];
+}
+
+function sprintTaskSortValue(item,key){
+  if(key==="direction"){
+    return sprintTaskDirectionText(
+      item.task,
+      item.gitlabMetadata
+    );
+  }
+
+  if(key==="status"){
+    return sprintTaskStatusSortText(
+      item.gitlabMetadata,
+      item.hasGitLabUrl
+    );
+  }
+
+  if(key==="assignee"){
+    return sprintTaskAssigneeSortText(
+      item.gitlabMetadata,
+      item.hasGitLabUrl
+    );
+  }
+
+  return String(item.task?.title||item.id||"");
+}
+
+function compareSprintTaskItems(left,right){
+  const direction=sprintTaskSort.direction==="desc"?-1:1;
+
+  const leftValue=sprintTaskSortValue(
+    left,
+    sprintTaskSort.key
+  );
+  const rightValue=sprintTaskSortValue(
+    right,
+    sprintTaskSort.key
+  );
+
+  const primary=leftValue.localeCompare(
+    rightValue,
+    "ru",
+    {
+      sensitivity:"base",
+      numeric:true
+    }
+  );
+
+  if(primary!==0)return primary*direction;
+
+  return String(left.task?.title||left.id||"").localeCompare(
+    String(right.task?.title||right.id||""),
+    "ru",
+    {
+      sensitivity:"base",
+      numeric:true
+    }
+  );
+}
+
+function sprintTaskSortButton(key,label){
+  const active=sprintTaskSort.key===key;
+  const indicator=active
+    ?(sprintTaskSort.direction==="asc"?"▲":"▼")
+    :"↕";
+
+  return `<button
+    class="sprint-task-sort-button ${active?"active":""}"
+    type="button"
+    data-sprint-task-sort="${esc(key)}">
+      <span>${esc(label)}</span>
+      <span class="task-sort-indicator">${indicator}</span>
+    </button>`;
+}
+
+function setSelectOptions(
+  select,
+  options,
+  allLabel,
+  currentValue
+){
+  const unique=[];
+  const seen=new Set();
+
+  options.forEach(option=>{
+    if(
+      !option
+      ||!option.value
+      ||seen.has(option.value)
+    ){
+      return;
+    }
+
+    seen.add(option.value);
+    unique.push(option);
+  });
+
+  select.innerHTML=[
+    `<option value="all">${esc(allLabel)}</option>`,
+    ...unique.map(option=>
+      `<option value="${esc(option.value)}">${esc(option.label)}</option>`
+    )
+  ].join("");
+
+  const available=new Set(["all",...unique.map(option=>option.value)]);
+  select.value=available.has(currentValue)
+    ?currentValue
+    :"all";
+}
+
+function renderSprintTaskFilterOptions(tasks){
+  const currentDirection=sprintTaskDirectionFilter.value||"all";
+  const currentStatus=sprintTaskStatusFilter.value||"all";
+  const currentAssignee=sprintTaskAssigneeFilter.value||"all";
+
+  const usedDirections=new Set();
+  const statusOptions=new Map();
+  const assigneeOptions=new Map();
+
+  let hasNoDirection=false;
+  let hasUnassigned=false;
+  let hasUnsyncedAssignee=false;
+  let hasNoUrlAssignee=false;
+
+  tasks.forEach(item=>{
+    const directions=sprintTaskDirectionKeys(
+      item.task,
+      item.gitlabMetadata
+    );
+
+    if(directions.length){
+      directions.forEach(key=>usedDirections.add(key));
+    }else{
+      hasNoDirection=true;
+    }
+
+    sprintTaskStatusFilterKeys(
+      item.gitlabMetadata,
+      item.hasGitLabUrl
+    ).forEach(key=>{
+      const specialLabels={
+        "__no_url__":"Нет ссылки GitLab",
+        "__unsynced__":"Не синхронизировано",
+        "__conflict__":"Конфликт статусов",
+        "__error__":"Ошибка синхронизации",
+        "__missing__":"Статус не указан"
+      };
+
+      statusOptions.set(
+        key,
+        specialLabels[key]||key
+      );
+    });
+
+    const people=sprintTaskAssigneeEntries(
+      item.gitlabMetadata,
+      item.hasGitLabUrl
+    );
+
+    if(!item.hasGitLabUrl){
+      hasNoUrlAssignee=true;
+    }else if(!item.gitlabMetadata){
+      hasUnsyncedAssignee=true;
+    }else if(!people.length){
+      hasUnassigned=true;
+    }else{
+      people.forEach(person=>{
+        assigneeOptions.set(person.key,person.name);
+      });
+    }
+  });
+
+  const directionOptions=[
+    ...SPRINT_DIRECTION_ORDER
+      .filter(key=>usedDirections.has(key))
+      .map(key=>({
+        value:key,
+        label:SPRINT_DIRECTION_LABELS[key]||key
+      })),
+    ...(hasNoDirection
+      ?[{value:"__none__",label:"Без направления"}]
+      :[])
+  ];
+
+  const statusPriority=[
+    "__no_url__",
+    "__unsynced__",
+    "__missing__",
+    "__conflict__",
+    "__error__"
+  ];
+
+  const statusSpecial=[];
+  const statusNormal=[];
+
+  statusOptions.forEach((label,value)=>{
+    const option={value,label};
+    if(statusPriority.includes(value)){
+      statusSpecial.push(option);
+    }else{
+      statusNormal.push(option);
+    }
+  });
+
+  statusNormal.sort(
+    (a,b)=>a.label.localeCompare(
+      b.label,
+      "ru",
+      {sensitivity:"base",numeric:true}
+    )
+  );
+
+  statusSpecial.sort(
+    (a,b)=>statusPriority.indexOf(a.value)-statusPriority.indexOf(b.value)
+  );
+
+  const assigneeNormal=[...assigneeOptions.entries()]
+    .map(([value,label])=>({value,label}))
+    .sort(
+      (a,b)=>a.label.localeCompare(
+        b.label,
+        "ru",
+        {sensitivity:"base",numeric:true}
+      )
+    );
+
+  const assigneeSpecial=[
+    ...(hasUnassigned
+      ?[{value:"__unassigned__",label:"Не назначен"}]
+      :[]),
+    ...(hasUnsyncedAssignee
+      ?[{value:"__unsynced__",label:"Не синхронизировано"}]
+      :[]),
+    ...(hasNoUrlAssignee
+      ?[{value:"__no_url__",label:"Нет ссылки GitLab"}]
+      :[])
+  ];
+
+  setSelectOptions(
+    sprintTaskDirectionFilter,
+    directionOptions,
+    "Все направления",
+    currentDirection
+  );
+
+  setSelectOptions(
+    sprintTaskStatusFilter,
+    [...statusNormal,...statusSpecial],
+    "Все статусы",
+    currentStatus
+  );
+
+  setSelectOptions(
+    sprintTaskAssigneeFilter,
+    [...assigneeNormal,...assigneeSpecial],
+    "Все исполнители",
+    currentAssignee
+  );
+}
+
+function sprintTaskMatchesFilters(item){
+  const directionFilter=
+    sprintTaskDirectionFilter.value||"all";
+  const statusFilter=
+    sprintTaskStatusFilter.value||"all";
+  const assigneeFilter=
+    sprintTaskAssigneeFilter.value||"all";
+
+  if(directionFilter!=="all"){
+    const directions=sprintTaskDirectionKeys(
+      item.task,
+      item.gitlabMetadata
+    );
+
+    if(
+      directionFilter==="__none__"
+        ?directions.length>0
+        :!directions.includes(directionFilter)
+    ){
+      return false;
+    }
+  }
+
+  if(statusFilter!=="all"){
+    const keys=sprintTaskStatusFilterKeys(
+      item.gitlabMetadata,
+      item.hasGitLabUrl
+    );
+
+    if(!keys.includes(statusFilter)){
+      return false;
+    }
+  }
+
+  if(assigneeFilter!=="all"){
+    const keys=sprintTaskAssigneeFilterKeys(
+      item.gitlabMetadata,
+      item.hasGitLabUrl
+    );
+
+    if(!keys.includes(assigneeFilter)){
+      return false;
+    }
+  }
+
+  return true;
+}
+
 function renderSprintTasks(){
-  const roleDefs=roles.map(role=>({key:roleKeyFromName(role.name),name:role.name}));
+  const roleDefs=roles.map(role=>({
+    key:roleKeyFromName(role.name),
+    name:role.name
+  }));
+
   sprintTasksHead.innerHTML=`<tr>
-    <th>Задача</th>
-    <th>Статус GitLab</th>
-    <th>Исполнитель</th>
-    ${roleDefs.map(r=>`<th class="num">${esc(r.name)}</th>`).join("")}
+    <th>${sprintTaskSortButton("title","Задача")}</th>
+    <th>${sprintTaskSortButton("direction","Направление")}</th>
+    <th>${sprintTaskSortButton("status","Статус GitLab")}</th>
+    <th>${sprintTaskSortButton("assignee","Исполнитель")}</th>
+    ${roleDefs.map(role=>
+      `<th class="num">${esc(role.name)}</th>`
+    ).join("")}
     <th class="num">Итого</th>
     <th>Выполнение</th>
     <th></th>
   </tr>`;
 
-  const tasks=selectedTaskIds.map(id=>({id,task:currentTaskSnapshot(id)})).filter(x=>x.task);
-  const completedSet=new Set(completedTaskIds);
+  const allTasks=selectedTaskIds
+    .map(id=>{
+      const task=currentTaskSnapshot(id);
+      if(!task)return null;
 
+      const normalized=normalizeTask(task);
+      const poolTask=taskPool[id];
+      const gitlabMetadata=
+        gitLabMetadataForSprintTask(id,normalized);
+
+      const hasGitLabUrl=Boolean(
+        String(
+          normalized.externalTaskUrl
+          ||poolTask?.externalTaskUrl
+          ||""
+        ).trim()
+      );
+
+      return {
+        id,
+        task:normalized,
+        poolTask,
+        gitlabMetadata,
+        hasGitLabUrl,
+        readyToProd:isReadyToProdGitLabStatus(
+          gitlabMetadata
+        )
+      };
+    })
+    .filter(Boolean);
+
+  renderSprintTaskFilterOptions(allTasks);
+
+  const tasks=allTasks
+    .filter(sprintTaskMatchesFilters)
+    .sort(compareSprintTaskItems);
+
+  const completedSet=new Set(completedTaskIds);
   const baselineIds=baselineTaskSet();
+  const readyToProdCount=allTasks.filter(
+    item=>item.readyToProd
+  ).length;
 
   sprintTaskSummary.innerHTML=`
-    <span class="sprint-summary-pill"><b>${tasks.length}</b> задач в составе</span>
-    <span class="sprint-summary-pill"><b>${tasks.filter(x=>completedSet.has(x.id)).length}</b> выполнено</span>
-    <span class="sprint-summary-pill"><b>${fmt(tasks.reduce((s,x)=>s+taskTotalEstimate(x.task),0),1)}</b> ч.д. текущий состав</span>
-    <span class="sprint-summary-pill"><b>${fmt(tasks.filter(x=>completedSet.has(x.id)).reduce((s,x)=>s+taskTotalEstimate(x.task),0),1)}</b> ч.д. выполнено</span>
+    <span class="sprint-summary-pill"><b>${allTasks.length}</b> задач в составе</span>
+    <span class="sprint-summary-pill"><b>${allTasks.filter(item=>completedSet.has(item.id)).length}</b> выполнено</span>
+    <span class="sprint-summary-pill"><b>${fmt(allTasks.reduce((sum,item)=>sum+taskTotalEstimate(item.task),0),1)}</b> ч.д. текущий состав</span>
+    <span class="sprint-summary-pill"><b>${fmt(allTasks.filter(item=>completedSet.has(item.id)).reduce((sum,item)=>sum+taskTotalEstimate(item.task),0),1)}</b> ч.д. выполнено</span>
+    ${readyToProdCount
+      ?`<span class="sprint-summary-pill"><b>✓ ${readyToProdCount}</b> Ready to PROD</span>`
+      :""}
     ${sprintBaseline
       ?`<span class="baseline-pill"><b>${baselineTaskIds().length}</b>&nbsp;задач и&nbsp;<b>${fmt(baselineTotalEstimate(),1)}</b>&nbsp;ч.д. в исходном плане</span>`
       :""}
@@ -3960,37 +4686,63 @@ function renderSprintTasks(){
       :""}
   `;
 
+  sprintTaskVisibleCount.textContent=
+    `Показано ${tasks.length} из ${allTasks.length}`;
+
+  if(!allTasks.length){
+    sprintTasksBody.innerHTML=
+      '<tr><td class="task-empty" colspan="30">В спринт пока не добавлено ни одной задачи.</td></tr>';
+    return;
+  }
+
   if(!tasks.length){
-    sprintTasksBody.innerHTML='<tr><td class="task-empty" colspan="20">В спринт пока не добавлено ни одной задачи.</td></tr>';
+    sprintTasksBody.innerHTML=
+      '<tr><td class="task-empty" colspan="30">По выбранным фильтрам задач не найдено.</td></tr>';
     return;
   }
 
   sprintTasksBody.innerHTML="";
-  tasks.forEach(({id,task})=>{
-    const normalized=normalizeTask(task);
+
+  tasks.forEach(item=>{
+    const {
+      id,
+      task:normalized,
+      poolTask,
+      gitlabMetadata,
+      hasGitLabUrl,
+      readyToProd
+    }=item;
+
     const done=completedSet.has(id);
     const inBaseline=baselineIds.has(id);
-    const returnedToPool=sprintReturnedTaskIds.includes(id);
-    const poolTask=taskPool[id];
-    const gitlabMetadata=gitLabMetadataForSprintTask(id,normalized);
-    const hasGitLabUrl=Boolean(
-      String(normalized.externalTaskUrl||poolTask?.externalTaskUrl||"").trim()
-    );
-    const estimateChanged=poolTask&&JSON.stringify(normalizeTask(poolTask).estimates)!==JSON.stringify(normalized.estimates);
+    const returnedToPool=
+      sprintReturnedTaskIds.includes(id);
+
+    const estimateChanged=
+      poolTask
+      &&JSON.stringify(
+        normalizeTask(poolTask).estimates
+      )!==JSON.stringify(normalized.estimates);
+
     const title=normalized.externalTaskUrl
-      ? `<a class="task-link" href="${esc(normalized.externalTaskUrl)}" target="_blank" rel="noopener">${esc(normalized.title||id)}</a>`
-      : esc(normalized.title||id);
+      ?`<a class="task-link" href="${esc(normalized.externalTaskUrl)}" target="_blank" rel="noopener">${esc(normalized.title||id)}</a>`
+      :esc(normalized.title||id);
 
     let completionHtml;
 
     if(sprintLifecycleStatus===SPRINT_STATUS_PLANNING){
-      completionHtml='<span class="muted">После запуска</span>';
-    }else if(sprintLifecycleStatus===SPRINT_STATUS_ACTIVE){
+      completionHtml=
+        '<span class="muted">После запуска</span>';
+    }else if(
+      sprintLifecycleStatus===SPRINT_STATUS_ACTIVE
+    ){
       completionHtml=`<label class="completion-toggle"><input type="checkbox" data-complete-task="${id}" ${done?"checked":""}> Выполнена</label>`;
     }else if(done){
-      completionHtml='<span class="task-status done">Выполнена</span>';
+      completionHtml=
+        '<span class="task-status done">Выполнена</span>';
     }else{
-      completionHtml='<span class="task-status incomplete">Не выполнена</span>';
+      completionHtml=
+        '<span class="task-status incomplete">Не выполнена</span>';
     }
 
     const lifecycleNote=returnedToPool
@@ -4003,33 +4755,109 @@ function renderSprintTasks(){
         )
         :"");
 
+    const readyToProdNote=readyToProd
+      ?'<div class="sprint-ready-prod-note">✓ Успешно доведена до Ready to PROD</div>'
+      :"";
+
     const actions=sprintLifecycleIsCompleted()
       ?'<span class="muted">Только просмотр</span>'
       :`<div class="small-actions">
-          ${estimateChanged?`<button class="secondary" data-update-snapshot="${id}">Обновить оценку</button>`:""}
+          ${estimateChanged
+            ?`<button class="secondary" data-update-snapshot="${id}">Обновить оценку</button>`
+            :""}
           <button class="secondary" data-remove-task="${id}">Убрать</button>
         </div>`;
 
     const tr=document.createElement("tr");
+
+    if(readyToProd){
+      tr.classList.add("sprint-ready-prod-row");
+    }
+
     tr.innerHTML=`<td class="task-title-cell">
         <div class="task-title">${title}</div>
-        ${estimateChanged&&!sprintLifecycleIsCompleted()?'<div class="task-warning">В пуле есть обновлённая оценка</div>':""}
+        ${estimateChanged&&!sprintLifecycleIsCompleted()
+          ?'<div class="task-warning">В пуле есть обновлённая оценка</div>'
+          :""}
         ${lifecycleNote}
+        ${readyToProdNote}
       </td>
-      <td>${gitLabStatusHtml(gitlabMetadata,hasGitLabUrl)}</td>
-      <td>${gitLabAssigneesHtml(gitlabMetadata,hasGitLabUrl)}</td>
-      ${roleDefs.map(role=>`<td class="num">${fmt(Number(normalized.estimates[role.key]||0),1)}</td>`).join("")}
-      <td class="num task-estimate-total">${fmt(taskTotalEstimate(normalized),1)}</td>
+      <td>${sprintTaskDirectionHtml(
+        normalized,
+        gitlabMetadata
+      )}</td>
+      <td>${gitLabStatusHtml(
+        gitlabMetadata,
+        hasGitLabUrl
+      )}</td>
+      <td>${gitLabAssigneesHtml(
+        gitlabMetadata,
+        hasGitLabUrl
+      )}</td>
+      ${roleDefs.map(role=>
+        `<td class="num">${fmt(
+          Number(normalized.estimates[role.key]||0),
+          1
+        )}</td>`
+      ).join("")}
+      <td class="num task-estimate-total">${fmt(
+        taskTotalEstimate(normalized),
+        1
+      )}</td>
       <td>${completionHtml}</td>
       <td>${actions}</td>`;
+
     sprintTasksBody.appendChild(tr);
   });
 
-  document.querySelectorAll("[data-complete-task]").forEach(input=>{
-    input.onchange=()=>toggleTaskCompleted(input.dataset.completeTask,input.checked);
-  });
-  document.querySelectorAll("[data-update-snapshot]").forEach(btn=>btn.onclick=()=>updateSprintTaskSnapshot(btn.dataset.updateSnapshot));
-  document.querySelectorAll("#sprintTasksBody [data-remove-task]").forEach(btn=>btn.onclick=()=>removeTaskFromSprint(btn.dataset.removeTask));
+  document
+    .querySelectorAll("[data-sprint-task-sort]")
+    .forEach(button=>{
+      button.onclick=()=>{
+        const key=button.dataset.sprintTaskSort;
+
+        if(sprintTaskSort.key===key){
+          sprintTaskSort.direction=
+            sprintTaskSort.direction==="asc"
+              ?"desc"
+              :"asc";
+        }else{
+          sprintTaskSort={
+            key,
+            direction:"asc"
+          };
+        }
+
+        renderSprintTasks();
+      };
+    });
+
+  document
+    .querySelectorAll("[data-complete-task]")
+    .forEach(input=>{
+      input.onchange=()=>toggleTaskCompleted(
+        input.dataset.completeTask,
+        input.checked
+      );
+    });
+
+  document
+    .querySelectorAll("[data-update-snapshot]")
+    .forEach(button=>{
+      button.onclick=()=>updateSprintTaskSnapshot(
+        button.dataset.updateSnapshot
+      );
+    });
+
+  document
+    .querySelectorAll(
+      "#sprintTasksBody [data-remove-task]"
+    )
+    .forEach(button=>{
+      button.onclick=()=>removeTaskFromSprint(
+        button.dataset.removeTask
+      );
+    });
 }
 
 function render(){
@@ -4337,6 +5165,22 @@ periodName.onchange=()=>{if(periodName.value==="sprint")workdays.value=10;if(per
 document.getElementById("saveSprint").onclick=()=>saveSprintSet(false,{silent:false,source:"manual"});
 sprintLifecycleAction.onclick=handleSprintLifecycleAction;
 syncSprintGitLabButton.onclick=()=>requestSprintGitLabSync({automatic:false});
+
+[
+  sprintTaskDirectionFilter,
+  sprintTaskStatusFilter,
+  sprintTaskAssigneeFilter
+].forEach(select=>{
+  select.onchange=renderSprintTasks;
+});
+
+resetSprintTaskFiltersButton.onclick=()=>{
+  sprintTaskDirectionFilter.value="all";
+  sprintTaskStatusFilter.value="all";
+  sprintTaskAssigneeFilter.value="all";
+  renderSprintTasks();
+};
+
 document.getElementById("saveAsSprint").onclick=copyCurrentSprintSettings;
 restorePreviousStateButton.onclick=restorePreviousSprintState;
 document.getElementById("deleteSprint").onclick=()=>deleteSprintSet(currentSprintId);

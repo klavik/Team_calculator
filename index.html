@@ -1074,6 +1074,31 @@
     .completion-toggle input{width:auto}
     .task-estimate-total{font-weight:800;white-space:nowrap}
     .task-warning{color:#b06000;font-size:11px;margin-top:3px}
+    .gitlab-estimate-sync{
+      display:flex;
+      align-items:center;
+      flex-wrap:wrap;
+      gap:5px;
+      margin-top:5px;
+      font-size:11px;
+      font-weight:800;
+    }
+    .gitlab-estimate-sync.pending,
+    .gitlab-estimate-sync.processing{color:#8a5b00}
+    .gitlab-estimate-sync.succeeded{color:#137333}
+    .gitlab-estimate-sync.failed{color:#b3261e}
+    .gitlab-estimate-sync.missing{color:#697386}
+    .gitlab-estimate-sync .sync-dot{
+      width:7px;
+      height:7px;
+      flex:0 0 7px;
+      border-radius:50%;
+      background:currentColor;
+    }
+    .gitlab-estimate-retry{
+      padding:5px 7px!important;
+      font-size:10px!important;
+    }
     .plan-grid{
       grid-template-columns:minmax(150px,1.05fr) minmax(90px,.5fr) minmax(90px,.5fr) minmax(90px,.5fr) minmax(240px,1.55fr) minmax(100px,.6fr)!important;
     }
@@ -1561,6 +1586,11 @@
       <div class="full">
         <label for="manualTaskUrl">Ссылка на задачу в GitLab</label>
         <input id="manualTaskUrl" type="url" placeholder="https://gitlab.example/.../issues/123">
+        <div class="muted small" style="margin-top:5px">
+          При наличии ссылки оценка профильной роли и label
+          <b>estimate::done</b> будут отправлены в GitLab.
+          Без ссылки задача сохранится только в Team_calculator.
+        </div>
       </div>
 
       <div>
@@ -1789,6 +1819,13 @@ function normalizeTask(task){
   normalized.gitlab=normalized.gitlab&&typeof normalized.gitlab==="object"
     ?Object.assign({},normalized.gitlab)
     :null;
+  normalized.gitlabEstimate=
+    normalized.gitlabEstimate
+    &&typeof normalized.gitlabEstimate==="object"
+      ?Object.assign({},normalized.gitlabEstimate)
+      :null;
+  normalized.taskTypeRole=
+    String(normalized.taskTypeRole||"").trim()||null;
   return normalized;
 }
 
@@ -3300,6 +3337,183 @@ window.TeamCalculatorIntegration={
 };
 
 
+
+const TEAM_CALCULATOR_GITLAB_ESTIMATE_ROLES=[
+  "analytics",
+  "design",
+  "qa",
+  "devops"
+];
+
+function configuredTeamCalculatorGitLabEstimateSync(){
+  const config=window.TEAM_CALCULATOR_GITLAB_SYNC||{};
+  if(config.enabled===false)return null;
+
+  const metadataEndpoint=String(config.endpoint||"").trim();
+  const explicitEndpoint=String(config.estimateEndpoint||"").trim();
+  const endpoint=explicitEndpoint||(
+    metadataEndpoint
+      ?metadataEndpoint.replace(/\/gitlab-sync\/?$/, "/gitlab-estimate")
+      :""
+  );
+
+  if(!endpoint||endpoint.includes("REPLACE_"))return null;
+  return {endpoint};
+}
+
+function manualTaskTypeRole(task){
+  const normalized=normalizeTask(task);
+  const explicit=String(normalized.taskTypeRole||"").trim();
+
+  if(TEAM_CALCULATOR_GITLAB_ESTIMATE_ROLES.includes(explicit)){
+    return explicit;
+  }
+
+  if(normalized.source!=="team_calculator")return null;
+
+  const positiveRoles=TEAM_CALCULATOR_GITLAB_ESTIMATE_ROLES.filter(
+    roleKey=>Number(normalized.estimates?.[roleKey]||0)>0
+  );
+
+  return positiveRoles.length===1?positiveRoles[0]:null;
+}
+
+function shouldSyncTaskEstimateToGitLab(task,roleKey){
+  const normalized=normalizeTask(task);
+  return normalized.source==="team_calculator"
+    &&Boolean(String(normalized.externalTaskUrl||"").trim())
+    &&manualTaskTypeRole(normalized)===roleKey
+    &&TEAM_CALCULATOR_GITLAB_ESTIMATE_ROLES.includes(roleKey);
+}
+
+function currentTaskEstimateVersion(task,roleKey){
+  return Math.max(1,Number(task?.estimateVersions?.[roleKey])||1);
+}
+
+function taskGitLabEstimateNeedsRetry(task){
+  const normalized=normalizeTask(task);
+  const roleKey=manualTaskTypeRole(normalized);
+  if(!roleKey||!shouldSyncTaskEstimateToGitLab(normalized,roleKey))return false;
+
+  const currentVersion=currentTaskEstimateVersion(normalized,roleKey);
+  const state=normalized.gitlabEstimate||{};
+  const stateVersion=Number(state.estimateVersion||0);
+  const status=String(state.status||"").trim();
+
+  return stateVersion<currentVersion
+    ||["failed","queue_failed","missing",""].includes(status);
+}
+
+function gitLabEstimateSyncHtml(task){
+  const normalized=normalizeTask(task);
+  const roleKey=manualTaskTypeRole(normalized);
+  if(!roleKey||!shouldSyncTaskEstimateToGitLab(normalized,roleKey))return "";
+
+  const currentVersion=currentTaskEstimateVersion(normalized,roleKey);
+  const state=normalized.gitlabEstimate||{};
+  const stateVersion=Number(state.estimateVersion||0);
+  let status=String(state.status||"missing").trim()||"missing";
+
+  if(stateVersion<currentVersion)status="queue_failed";
+
+  const labels={
+    pending:`GitLab estimate v${currentVersion}: в очереди`,
+    processing:`GitLab estimate v${currentVersion}: выполняется`,
+    succeeded:`GitLab estimate v${currentVersion}: синхронизирован`,
+    ignored_stale:"GitLab estimate: старая версия пропущена",
+    failed:`GitLab estimate v${currentVersion}: ошибка`,
+    queue_failed:`GitLab estimate v${currentVersion}: ожидает отправки`,
+    missing:"GitLab estimate ещё не отправлен"
+  };
+
+  const cssClass=status==="succeeded"
+    ?"succeeded"
+    :(status==="pending"||status==="processing"
+      ?status
+      :(status==="failed"||status==="queue_failed"?"failed":"missing"));
+
+  const error=String(state.error||"").trim();
+  const title=error?` title="${esc(error)}"`:"";
+
+  return `<div class="gitlab-estimate-sync ${cssClass}"${title}>
+    <span class="sync-dot"></span>
+    <span>${esc(labels[status]||labels.missing)}</span>
+  </div>`;
+}
+
+async function requestTaskGitLabEstimateSync({
+  task,
+  roleKey,
+  reason="update",
+  applyLabel=false
+}){
+  const config=configuredTeamCalculatorGitLabEstimateSync();
+  if(!config){
+    throw new Error("Не настроен estimateEndpoint в gitlab-sync-config.js.");
+  }
+  if(!currentUser)throw new Error("Пользователь не авторизован.");
+
+  const normalized=normalizeTask(task);
+  const finalEstimate=Number(normalized.estimates?.[roleKey]);
+  if(!Number.isFinite(finalEstimate)||finalEstimate<=0){
+    throw new Error("Для отправки в GitLab оценка должна быть больше 0.");
+  }
+
+  const estimateVersion=currentTaskEstimateVersion(normalized,roleKey);
+  const idToken=await currentUser.getIdToken();
+
+  const response=await fetch(config.endpoint,{
+    method:"POST",
+    headers:{
+      "Content-Type":"application/json",
+      "Authorization":`Bearer ${idToken}`
+    },
+    body:JSON.stringify({
+      workspaceId:TEAM_CALCULATOR_WORKSPACE_ID,
+      taskId:normalized.id,
+      title:String(normalized.title||normalized.id),
+      externalTaskUrl:String(normalized.externalTaskUrl||"").trim(),
+      estimatedRole:roleKey,
+      finalEstimate,
+      estimateVersion,
+      reason,
+      applyLabel:Boolean(applyLabel)
+    })
+  });
+
+  const result=await response.json().catch(()=>({}));
+  if(!response.ok||result.ok!==true||!result.jobId){
+    throw new Error(result.error||`HTTP ${response.status}`);
+  }
+  return result;
+}
+
+async function retryTaskGitLabEstimate(taskId){
+  const task=normalizeTask(taskPool[taskId]);
+  if(!task?.id)return;
+
+  const roleKey=manualTaskTypeRole(task);
+  if(!roleKey||!shouldSyncTaskEstimateToGitLab(task,roleKey)){
+    alert("Эта задача не соответствует правилам синхронизации оценки с GitLab.");
+    return;
+  }
+
+  try{
+    setSyncState("Постановка оценки GitLab…","warn");
+    await requestTaskGitLabEstimateSync({
+      task,
+      roleKey,
+      reason:"retry",
+      applyLabel:task.gitlabEstimate?.labelApplied!==true
+    });
+    setSyncState("Оценка поставлена в очередь GitLab");
+  }catch(error){
+    console.error(error);
+    setSyncState("Ошибка очереди GitLab","bad");
+    alert(`Не удалось поставить оценку в GitLab: ${error.message}`);
+  }
+}
+
 function manualTaskDocumentId(){
   const randomPart=
     globalThis.crypto&&typeof globalThis.crypto.randomUUID==="function"
@@ -3395,6 +3609,7 @@ async function createManualTask(){
     title,
     externalTaskUrl,
     source:"team_calculator",
+    taskTypeRole:roleKey,
     createdAt:now,
     updatedAt:now,
     createdByUid:currentUser.uid,
@@ -3406,7 +3621,9 @@ async function createManualTask(){
     estimateSources:{
       [roleKey]:"team_calculator"
     },
-    estimateVersions:{},
+    estimateVersions:{
+      [roleKey]:1
+    },
     sourceTaskIds:{},
     finalizedAtByRole:{},
     finalizedByRole:{},
@@ -3426,9 +3643,47 @@ async function createManualTask(){
 
     await saveTaskPoolItem(task);
 
-    setSyncState("Синхронизировано");
+    let gitLabQueued=false;
+    let gitLabQueueError=null;
+
+    if(externalTaskUrl){
+      manualTaskMessage.textContent=
+        "Задача сохранена. Постановка оценки в GitLab…";
+
+      try{
+        await requestTaskGitLabEstimateSync({
+          task,
+          roleKey,
+          reason:"create",
+          applyLabel:true
+        });
+        gitLabQueued=true;
+      }catch(error){
+        console.error(error);
+        gitLabQueueError=error;
+      }
+    }
+
+    setSyncState(
+      gitLabQueueError
+        ?"Задача сохранена, GitLab не поставлен в очередь"
+        :(gitLabQueued
+          ?"Оценка поставлена в очередь GitLab"
+          :"Синхронизировано"),
+      gitLabQueueError?"bad":""
+    );
+
     closeManualTaskDialog();
     render();
+
+    if(gitLabQueueError){
+      alert(
+        "Задача добавлена в общий пул, но оценку "
+        +"не удалось поставить в очередь GitLab. "
+        +"В строке задачи появится кнопка повтора.\n\n"
+        +gitLabQueueError.message
+      );
+    }
   }catch(e){
     console.error(e);
     createManualTaskButton.disabled=false;
@@ -3453,16 +3708,44 @@ async function saveTaskPoolItem(task){
 
 async function updateTaskEstimate(taskId,roleKey,rawValue){
   const task=normalizeTask(taskPool[taskId]);
-  if(!task)return;
+  if(!task?.id)return;
+
   if(task.estimateSources[roleKey]==="team_poker"){
     alert("Эта оценка зафиксирована в Team_poker и редактируется повторным импортом новой версии.");
     render();
     return;
   }
 
-  const value=String(rawValue).trim()===""?null:parseTaskEstimate(rawValue);
+  const previousValue=task.estimates?.[roleKey];
+  const value=String(rawValue).trim()===""
+    ?null
+    :parseTaskEstimate(rawValue);
+
   if(value!==null&&!isAllowedTaskEstimate(value,{allowZero:true})){
     alert(taskEstimateScaleMessage({allowZero:true}));
+    render();
+    return;
+  }
+
+  const shouldSync=shouldSyncTaskEstimateToGitLab(task,roleKey);
+
+  if(shouldSync&&(value===null||Number(value)<=0)){
+    alert(
+      "Для профильной роли задачи со ссылкой на GitLab "
+      +"оценка должна быть больше 0."
+    );
+    render();
+    return;
+  }
+
+  const previousNumber=previousValue===null
+    ||previousValue===undefined
+    ||previousValue===""
+      ?null
+      :Number(previousValue);
+  const nextNumber=value===null?null:Number(value);
+
+  if(previousNumber===nextNumber){
     render();
     return;
   }
@@ -3474,19 +3757,51 @@ async function updateTaskEstimate(taskId,roleKey,rawValue){
     task.estimateSources[roleKey]="team_calculator";
   }
 
+  if(shouldSync){
+    task.estimateVersions[roleKey]=Math.max(
+      0,
+      Number(task.estimateVersions?.[roleKey])||0
+    )+1;
+  }
+
   try{
     setSyncState("Сохранение…","warn");
     await saveTaskPoolItem(task);
+
     if(selectedTaskIds.includes(taskId)&&!currentSprintId){
       sprintTaskSnapshots[taskId]=JSON.parse(JSON.stringify(task));
       recalculateRolePlanFact();
     }
-    setSyncState("Синхронизировано");
+
+    if(shouldSync){
+      setSyncState("Постановка новой оценки в GitLab…","warn");
+      try{
+        await requestTaskGitLabEstimateSync({
+          task,
+          roleKey,
+          reason:"update",
+          applyLabel:false
+        });
+        setSyncState("Новая оценка поставлена в очередь GitLab");
+      }catch(error){
+        console.error(error);
+        setSyncState("Оценка сохранена, ошибка очереди GitLab","bad");
+        alert(
+          "Оценка сохранена в Team_calculator, но не поставлена "
+          +"в очередь GitLab. Используйте кнопку «Повторить GitLab» "
+          +"в строке задачи.\n\n"
+          +error.message
+        );
+      }
+    }else{
+      setSyncState("Синхронизировано");
+    }
+
     render();
-  }catch(e){
-    console.error(e);
+  }catch(error){
+    console.error(error);
     setSyncState("Ошибка сохранения","bad");
-    alert(`Не удалось сохранить оценку: ${e.message}`);
+    alert(`Не удалось сохранить оценку: ${error.message}`);
   }
 }
 
@@ -3908,24 +4223,37 @@ function renderTaskPool(){
         +'<div class="task-warning">Укажите хотя бы одну оценку больше 0</div>';
     }
 
-    let action;
-    if(returnedFromCompletedSprint){
-      action='<button class="secondary" disabled>Спринт завершён</button>';
-    }else if(selected){
-      action=sprintLifecycleIsCompleted()
-        ?'<button class="secondary" disabled>История</button>'
-        :`<button class="secondary" data-remove-task="${task.id}">Убрать</button>`;
-    }else if(plannedElsewhere){
-      action=task.planningStatus==="completed"
-        ?'<button class="secondary" disabled>История</button>'
-        :`<button class="secondary" data-release-task="${task.id}">Вернуть в пул</button>`;
-    }else{
-      const addDisabled=
-        !ready
-        ||sprintLifecycleIsCompleted();
+    const actionButtons=[];
 
-      action=`<div class="small-actions"><button ${addDisabled?"disabled":""} data-add-task="${task.id}">${sprintLifecycleIsCompleted()?"Спринт завершён":"В спринт"}</button><button class="danger-inline" data-delete-task="${task.id}">Удалить</button></div>`;
+    if(returnedFromCompletedSprint){
+      actionButtons.push('<button class="secondary" disabled>Спринт завершён</button>');
+    }else if(selected){
+      actionButtons.push(
+        sprintLifecycleIsCompleted()
+          ?'<button class="secondary" disabled>История</button>'
+          :`<button class="secondary" data-remove-task="${task.id}">Убрать</button>`
+      );
+    }else if(plannedElsewhere){
+      actionButtons.push(
+        task.planningStatus==="completed"
+          ?'<button class="secondary" disabled>История</button>'
+          :`<button class="secondary" data-release-task="${task.id}">Вернуть в пул</button>`
+      );
+    }else{
+      const addDisabled=!ready||sprintLifecycleIsCompleted();
+      actionButtons.push(
+        `<button ${addDisabled?"disabled":""} data-add-task="${task.id}">${sprintLifecycleIsCompleted()?"Спринт завершён":"В спринт"}</button>`,
+        `<button class="danger-inline" data-delete-task="${task.id}">Удалить</button>`
+      );
     }
+
+    if(taskGitLabEstimateNeedsRetry(task)){
+      actionButtons.push(
+        `<button class="secondary gitlab-estimate-retry" data-retry-gitlab-estimate="${task.id}">Повторить GitLab</button>`
+      );
+    }
+
+    const action=`<div class="small-actions">${actionButtons.join("")}</div>`;
 
     const positiveRoleNames=roleDefs
       .filter(role=>Number(task.estimates[role.key])>0)
@@ -3935,10 +4263,13 @@ function renderTaskPool(){
       ? `Team_poker · автоматически · ${esc(task.teamByRole?.backend?.name||task.teamByRole?.frontend?.name||"команда не указана")}`
       : `Team_calculator · вручную${positiveRoleNames.length?` · ${esc(positiveRoleNames.join(", "))}`:""}${task.createdByName?` · ${esc(task.createdByName)}`:""}`;
 
+    const gitLabEstimateHtml=gitLabEstimateSyncHtml(task);
+
     const tr=document.createElement("tr");
     tr.innerHTML=`<td class="task-title-cell" data-label="Задача">
         <div class="task-title">${title}</div>
         <div class="task-meta">${taskMeta}</div>
+        ${gitLabEstimateHtml}
       </td>
       ${estimates}
       <td class="num task-estimate-total" data-label="Итого">${fmt(taskTotalEstimate(task),1)}</td>
@@ -3976,6 +4307,11 @@ function renderTaskPool(){
   document.querySelectorAll("[data-remove-task]").forEach(btn=>btn.onclick=()=>removeTaskFromSprint(btn.dataset.removeTask));
   document.querySelectorAll("[data-release-task]").forEach(btn=>btn.onclick=()=>releaseTaskToPool(btn.dataset.releaseTask));
   document.querySelectorAll("[data-delete-task]").forEach(btn=>btn.onclick=()=>deleteTaskFromPool(btn.dataset.deleteTask));
+  document.querySelectorAll("[data-retry-gitlab-estimate]").forEach(
+    btn=>btn.onclick=()=>retryTaskGitLabEstimate(
+      btn.dataset.retryGitlabEstimate
+    )
+  );
 }
 
 

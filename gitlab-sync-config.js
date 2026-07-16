@@ -3,6 +3,10 @@ window.TEAM_CALCULATOR_GITLAB_SYNC = {
   endpoint:
     "https://team-poker-team-calculator-integration.slavanazin.workers.dev/gitlab-sync",
 
+  // Отправка и обновление GitLab estimate для ручных задач.
+  estimateEndpoint:
+    "https://team-poker-team-calculator-integration.slavanazin.workers.dev/gitlab-estimate",
+
   enabled: true,
 
   // One automatic request when a sprint is opened and its data is stale.

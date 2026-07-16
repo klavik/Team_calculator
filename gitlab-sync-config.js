@@ -10,7 +10,7 @@ window.TEAM_CALCULATOR_GITLAB_SYNC = {
   // Адрес Team_poker для ссылок из общего пула и спринта.
   // Относительный путь рассчитан на соседние GitHub Pages:
   // /team_calculator/ → /team_poker/
-  teamPokerBaseUrl: "../team_poker/",
+  teamPokerBaseUrl: "../Team_poker/",
 
   enabled: true,
 

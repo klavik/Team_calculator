@@ -3780,7 +3780,9 @@ async function updateTaskEstimate(taskId,roleKey,rawValue){
           task,
           roleKey,
           reason:"update",
-          applyLabel:false
+          applyLabel:
+            task.gitlabEstimate?.labelApplied
+              !==true
         });
         setSyncState("Новая оценка поставлена в очередь GitLab");
       }catch(error){

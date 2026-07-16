@@ -7,6 +7,11 @@ window.TEAM_CALCULATOR_GITLAB_SYNC = {
   estimateEndpoint:
     "https://team-poker-team-calculator-integration.slavanazin.workers.dev/gitlab-estimate",
 
+  // Адрес Team_poker для ссылок из общего пула и спринта.
+  // Относительный путь рассчитан на соседние GitHub Pages:
+  // /team_calculator/ → /team_poker/
+  teamPokerBaseUrl: "../team_poker/",
+
   enabled: true,
 
   // One automatic request when a sprint is opened and its data is stale.

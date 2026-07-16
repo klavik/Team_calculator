@@ -328,6 +328,38 @@
     .task-meta{color:var(--muted);font-size:11px;margin-top:3px}
     .task-link{color:var(--accent-dark);text-decoration:none}
     .task-link:hover{text-decoration:underline}
+    .task-source-links{
+      display:flex;
+      align-items:center;
+      flex-wrap:wrap;
+      gap:5px;
+      margin-top:5px;
+    }
+    .task-source-link{
+      display:inline-flex;
+      align-items:center;
+      gap:4px;
+      padding:3px 7px;
+      border:1px solid #d8ddea;
+      border-radius:999px;
+      background:#f4f6fb;
+      color:#46546d;
+      font-size:10px;
+      font-weight:850;
+      line-height:1.25;
+      text-decoration:none;
+      white-space:normal;
+    }
+    .task-source-link:hover{
+      border-color:#b9c4d9;
+      background:#e9edf6;
+      color:#243b64;
+      text-decoration:none;
+    }
+    .task-source-link .source-link-icon{
+      font-size:11px;
+      line-height:1;
+    }
     .estimate-input{
       width:62px!important;
       min-width:62px!important;
@@ -1949,6 +1981,207 @@ function recalculateRolePlanFact(){
       return sum+(isEstimateFilled(value)?Number(value):0);
     },0);
   });
+}
+
+
+function configuredTeamPokerBaseUrl(){
+  const configured=String(
+    window.TEAM_CALCULATOR_GITLAB_SYNC
+      ?.teamPokerBaseUrl
+    ||"../team_poker/"
+  ).trim();
+
+  if(!configured)return null;
+
+  try{
+    const url=new URL(configured,window.location.href);
+    url.hash="";
+    url.search="";
+
+    if(!url.pathname.endsWith("/")){
+      url.pathname+="/";
+    }
+
+    return url;
+  }catch(error){
+    console.warn(
+      "Некорректный teamPokerBaseUrl:",
+      configured,
+      error
+    );
+    return null;
+  }
+}
+
+function teamPokerRoleSource(task,roleKey){
+  const normalized=normalizeTask(task);
+
+  if(
+    normalized.source!=="team_poker"
+    &&normalized.estimateSources?.[roleKey]
+      !=="team_poker"
+  ){
+    return null;
+  }
+
+  const teamId=String(
+    normalized.teamByRole?.[roleKey]?.id
+    ||""
+  ).trim();
+
+  const sessionId=String(
+    normalized.sessionByRole?.[roleKey]?.id
+    ||""
+  ).trim();
+
+  const issueId=String(
+    normalized.sourceTaskIds?.[roleKey]
+    ||""
+  ).trim();
+
+  if(!teamId||!sessionId||!issueId){
+    return null;
+  }
+
+  return {
+    roleKey,
+    teamId,
+    sessionId,
+    issueId,
+    teamName:String(
+      normalized.teamByRole?.[roleKey]?.name
+      ||""
+    ).trim(),
+    sessionName:String(
+      normalized.sessionByRole?.[roleKey]?.name
+      ||""
+    ).trim()
+  };
+}
+
+function teamPokerTaskLinks(
+  task,
+  fallbackTask=null
+){
+  const baseUrl=configuredTeamPokerBaseUrl();
+
+  if(!baseUrl)return [];
+
+  const primary=normalizeTask(task);
+  const fallback=fallbackTask
+    ?normalizeTask(fallbackTask)
+    :null;
+
+  const roleKeys=["backend","frontend"];
+  const grouped=new Map();
+
+  roleKeys.forEach(roleKey=>{
+    const source=
+      teamPokerRoleSource(primary,roleKey)
+      ||(
+        fallback
+          ?teamPokerRoleSource(
+            fallback,
+            roleKey
+          )
+          :null
+      );
+
+    if(!source)return;
+
+    const url=new URL(baseUrl.href);
+    url.hash=new URLSearchParams({
+      team:source.teamId,
+      session:source.sessionId,
+      issue:source.issueId
+    }).toString();
+
+    const href=url.href;
+    const existing=grouped.get(href);
+
+    if(existing){
+      if(!existing.roleKeys.includes(roleKey)){
+        existing.roleKeys.push(roleKey);
+      }
+
+      if(
+        !existing.teamName
+        &&source.teamName
+      ){
+        existing.teamName=source.teamName;
+      }
+
+      if(
+        !existing.sessionName
+        &&source.sessionName
+      ){
+        existing.sessionName=
+          source.sessionName;
+      }
+    }else{
+      grouped.set(href,{
+        href,
+        roleKeys:[roleKey],
+        teamName:source.teamName,
+        sessionName:source.sessionName
+      });
+    }
+  });
+
+  return [...grouped.values()];
+}
+
+function teamPokerRoleLinkLabel(roleKeys){
+  const labels=roleKeys.map(roleKey=>
+    roleLabelByKey(roleKey)
+  );
+
+  return labels.length
+    ?`Team_poker · ${labels.join(" + ")}`
+    :"Team_poker";
+}
+
+function teamPokerTaskLinksHtml(
+  task,
+  fallbackTask=null
+){
+  const links=teamPokerTaskLinks(
+    task,
+    fallbackTask
+  );
+
+  if(!links.length)return "";
+
+  return `<div class="task-source-links">
+    ${links.map(link=>{
+      const details=[
+        link.teamName
+          ?`Команда: ${link.teamName}`
+          :"",
+        link.sessionName
+          ?`Сессия: ${link.sessionName}`
+          :""
+      ].filter(Boolean).join(" · ");
+
+      const title=details
+        ?`Открыть в Team_poker · ${details}`
+        :"Открыть задачу в Team_poker";
+
+      return `<a
+        class="task-source-link"
+        href="${esc(link.href)}"
+        target="_blank"
+        rel="noopener"
+        title="${esc(title)}">
+          <span class="source-link-icon">♠</span>
+          <span>${esc(
+            teamPokerRoleLinkLabel(
+              link.roleKeys
+            )
+          )}</span>
+        </a>`;
+    }).join("")}
+  </div>`;
 }
 
 function integrationIdentity(payload){
@@ -4271,6 +4504,7 @@ function renderTaskPool(){
     tr.innerHTML=`<td class="task-title-cell" data-label="Задача">
         <div class="task-title">${title}</div>
         <div class="task-meta">${taskMeta}</div>
+        ${teamPokerTaskLinksHtml(task)}
         ${gitLabEstimateHtml}
       </td>
       ${estimates}
@@ -5438,6 +5672,10 @@ function renderSprintTasks(){
 
     tr.innerHTML=`<td class="task-title-cell">
         <div class="task-title">${title}</div>
+        ${teamPokerTaskLinksHtml(
+          normalized,
+          poolTask
+        )}
         ${estimateChanged&&!sprintLifecycleIsCompleted()
           ?'<div class="task-warning">В пуле есть обновлённая оценка</div>'
           :""}

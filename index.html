@@ -379,6 +379,51 @@
       padding:3px 6px!important;
       font-size:10px!important;
     }
+    .task-actual-preview{
+      display:flex;
+      align-items:center;
+      flex-wrap:wrap;
+      gap:6px;
+      margin-top:6px;
+      padding:7px 8px;
+      border:1px solid #f0cf8a;
+      border-radius:10px;
+      background:#fff8e8;
+      color:#6f4a00;
+      font-size:11px;
+      font-weight:750;
+    }
+    .task-actual-preview.accepted{
+      border-color:#b9dec6;
+      background:#f0faf3;
+      color:#137333;
+    }
+    .task-actual-preview.error{
+      border-color:#efc0bb;
+      background:#fff2f0;
+      color:#b3261e;
+    }
+    .task-actual-preview-value{
+      display:inline-flex;
+      align-items:center;
+      gap:4px;
+    }
+    .task-actual-preview input{
+      width:76px;
+      min-width:68px;
+      padding:4px 6px;
+      font-size:11px;
+      font-weight:800;
+    }
+    .task-actual-preview button{
+      padding:4px 7px!important;
+      font-size:10px!important;
+    }
+    .task-actual-preview-details{
+      color:var(--muted);
+      font-size:10px;
+      font-weight:600;
+    }
     .actual-preview-toolbar-status{
       min-width:180px;
     }
@@ -2103,10 +2148,7 @@ const ACTUAL_MAPPING_DEFINITIONS=[
   {id:"analytics__analytics",taskType:"analytics",actualRole:"analytics",statuses:["In Progress"]},
   {id:"design__design",taskType:"design",actualRole:"design",statuses:["In Progress"]},
   {id:"backend__backend",taskType:"backend",actualRole:"backend",statuses:["In Progress"]},
-  {id:"backend__qa",taskType:"backend",actualRole:"qa",statuses:["QA (DEV)","QA (PREPROD)"]},
   {id:"frontend__frontend",taskType:"frontend",actualRole:"frontend",statuses:["In Progress"]},
-  {id:"frontend__qa",taskType:"frontend",actualRole:"qa",statuses:["QA (DEV)","QA (PREPROD)"]},
-  {id:"qa__qa",taskType:"qa",actualRole:"qa",statuses:["In Progress"]},
   {id:"devops__devops",taskType:"devops",actualRole:"devops",statuses:["In Progress"]}
 ];
 
@@ -2208,7 +2250,10 @@ function acceptedActualHtml(taskId){
   const values=acceptedActualValues(taskId);
   if(!item||!values)return "";
   const parts=Object.entries(values)
-    .filter(([,value])=>Number.isFinite(Number(value)))
+    .filter(([roleKey,value])=>
+      roleKey!=="qa"
+      &&Number.isFinite(Number(value))
+    )
     .map(([roleKey,value])=>`${roleLabelByKey(roleKey)} ${fmt(Number(value),2)}`);
   if(!parts.length)return "";
   return `<div class="accepted-actual-note">
@@ -2312,6 +2357,22 @@ function configuredActualPreviewEndpoint(){
   return endpoint&&!endpoint.includes("REPLACE_")?endpoint:null;
 }
 
+function activeActualTaskTypes(settingsValue=null){
+  const settings=normalizeActualCalculationSettings(
+    settingsValue||actualCalculationSettings
+  );
+
+  return new Set(
+    settings.mappings
+      .filter(mapping=>
+        mapping.actualRole!=="qa"
+        &&Array.isArray(mapping.statuses)
+        &&mapping.statuses.length>0
+      )
+      .map(mapping=>mapping.taskType)
+  );
+}
+
 function actualPreviewPeriod(){
   if(!sprintStartedAt)return null;
   const start=new Date(sprintStartedAt);
@@ -2339,22 +2400,35 @@ async function requestSprintActualPreview(){
     alert("Не настроен actualPreviewEndpoint.");
     return;
   }
+  const settings=normalizeActualCalculationSettings(
+    actualCalculationSettings
+  );
+  const activeTaskTypes=activeActualTaskTypes(settings);
   const tasks=selectedTaskIds.map(taskId=>{
     const task=normalizeTask(currentTaskSnapshot(taskId));
     const externalTaskUrl=String(task.externalTaskUrl||taskPool[taskId]?.externalTaskUrl||"").trim();
     const taskType=actualTaskType(task);
-    if(!externalTaskUrl||!taskType)return null;
+    if(
+      !externalTaskUrl
+      ||!taskType
+      ||!activeTaskTypes.has(taskType)
+    ){
+      return null;
+    }
     return {taskId,title:task.title||taskId,externalTaskUrl,taskType};
   }).filter(Boolean);
   if(!tasks.length){
-    alert("В спринте нет задач с GitLab-ссылкой и однозначным типом.");
+    alert(
+      "В спринте нет задач с GitLab-ссылкой, "
+      +"однозначным типом и активным правилом расчёта."
+    );
     return;
   }
   try{
+    actualPreviewJobData=null;
     actualPreviewInProgress=true;
     render();
     sprintActualStatus.textContent="Создание задания…";
-    const settings=normalizeActualCalculationSettings(actualCalculationSettings);
     const token=await currentUser.getIdToken();
     const response=await fetch(endpoint,{
       method:"POST",
@@ -2414,9 +2488,8 @@ async function subscribeActualPreviewJob(jobId){
     if(["succeeded","partial"].includes(status)){
       actualPreviewJobData=job;
       sprintActualStatus.textContent=status==="partial"
-        ?"Расчёт завершён частично"
-        :"Предварительный факт рассчитан";
-      openActualPreviewDialog(job);
+        ?"Расчёт завершён частично. Проверьте значения в строках задач."
+        :"Расчёт готов. Примите значения в строках задач.";
     }else{
       sprintActualStatus.textContent=`Ошибка расчёта: ${job.error||"неизвестная ошибка"}`;
     }
@@ -2427,6 +2500,272 @@ async function subscribeActualPreviewJob(jobId){
     sprintActualStatus.textContent=`Ошибка чтения задания: ${error.message}`;
     render();
   });
+}
+
+function currentActualPreviewResult(taskId){
+  if(!actualPreviewJobData)return null;
+
+  return (
+    Array.isArray(actualPreviewJobData.results)
+      ?actualPreviewJobData.results
+      :[]
+  ).find(result=>
+    String(result?.taskId||"")===String(taskId)
+  )||null;
+}
+
+function nonQaActualEntries(result){
+  const values=
+    result?.proposedActuals
+    &&typeof result.proposedActuals==="object"
+      ?result.proposedActuals
+      :{};
+
+  return Object.entries(values).filter(
+    ([roleKey,value])=>
+      roleKey!=="qa"
+      &&Number.isFinite(Number(value))
+  );
+}
+
+function taskActualPreviewHtml(taskId){
+  if(
+    !actualCalculationFeatureEnabled()
+    ||!actualPreviewJobData
+  ){
+    return "";
+  }
+
+  const result=currentActualPreviewResult(taskId);
+
+  if(!result)return "";
+
+  if(!result.ok){
+    return `<div
+      class="task-actual-preview error"
+      data-task-actual-preview="${esc(taskId)}">
+        <span>Расчёт GitLab: ошибка</span>
+        <span class="task-actual-preview-details">
+          ${esc(result.error||"Не удалось рассчитать значение")}
+        </span>
+    </div>`;
+  }
+
+  const entries=nonQaActualEntries(result);
+
+  if(!entries.length){
+    return `<div
+      class="task-actual-preview"
+      data-task-actual-preview="${esc(taskId)}">
+        <span>Расчёт GitLab: нет учитываемых интервалов</span>
+    </div>`;
+  }
+
+  const valuesHtml=entries.map(([roleKey,value])=>{
+    const raw=Number(
+      result.rawActuals?.[roleKey]||0
+    );
+    const statuses=
+      actualPreviewRoleBreakdown(
+        result,
+        roleKey
+      );
+
+    return `<span class="task-actual-preview-value">
+      <span>${esc(roleLabelByKey(roleKey))}:</span>
+      <input
+        data-inline-actual-role="${esc(roleKey)}"
+        value="${esc(String(value))}"
+        inputmode="decimal"
+        aria-label="Принять факт ${esc(roleLabelByKey(roleKey))}">
+      <span>ч.д.</span>
+      <span
+        class="task-actual-preview-details"
+        title="${esc(`Статусы: ${statuses}; до округления: ${fmt(raw,3)} ч.д.`)}">
+          по GitLab
+      </span>
+    </span>`;
+  }).join("");
+
+  const alreadyAccepted=Boolean(
+    acceptedActualValues(taskId)
+  );
+
+  return `<div
+    class="task-actual-preview"
+    data-task-actual-preview="${esc(taskId)}">
+      <span>Расчёт:</span>
+      ${valuesHtml}
+      <button
+        type="button"
+        data-accept-task-actual="${esc(taskId)}">
+          ${alreadyAccepted
+            ?"Принять новый расчёт"
+            :"Принять расчёт из GitLab"}
+      </button>
+    </div>`;
+}
+
+async function acceptTaskActualPreview(
+  taskId,
+  container
+){
+  if(
+    !actualPreviewJobData
+    ||!currentSprintId
+  ){
+    return;
+  }
+
+  const result=currentActualPreviewResult(taskId);
+
+  if(!result?.ok){
+    alert("Для этой задачи нет успешного расчёта.");
+    return;
+  }
+
+  const inputs=[
+    ...(container?.querySelectorAll(
+      "[data-inline-actual-role]"
+    )||[])
+  ];
+
+  if(!inputs.length){
+    alert("Для этой задачи нет значения для принятия.");
+    return;
+  }
+
+  const newAcceptedValues={};
+
+  for(const input of inputs){
+    const roleKey=String(
+      input.dataset.inlineActualRole||""
+    ).trim();
+
+    if(!roleKey||roleKey==="qa")continue;
+
+    const value=parseTaskEstimate(input.value);
+
+    if(
+      !Number.isFinite(value)
+      ||value<0
+    ){
+      alert(
+        `Некорректное значение для `
+        +roleLabelByKey(roleKey)
+        +"."
+      );
+      input.focus();
+      return;
+    }
+
+    newAcceptedValues[roleKey]=value;
+  }
+
+  if(!Object.keys(newAcceptedValues).length){
+    alert("Нет значения для принятия.");
+    return;
+  }
+
+  const previous=sprintTaskActuals?.[taskId]||{};
+
+  const previousAccepted=Object.fromEntries(
+    Object.entries(
+      previous.acceptedValues||{}
+    ).filter(([roleKey])=>roleKey!=="qa")
+  );
+
+  const previousCalculated=Object.fromEntries(
+    Object.entries(
+      previous.calculatedValues||{}
+    ).filter(([roleKey])=>roleKey!=="qa")
+  );
+
+  const calculatedValues={
+    ...previousCalculated,
+    ...Object.fromEntries(
+      nonQaActualEntries(result)
+    )
+  };
+
+  const acceptedValues={
+    ...previousAccepted,
+    ...newAcceptedValues
+  };
+
+  const filteredRawActuals=Object.fromEntries(
+    Object.entries(
+      result.rawActuals||{}
+    ).filter(([roleKey])=>roleKey!=="qa")
+  );
+
+  const filteredStatuses=Object.fromEntries(
+    Object.entries(
+      result.matchedStatusesByRole||{}
+    ).filter(([roleKey])=>roleKey!=="qa")
+  );
+
+  const manuallyAdjusted=Object.entries(
+    acceptedValues
+  ).some(([roleKey,value])=>
+    Math.abs(
+      Number(value)
+      -Number(calculatedValues[roleKey]||0)
+    )>1e-9
+  );
+
+  const now=new Date().toISOString();
+
+  sprintTaskActuals[taskId]={
+    source:"gitlab_status_history",
+    taskType:
+      result.taskType
+      ||actualTaskType(
+        currentTaskSnapshot(taskId)
+      ),
+    jobId:actualPreviewJobData.id,
+    acceptedValues,
+    calculatedValues,
+    rawActuals:filteredRawActuals,
+    matchedStatusesByRole:filteredStatuses,
+    periodStart:actualPreviewJobData.periodStart,
+    periodEnd:actualPreviewJobData.periodEnd,
+    settingsSnapshot:
+      actualPreviewJobData.settingsSnapshot
+      ||null,
+    acceptedAt:now,
+    acceptedByUid:currentUser.uid,
+    acceptedByName:(
+      currentProfile?.alias
+      ||currentUser.email
+      ||""
+    ).trim(),
+    manuallyAdjusted
+  };
+
+  const button=container?.querySelector(
+    "[data-accept-task-actual]"
+  );
+
+  if(button)button.disabled=true;
+
+  try{
+    const saved=await saveSprintSet(
+      false,
+      {
+        silent:false,
+        source:"actual_accept_task"
+      }
+    );
+
+    if(saved){
+      sprintActualStatus.textContent=
+        "Расчёт по задаче принят.";
+      render();
+    }
+  }finally{
+    if(button)button.disabled=false;
+  }
 }
 
 function actualPreviewRoleBreakdown(result,roleKey){
@@ -2685,9 +3024,11 @@ function recalculateRolePlanFact(){
       return sum+(isEstimateFilled(value)?Number(value):0);
     },0);
     role.actual=selectedTaskIds.reduce((sum,taskId)=>{
-      const accepted=actualCalculationFeatureEnabled()
-        ?acceptedActualValues(taskId)
-        :null;
+      const accepted=
+        actualCalculationFeatureEnabled()
+        &&key!=="qa"
+          ?acceptedActualValues(taskId)
+          :null;
       if(accepted&&Object.prototype.hasOwnProperty.call(accepted,key)){
         return sum+(Number(accepted[key])||0);
       }
@@ -6521,6 +6862,7 @@ function renderSprintTasks(){
           poolTask
         )}
         ${acceptedActualHtml(id)}
+        ${taskActualPreviewHtml(id)}
         ${estimateChanged&&!sprintLifecycleIsCompleted()
           ?'<div class="task-warning">В пуле есть обновлённая оценка</div>'
           :""}
@@ -6615,6 +6957,15 @@ function renderSprintTasks(){
     .forEach(button=>{
       button.onclick=()=>removeTaskFromSprint(
         button.dataset.removeTask
+      );
+    });
+
+  document
+    .querySelectorAll("[data-accept-task-actual]")
+    .forEach(button=>{
+      button.onclick=()=>acceptTaskActualPreview(
+        button.dataset.acceptTaskActual,
+        button.closest("[data-task-actual-preview]")
       );
     });
 
@@ -6946,9 +7297,7 @@ syncSprintGitLabButton.onclick=()=>requestSprintGitLabSync();
 calculateSprintActualsButton.onclick=requestSprintActualPreview;
 document.getElementById("saveActualCalculationSettings").onclick=saveActualCalculationSettings;
 document.getElementById("resetActualCalculationSettings").onclick=resetActualCalculationSettings;
-document.getElementById("closeActualPreviewDialog").onclick=closeActualPreviewDialog;
-document.getElementById("cancelActualPreview").onclick=closeActualPreviewDialog;
-acceptActualPreviewButton.onclick=acceptActualPreview;
+// В v23.2 результат выводится непосредственно в строках задач.
 
 [
   sprintTaskDirectionFilter,

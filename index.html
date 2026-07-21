@@ -360,6 +360,146 @@
       font-size:11px;
       line-height:1;
     }
+
+    .accepted-actual-note{
+      display:flex;
+      align-items:center;
+      flex-wrap:wrap;
+      gap:5px;
+      margin-top:6px;
+      padding:6px 8px;
+      border:1px solid #b9dec6;
+      border-radius:10px;
+      background:#f0faf3;
+      color:#137333;
+      font-size:11px;
+      font-weight:800;
+    }
+    .accepted-actual-note button{
+      padding:3px 6px!important;
+      font-size:10px!important;
+    }
+    .actual-preview-toolbar-status{
+      min-width:180px;
+    }
+    .actual-settings-card{
+      margin:0 18px 18px;
+      box-shadow:none;
+      background:#fafbfe;
+    }
+    .actual-settings-header{
+      display:flex;
+      justify-content:space-between;
+      align-items:flex-start;
+      gap:16px;
+      flex-wrap:wrap;
+    }
+    .actual-settings-toggle{
+      display:flex;
+      align-items:center;
+      gap:8px;
+      font-weight:850;
+    }
+    .actual-settings-fields{
+      display:grid;
+      grid-template-columns:repeat(5,minmax(120px,1fr));
+      gap:10px;
+      margin:14px 0;
+    }
+    .actual-mapping-table input{
+      min-width:260px;
+      width:100%;
+    }
+    .actual-mapping-table td{
+      vertical-align:top;
+    }
+    .actual-settings-status{
+      margin-top:8px;
+      min-height:18px;
+    }
+    .actual-settings-status.good{color:#137333}
+    .actual-settings-status.bad{color:#b3261e}
+    .actual-settings-status.warn{color:#8a5b00}
+    .actual-preview-dialog{
+      width:min(1100px,calc(100vw - 28px));
+      max-height:calc(100vh - 28px);
+      padding:0;
+      border:0;
+      border-radius:18px;
+      box-shadow:0 24px 80px rgba(28,39,61,.25);
+    }
+    .actual-preview-dialog::backdrop{
+      background:rgba(22,31,48,.48);
+    }
+    .actual-preview-form{
+      display:flex;
+      flex-direction:column;
+      max-height:calc(100vh - 28px);
+    }
+    .actual-preview-header{
+      display:flex;
+      justify-content:space-between;
+      gap:12px;
+      align-items:flex-start;
+      padding:18px 20px 12px;
+      border-bottom:1px solid var(--border);
+    }
+    .actual-preview-content{
+      overflow:auto;
+      padding:14px 20px;
+    }
+    .actual-preview-actions{
+      display:flex;
+      justify-content:flex-end;
+      gap:8px;
+      padding:12px 20px 18px;
+      border-top:1px solid var(--border);
+      background:#fff;
+    }
+    .actual-preview-table{
+      width:100%;
+      border-collapse:collapse;
+    }
+    .actual-preview-table th,
+    .actual-preview-table td{
+      padding:8px;
+      border-bottom:1px solid var(--border);
+      text-align:left;
+      vertical-align:top;
+    }
+    .actual-preview-table .num{
+      text-align:right;
+    }
+    .actual-preview-input{
+      width:90px;
+      min-width:76px;
+    }
+    .actual-preview-error{
+      color:#b3261e;
+      font-size:11px;
+    }
+    .actual-preview-breakdown{
+      color:var(--muted);
+      font-size:10px;
+      margin-top:3px;
+    }
+    @media(max-width:900px){
+      .actual-settings-fields{
+        grid-template-columns:repeat(2,minmax(0,1fr));
+      }
+      .actual-mapping-table input{
+        min-width:180px;
+      }
+    }
+    @media(max-width:560px){
+      .actual-settings-fields{
+        grid-template-columns:1fr;
+      }
+      .actual-preview-table th:nth-child(2),
+      .actual-preview-table td:nth-child(2){
+        display:none;
+      }
+    }
     .estimate-input{
       width:62px!important;
       min-width:62px!important;
@@ -1461,6 +1601,12 @@
           <span class="muted" id="sprintGitLabSyncStatus">
             Статус и исполнители ещё не запрашивались.
           </span>
+          <button class="secondary" id="calculateSprintActuals" type="button">
+            Рассчитать факт из GitLab
+          </button>
+          <span class="muted actual-preview-toolbar-status" id="sprintActualStatus">
+            Предварительный факт ещё не рассчитывался.
+          </span>
         </div>
 
         <div class="sprint-task-toolbar">
@@ -1595,6 +1741,66 @@
 </div>
 </div></div>
         </div>
+        <div class="card actual-settings-card" id="actualCalculationSettingsCard">
+          <div class="actual-settings-header">
+            <div>
+              <h2>Предварительный факт по GitLab</h2>
+              <p class="muted" style="margin:0">
+                Статусы сопоставляются с ролями без изменения кода. Расчёт только предлагает значения;
+                факт сохраняется после ручного подтверждения.
+              </p>
+            </div>
+            <label class="actual-settings-toggle">
+              <input id="actualCalculationEnabled" type="checkbox">
+              Использовать автоматический расчёт
+            </label>
+          </div>
+
+          <div class="actual-settings-fields">
+            <label>Часовой пояс
+              <input id="actualTimezone" value="Europe/Moscow">
+            </label>
+            <label>Начало рабочего дня
+              <input id="actualWorkdayStart" type="time" value="09:00">
+            </label>
+            <label>Часов в рабочем дне
+              <input id="actualHoursPerDay" type="number" min="1" max="24" step="0.5" value="8">
+            </label>
+            <label>Округление, ч.д.
+              <select id="actualRoundingStep">
+                <option value="0.25">0,25</option>
+                <option value="0.5">0,5</option>
+                <option value="1">1</option>
+              </select>
+            </label>
+            <label style="display:flex;align-items:center;gap:7px;padding-top:22px">
+              <input id="actualExcludeWeekends" type="checkbox" checked>
+              Не учитывать выходные
+            </label>
+          </div>
+
+          <div class="task-table-wrap">
+            <table class="roles-table actual-mapping-table">
+              <thead>
+                <tr>
+                  <th>Тип GitLab-задачи</th>
+                  <th>Роль факта</th>
+                  <th>Статусы, разделённые запятой</th>
+                </tr>
+              </thead>
+              <tbody id="actualMappingBody"></tbody>
+            </table>
+          </div>
+          <p class="footer-note">
+            Сопоставление выполняется по точным названиям labels с учётом регистра.
+            Несколько выбранных статусов одной роли считаются как объединение интервалов и не удваивают время. Пустая строка отключает соответствующее правило.
+          </p>
+          <div class="button-row">
+            <button id="saveActualCalculationSettings" type="button">Сохранить правила</button>
+            <button class="secondary" id="resetActualCalculationSettings" type="button">Вернуть правила по умолчанию</button>
+          </div>
+          <div class="actual-settings-status muted" id="actualCalculationSettingsStatus"></div>
+        </div>
       </details>
 </section>
   </div>
@@ -1670,6 +1876,38 @@
   </form>
 </dialog>
 
+
+<dialog id="actualPreviewDialog" class="actual-preview-dialog">
+  <form class="actual-preview-form" onsubmit="return false">
+    <div class="actual-preview-header">
+      <div>
+        <h2 style="margin:0 0 4px">Предлагаемый факт по GitLab</h2>
+        <div class="muted" id="actualPreviewSummary"></div>
+      </div>
+      <button id="closeActualPreviewDialog" class="manual-task-close" type="button" aria-label="Закрыть">×</button>
+    </div>
+    <div class="actual-preview-content">
+      <table class="actual-preview-table">
+        <thead>
+          <tr>
+            <th></th>
+            <th>Задача</th>
+            <th>Роль</th>
+            <th class="num">Рассчитано</th>
+            <th class="num">Принять, ч.д.</th>
+            <th>Основание</th>
+          </tr>
+        </thead>
+        <tbody id="actualPreviewBody"></tbody>
+      </table>
+    </div>
+    <div class="actual-preview-actions">
+      <button id="cancelActualPreview" class="secondary" type="button">Отмена</button>
+      <button id="acceptActualPreview" type="button">Принять выбранные значения</button>
+    </div>
+  </form>
+</dialog>
+
 <script src="./gitlab-sync-config.js"></script>
 <script src="./firebase-config.js"></script>
 <script>
@@ -1690,6 +1928,11 @@ const TEAM_CALCULATOR_WORKSPACE_ID =
 let selectedTaskIds=[];
 let completedTaskIds=[];
 let sprintTaskSnapshots={};
+let sprintTaskActuals={};
+let actualCalculationSettings=null;
+let actualPreviewJobData=null;
+let actualPreviewInProgress=false;
+let unsubscribeActualPreviewJob=null;
 
 const SPRINT_STATUS_PLANNING="planning";
 const SPRINT_STATUS_ACTIVE="active";
@@ -1754,6 +1997,21 @@ sprintTasksBody=document.getElementById("sprintTasksBody"),
 sprintTaskSummary=document.getElementById("sprintTaskSummary"),
 syncSprintGitLabButton=document.getElementById("syncSprintGitLab"),
 sprintGitLabSyncStatus=document.getElementById("sprintGitLabSyncStatus"),
+calculateSprintActualsButton=document.getElementById("calculateSprintActuals"),
+sprintActualStatus=document.getElementById("sprintActualStatus"),
+actualCalculationSettingsCard=document.getElementById("actualCalculationSettingsCard"),
+actualCalculationEnabledInput=document.getElementById("actualCalculationEnabled"),
+actualTimezoneInput=document.getElementById("actualTimezone"),
+actualWorkdayStartInput=document.getElementById("actualWorkdayStart"),
+actualHoursPerDayInput=document.getElementById("actualHoursPerDay"),
+actualRoundingStepInput=document.getElementById("actualRoundingStep"),
+actualExcludeWeekendsInput=document.getElementById("actualExcludeWeekends"),
+actualMappingBody=document.getElementById("actualMappingBody"),
+actualCalculationSettingsStatus=document.getElementById("actualCalculationSettingsStatus"),
+actualPreviewDialog=document.getElementById("actualPreviewDialog"),
+actualPreviewSummary=document.getElementById("actualPreviewSummary"),
+actualPreviewBody=document.getElementById("actualPreviewBody"),
+acceptActualPreviewButton=document.getElementById("acceptActualPreview"),
 sprintTaskDirectionFilter=document.getElementById("sprintTaskDirectionFilter"),
 sprintTaskStatusFilter=document.getElementById("sprintTaskStatusFilter"),
 sprintTaskAssigneeFilter=document.getElementById("sprintTaskAssigneeFilter"),
@@ -1838,6 +2096,455 @@ function emptyTaskEstimates(){
   const result={};
   taskEstimateKeys().forEach(key=>result[key]=null);
   return result;
+}
+
+
+const ACTUAL_MAPPING_DEFINITIONS=[
+  {id:"analytics__analytics",taskType:"analytics",actualRole:"analytics",statuses:["In Progress"]},
+  {id:"design__design",taskType:"design",actualRole:"design",statuses:["In Progress"]},
+  {id:"backend__backend",taskType:"backend",actualRole:"backend",statuses:["In Progress"]},
+  {id:"backend__qa",taskType:"backend",actualRole:"qa",statuses:["QA (DEV)","QA (PREPROD)"]},
+  {id:"frontend__frontend",taskType:"frontend",actualRole:"frontend",statuses:["In Progress"]},
+  {id:"frontend__qa",taskType:"frontend",actualRole:"qa",statuses:["QA (DEV)","QA (PREPROD)"]},
+  {id:"qa__qa",taskType:"qa",actualRole:"qa",statuses:["In Progress"]},
+  {id:"devops__devops",taskType:"devops",actualRole:"devops",statuses:["In Progress"]}
+];
+
+function defaultActualCalculationSettings(){
+  return {
+    schemaVersion:1,
+    enabled:true,
+    timezone:"Europe/Moscow",
+    workdayStart:"09:00",
+    hoursPerDay:8,
+    excludeWeekends:true,
+    roundingStep:.25,
+    mappings:ACTUAL_MAPPING_DEFINITIONS.map(item=>({
+      id:item.id,
+      taskType:item.taskType,
+      actualRole:item.actualRole,
+      statuses:[...item.statuses]
+    }))
+  };
+}
+
+function parseActualStatusList(value){
+  const values=Array.isArray(value)
+    ?value
+    :String(value||"").split(",");
+  return [...new Set(values.map(item=>String(item||"").trim()).filter(Boolean))];
+}
+
+function normalizeActualCalculationSettings(value){
+  const defaults=defaultActualCalculationSettings();
+  const source=value&&typeof value==="object"?value:{};
+  const sourceMappings=Array.isArray(source.mappings)?source.mappings:[];
+  const mappingById=new Map(sourceMappings.map(item=>[String(item?.id||""),item]));
+  return {
+    schemaVersion:1,
+    enabled:source.enabled!==false,
+    timezone:String(source.timezone||defaults.timezone).trim()||defaults.timezone,
+    workdayStart:/^([01]\d|2[0-3]):[0-5]\d$/.test(String(source.workdayStart||""))
+      ?String(source.workdayStart)
+      :defaults.workdayStart,
+    hoursPerDay:Math.max(1,Math.min(24,Number(source.hoursPerDay)||defaults.hoursPerDay)),
+    excludeWeekends:source.excludeWeekends!==false,
+    roundingStep:[.25,.5,1].includes(Number(source.roundingStep))
+      ?Number(source.roundingStep)
+      :defaults.roundingStep,
+    mappings:defaults.mappings.map(definition=>{
+      const stored=mappingById.get(definition.id)||{};
+      return {
+        id:definition.id,
+        taskType:definition.taskType,
+        actualRole:definition.actualRole,
+        statuses:parseActualStatusList(
+          stored.statuses===undefined?definition.statuses:stored.statuses
+        )
+      };
+    }),
+    updatedAt:source.updatedAt||null,
+    updatedByUid:source.updatedByUid||null,
+    updatedByName:source.updatedByName||null
+  };
+}
+
+function actualCalculationStaticEnabled(){
+  return window.TEAM_CALCULATOR_GITLAB_SYNC?.actualCalculationEnabled!==false;
+}
+
+function actualCalculationFeatureEnabled(){
+  return actualCalculationStaticEnabled()
+    &&normalizeActualCalculationSettings(actualCalculationSettings).enabled;
+}
+
+function actualTaskType(task){
+  const normalized=normalizeTask(task);
+  const explicit=String(normalized.taskTypeRole||"").trim();
+  if(["analytics","design","backend","frontend","qa","devops"].includes(explicit)){
+    return explicit;
+  }
+  const imported=["backend","frontend"].filter(roleKey=>
+    normalized.estimateSources?.[roleKey]==="team_poker"
+    ||Boolean(normalized.sourceTaskIds?.[roleKey])
+  );
+  if(imported.length===1)return imported[0];
+  const positive=["analytics","design","backend","frontend","qa","devops"].filter(roleKey=>
+    Number(normalized.estimates?.[roleKey]||0)>0
+  );
+  return positive.length===1?positive[0]:null;
+}
+
+function acceptedActualValues(taskId){
+  const item=sprintTaskActuals?.[taskId];
+  return item&&item.acceptedValues&&typeof item.acceptedValues==="object"
+    ?item.acceptedValues
+    :null;
+}
+
+function acceptedActualHtml(taskId){
+  if(!actualCalculationFeatureEnabled())return "";
+  const item=sprintTaskActuals?.[taskId];
+  const values=acceptedActualValues(taskId);
+  if(!item||!values)return "";
+  const parts=Object.entries(values)
+    .filter(([,value])=>Number.isFinite(Number(value)))
+    .map(([roleKey,value])=>`${roleLabelByKey(roleKey)} ${fmt(Number(value),2)}`);
+  if(!parts.length)return "";
+  return `<div class="accepted-actual-note">
+    <span>Факт: ${esc(parts.join(" · "))}</span>
+    <button class="secondary" type="button" data-clear-task-actual="${esc(taskId)}">Сбросить</button>
+  </div>`;
+}
+
+function setActualSettingsStatus(text,type=""){
+  actualCalculationSettingsStatus.textContent=text||"";
+  actualCalculationSettingsStatus.className=`actual-settings-status ${type||"muted"}`;
+}
+
+function renderActualCalculationSettings(){
+  const settings=normalizeActualCalculationSettings(actualCalculationSettings);
+  actualCalculationSettings=settings;
+  const staticEnabled=actualCalculationStaticEnabled();
+  actualCalculationSettingsCard.style.display=staticEnabled?"block":"none";
+  actualCalculationEnabledInput.checked=settings.enabled;
+  actualTimezoneInput.value=settings.timezone;
+  actualWorkdayStartInput.value=settings.workdayStart;
+  actualHoursPerDayInput.value=settings.hoursPerDay;
+  actualRoundingStepInput.value=String(settings.roundingStep);
+  actualExcludeWeekendsInput.checked=settings.excludeWeekends;
+  actualMappingBody.innerHTML=settings.mappings.map(mapping=>`<tr>
+    <td>${esc(roleLabelByKey(mapping.taskType))}</td>
+    <td>${esc(roleLabelByKey(mapping.actualRole))}</td>
+    <td><input data-actual-mapping-id="${esc(mapping.id)}" value="${esc(mapping.statuses.join(", "))}" placeholder="In Progress, Open"></td>
+  </tr>`).join("");
+  if(!staticEnabled){
+    setActualSettingsStatus("Модуль отключён в gitlab-sync-config.js.","warn");
+  }else if(settings.updatedAt){
+    setActualSettingsStatus(`Правила загружены · ${new Date(settings.updatedAt).toLocaleString("ru-RU")}`,"good");
+  }else{
+    setActualSettingsStatus("Используются правила по умолчанию. Сохраните их для общего использования.");
+  }
+}
+
+function actualSettingsFromUi(){
+  const current=normalizeActualCalculationSettings(actualCalculationSettings);
+  const inputById=new Map(
+    [...actualMappingBody.querySelectorAll("[data-actual-mapping-id]")]
+      .map(input=>[input.dataset.actualMappingId,input])
+  );
+  return normalizeActualCalculationSettings({
+    ...current,
+    enabled:actualCalculationEnabledInput.checked,
+    timezone:actualTimezoneInput.value,
+    workdayStart:actualWorkdayStartInput.value,
+    hoursPerDay:Number(actualHoursPerDayInput.value),
+    roundingStep:Number(actualRoundingStepInput.value),
+    excludeWeekends:actualExcludeWeekendsInput.checked,
+    mappings:current.mappings.map(mapping=>({
+      ...mapping,
+      statuses:parseActualStatusList(inputById.get(mapping.id)?.value||"")
+    }))
+  });
+}
+
+async function saveActualCalculationSettings(){
+  if(!currentUser||!firebaseDb)return;
+  try{
+    const settings=actualSettingsFromUi();
+    if(!settings.timezone)throw new Error("Укажите часовой пояс.");
+    setActualSettingsStatus("Сохранение…","warn");
+    const now=new Date().toISOString();
+    const payload={
+      ...settings,
+      updatedAt:now,
+      updatedByUid:currentUser.uid,
+      updatedByName:(currentProfile?.alias||currentUser.email||"").trim()
+    };
+    const {fsMod}=await loadFirebaseModules();
+    await fsMod.setDoc(
+      fsMod.doc(firebaseDb,"workspaces",TEAM_CALCULATOR_WORKSPACE_ID,"settings","actualCalculation"),
+      payload
+    );
+    actualCalculationSettings=payload;
+    renderActualCalculationSettings();
+    render();
+    setActualSettingsStatus("Правила сохранены.","good");
+  }catch(error){
+    console.error(error);
+    setActualSettingsStatus(error.message||"Ошибка сохранения.","bad");
+  }
+}
+
+function resetActualCalculationSettings(){
+  actualCalculationSettings=defaultActualCalculationSettings();
+  renderActualCalculationSettings();
+  setActualSettingsStatus("Правила по умолчанию загружены в форму. Нажмите «Сохранить правила».","warn");
+}
+
+function configuredActualPreviewEndpoint(){
+  const config=window.TEAM_CALCULATOR_GITLAB_SYNC||{};
+  const explicit=String(config.actualPreviewEndpoint||"").trim();
+  const metadata=String(config.endpoint||"").trim();
+  const endpoint=explicit||(
+    metadata?metadata.replace(/\/gitlab-sync\/?$/,"/gitlab-actual-preview"):""
+  );
+  return endpoint&&!endpoint.includes("REPLACE_")?endpoint:null;
+}
+
+function actualPreviewPeriod(){
+  if(!sprintStartedAt)return null;
+  const start=new Date(sprintStartedAt);
+  const end=new Date(sprintCompletedAt||Date.now());
+  if(!Number.isFinite(start.getTime())||!Number.isFinite(end.getTime())||end<=start)return null;
+  return {startAt:start.toISOString(),endAt:end.toISOString()};
+}
+
+async function requestSprintActualPreview(){
+  if(!actualCalculationFeatureEnabled()){
+    alert("Автоматический расчёт факта отключён в настройках.");
+    return;
+  }
+  if(!currentSprintId){
+    alert("Сначала сохраните спринт.");
+    return;
+  }
+  const period=actualPreviewPeriod();
+  if(!period){
+    alert("Расчёт доступен после запуска спринта.");
+    return;
+  }
+  const endpoint=configuredActualPreviewEndpoint();
+  if(!endpoint){
+    alert("Не настроен actualPreviewEndpoint.");
+    return;
+  }
+  const tasks=selectedTaskIds.map(taskId=>{
+    const task=normalizeTask(currentTaskSnapshot(taskId));
+    const externalTaskUrl=String(task.externalTaskUrl||taskPool[taskId]?.externalTaskUrl||"").trim();
+    const taskType=actualTaskType(task);
+    if(!externalTaskUrl||!taskType)return null;
+    return {taskId,title:task.title||taskId,externalTaskUrl,taskType};
+  }).filter(Boolean);
+  if(!tasks.length){
+    alert("В спринте нет задач с GitLab-ссылкой и однозначным типом.");
+    return;
+  }
+  try{
+    actualPreviewInProgress=true;
+    render();
+    sprintActualStatus.textContent="Создание задания…";
+    const settings=normalizeActualCalculationSettings(actualCalculationSettings);
+    const token=await currentUser.getIdToken();
+    const response=await fetch(endpoint,{
+      method:"POST",
+      headers:{"Content-Type":"application/json","Authorization":`Bearer ${token}`},
+      body:JSON.stringify({
+        workspaceId:TEAM_CALCULATOR_WORKSPACE_ID,
+        sprintId:currentSprintId,
+        sprintName:sprintName.value||currentSprintId,
+        periodStart:period.startAt,
+        periodEnd:period.endAt,
+        calendar:{
+          timezone:settings.timezone,
+          workdayStart:settings.workdayStart,
+          hoursPerDay:settings.hoursPerDay,
+          excludeWeekends:settings.excludeWeekends,
+          roundingStep:settings.roundingStep
+        },
+        mappings:settings.mappings,
+        tasks
+      })
+    });
+    const result=await response.json().catch(()=>({}));
+    if(!response.ok||result.ok!==true||!result.jobId){
+      throw new Error(result.error||`HTTP ${response.status}`);
+    }
+    subscribeActualPreviewJob(result.jobId);
+  }catch(error){
+    console.error(error);
+    actualPreviewInProgress=false;
+    sprintActualStatus.textContent=`Ошибка: ${error.message}`;
+    render();
+  }
+}
+
+async function subscribeActualPreviewJob(jobId){
+  const {fsMod}=await loadFirebaseModules();
+  if(unsubscribeActualPreviewJob){
+    unsubscribeActualPreviewJob();
+    unsubscribeActualPreviewJob=null;
+  }
+  const jobRef=fsMod.doc(firebaseDb,"workspaces",TEAM_CALCULATOR_WORKSPACE_ID,"gitlab_jobs",jobId);
+  unsubscribeActualPreviewJob=fsMod.onSnapshot(jobRef,snapshot=>{
+    if(!snapshot.exists())return;
+    const job={id:snapshot.id,...snapshot.data()};
+    const status=String(job.status||"");
+    const processed=Number(job.processedCount||0);
+    const total=Array.isArray(job.tasks)?job.tasks.length:0;
+    if(["pending","processing"].includes(status)){
+      sprintActualStatus.textContent=`Расчёт: ${processed}/${total}`;
+      return;
+    }
+    actualPreviewInProgress=false;
+    if(unsubscribeActualPreviewJob){
+      unsubscribeActualPreviewJob();
+      unsubscribeActualPreviewJob=null;
+    }
+    if(["succeeded","partial"].includes(status)){
+      actualPreviewJobData=job;
+      sprintActualStatus.textContent=status==="partial"
+        ?"Расчёт завершён частично"
+        :"Предварительный факт рассчитан";
+      openActualPreviewDialog(job);
+    }else{
+      sprintActualStatus.textContent=`Ошибка расчёта: ${job.error||"неизвестная ошибка"}`;
+    }
+    render();
+  },error=>{
+    console.error(error);
+    actualPreviewInProgress=false;
+    sprintActualStatus.textContent=`Ошибка чтения задания: ${error.message}`;
+    render();
+  });
+}
+
+function actualPreviewRoleBreakdown(result,roleKey){
+  const statuses=result.matchedStatusesByRole?.[roleKey]||[];
+  return statuses.length?statuses.join(", "):"нет совпавших статусов";
+}
+
+function openActualPreviewDialog(job){
+  const results=Array.isArray(job.results)?job.results:[];
+  actualPreviewSummary.textContent=`${job.sprintName||"Спринт"} · ${results.filter(item=>item.ok).length} задач рассчитано · период ${new Date(job.periodStart).toLocaleString("ru-RU")} — ${new Date(job.periodEnd).toLocaleString("ru-RU")}`;
+  const rows=[];
+  results.forEach(result=>{
+    if(!result.ok){
+      rows.push(`<tr><td></td><td>${esc(result.title||result.taskId||"Задача")}</td><td colspan="4"><div class="actual-preview-error">${esc(result.error||"Ошибка расчёта")}</div></td></tr>`);
+      return;
+    }
+    const values=result.proposedActuals&&typeof result.proposedActuals==="object"?result.proposedActuals:{};
+    const entries=Object.entries(values);
+    if(!entries.length){
+      rows.push(`<tr><td></td><td>${esc(result.title||result.taskId)}</td><td>${esc(roleLabelByKey(result.taskType))}</td><td class="num">0</td><td class="num">—</td><td>Нет учитываемых интервалов</td></tr>`);
+      return;
+    }
+    entries.forEach(([roleKey,value],index)=>{
+      const raw=Number(result.rawActuals?.[roleKey]||0);
+      rows.push(`<tr>
+        <td><input type="checkbox" data-actual-preview-select="${esc(result.taskId)}::${esc(roleKey)}" checked></td>
+        <td>${index===0?esc(result.title||result.taskId):""}</td>
+        <td>${esc(roleLabelByKey(roleKey))}</td>
+        <td class="num">${fmt(Number(value),2)}</td>
+        <td class="num"><input class="actual-preview-input" data-actual-preview-value="${esc(result.taskId)}::${esc(roleKey)}" value="${esc(String(value))}" inputmode="decimal"></td>
+        <td><div>${esc(actualPreviewRoleBreakdown(result,roleKey))}</div><div class="actual-preview-breakdown">до округления: ${fmt(raw,3)} ч.д.</div></td>
+      </tr>`);
+    });
+  });
+  actualPreviewBody.innerHTML=rows.join("")||'<tr><td colspan="6">Нет результатов.</td></tr>';
+  actualPreviewDialog.showModal();
+}
+
+function closeActualPreviewDialog(){
+  if(actualPreviewDialog.open)actualPreviewDialog.close();
+}
+
+async function acceptActualPreview(){
+  if(!actualPreviewJobData||!currentSprintId)return;
+  const selected=new Set(
+    [...actualPreviewBody.querySelectorAll("[data-actual-preview-select]:checked")]
+      .map(input=>input.dataset.actualPreviewSelect)
+  );
+  if(!selected.size){
+    alert("Выберите хотя бы одно значение.");
+    return;
+  }
+  const resultsByTask=new Map(
+    (actualPreviewJobData.results||[]).filter(item=>item.ok).map(item=>[item.taskId,item])
+  );
+  const grouped=new Map();
+  for(const input of actualPreviewBody.querySelectorAll("[data-actual-preview-value]")){
+    const key=input.dataset.actualPreviewValue;
+    if(!selected.has(key))continue;
+    const [taskId,roleKey]=key.split("::");
+    const value=parseTaskEstimate(input.value);
+    if(!Number.isFinite(value)||value<0){
+      alert(`Некорректное значение для ${roleLabelByKey(roleKey)}.`);
+      input.focus();
+      return;
+    }
+    if(!grouped.has(taskId))grouped.set(taskId,{});
+    grouped.get(taskId)[roleKey]=value;
+  }
+  const now=new Date().toISOString();
+  grouped.forEach((newAcceptedValues,taskId)=>{
+    const result=resultsByTask.get(taskId)||{};
+    const previous=sprintTaskActuals?.[taskId]||{};
+    const acceptedValues={
+      ...(previous.acceptedValues||{}),
+      ...newAcceptedValues
+    };
+    const calculatedValues={
+      ...(previous.calculatedValues||{}),
+      ...(result.proposedActuals||{})
+    };
+    const manuallyAdjusted=Object.entries(acceptedValues).some(([roleKey,value])=>Math.abs(Number(value)-Number(calculatedValues[roleKey]||0))>1e-9);
+    sprintTaskActuals[taskId]={
+      source:"gitlab_status_history",
+      taskType:result.taskType||actualTaskType(currentTaskSnapshot(taskId)),
+      jobId:actualPreviewJobData.id,
+      acceptedValues,
+      calculatedValues,
+      rawActuals:result.rawActuals||{},
+      matchedStatusesByRole:result.matchedStatusesByRole||{},
+      periodStart:actualPreviewJobData.periodStart,
+      periodEnd:actualPreviewJobData.periodEnd,
+      settingsSnapshot:actualPreviewJobData.settingsSnapshot||null,
+      acceptedAt:now,
+      acceptedByUid:currentUser.uid,
+      acceptedByName:(currentProfile?.alias||currentUser.email||"").trim(),
+      manuallyAdjusted
+    };
+  });
+  try{
+    acceptActualPreviewButton.disabled=true;
+    const saved=await saveSprintSet(false,{silent:false,source:"actual_accept"});
+    if(saved){
+      closeActualPreviewDialog();
+      render();
+    }
+  }finally{
+    acceptActualPreviewButton.disabled=false;
+  }
+}
+
+async function clearTaskAcceptedActual(taskId){
+  if(!sprintTaskActuals?.[taskId])return;
+  if(!confirm("Удалить принятый факт этой задачи и вернуться к прежнему расчёту?"))return;
+  delete sprintTaskActuals[taskId];
+  recalculateRolePlanFact();
+  await saveSprintSet(false,{silent:false,source:"actual_clear"});
+  render();
 }
 
 function normalizeTask(task){
@@ -1977,7 +2684,15 @@ function recalculateRolePlanFact(){
       const value=normalizeTask(task).estimates[key];
       return sum+(isEstimateFilled(value)?Number(value):0);
     },0);
-    role.actual=completed.reduce((sum,task)=>{
+    role.actual=selectedTaskIds.reduce((sum,taskId)=>{
+      const accepted=actualCalculationFeatureEnabled()
+        ?acceptedActualValues(taskId)
+        :null;
+      if(accepted&&Object.prototype.hasOwnProperty.call(accepted,key)){
+        return sum+(Number(accepted[key])||0);
+      }
+      if(!completedTaskIds.includes(taskId))return sum;
+      const task=currentTaskSnapshot(taskId);
       const value=normalizeTask(task).estimates[key];
       return sum+(isEstimateFilled(value)?Number(value):0);
     },0);
@@ -2651,7 +3366,8 @@ function getCurrentInputState(){
     taskPoolSort: JSON.parse(JSON.stringify(taskPoolSort)),
     selectedTaskIds: JSON.parse(JSON.stringify(selectedTaskIds)),
     completedTaskIds: JSON.parse(JSON.stringify(completedTaskIds)),
-    sprintTaskSnapshots: JSON.parse(JSON.stringify(sprintTaskSnapshots))
+    sprintTaskSnapshots: JSON.parse(JSON.stringify(sprintTaskSnapshots)),
+    sprintTaskActuals: JSON.parse(JSON.stringify(sprintTaskActuals))
   };
 }
 
@@ -2832,6 +3548,7 @@ function applyInputState(state){
   selectedTaskIds=Array.isArray(state.selectedTaskIds)?JSON.parse(JSON.stringify(state.selectedTaskIds)):[];
   completedTaskIds=Array.isArray(state.completedTaskIds)?JSON.parse(JSON.stringify(state.completedTaskIds)):[];
   sprintTaskSnapshots=state.sprintTaskSnapshots?JSON.parse(JSON.stringify(state.sprintTaskSnapshots)):{};
+  sprintTaskActuals=state.sprintTaskActuals?JSON.parse(JSON.stringify(state.sprintTaskActuals)):{};
   isHydrating=false;
   recalculateRolePlanFact();
   saveState();
@@ -3216,6 +3933,7 @@ async function deleteSprintSet(id){
       selectedTaskIds=[];
       completedTaskIds=[];
       sprintTaskSnapshots={};
+      sprintTaskActuals={};
       recalculateRolePlanFact();
     }
 
@@ -3247,6 +3965,7 @@ function startNewSprintSet(){
   selectedTaskIds=[];
   completedTaskIds=[];
   sprintTaskSnapshots={};
+  sprintTaskActuals={};
   savedSprintSelect.value="";
   recalculateRolePlanFact();
   saveState();
@@ -3269,6 +3988,7 @@ function copyCurrentSprintSettings(){
   selectedTaskIds=JSON.parse(JSON.stringify(selectedTaskIds));
   completedTaskIds=JSON.parse(JSON.stringify(completedTaskIds));
   sprintTaskSnapshots=JSON.parse(JSON.stringify(sprintTaskSnapshots));
+  sprintTaskActuals={};
 
   recalculateRolePlanFact();
   saveState();
@@ -4265,6 +4985,7 @@ async function removeTaskFromSprint(taskId){
   selectedTaskIds=selectedTaskIds.filter(id=>id!==taskId);
   completedTaskIds=completedTaskIds.filter(id=>id!==taskId);
   delete sprintTaskSnapshots[taskId];
+  delete sprintTaskActuals[taskId];
   recalculateRolePlanFact();
   saveState();
 
@@ -5799,6 +6520,7 @@ function renderSprintTasks(){
           normalized,
           poolTask
         )}
+        ${acceptedActualHtml(id)}
         ${estimateChanged&&!sprintLifecycleIsCompleted()
           ?'<div class="task-warning">В пуле есть обновлённая оценка</div>'
           :""}
@@ -5895,6 +6617,14 @@ function renderSprintTasks(){
         button.dataset.removeTask
       );
     });
+
+  document
+    .querySelectorAll("[data-clear-task-actual]")
+    .forEach(button=>{
+      button.onclick=()=>clearTaskAcceptedActual(
+        button.dataset.clearTaskActual
+      );
+    });
 }
 
 function render(){
@@ -5904,6 +6634,17 @@ function render(){
   syncSprintGitLabButton.disabled=
     sprintLifecycleIsCompleted()
     ||gitLabSyncInProgress
+    ||!selectedTaskIds.length;
+
+  calculateSprintActualsButton.style.display=
+    actualCalculationStaticEnabled()?"inline-flex":"none";
+  sprintActualStatus.style.display=
+    actualCalculationStaticEnabled()?"inline":"none";
+  calculateSprintActualsButton.disabled=
+    !actualCalculationFeatureEnabled()
+    ||actualPreviewInProgress
+    ||!currentSprintId
+    ||!sprintStartedAt
     ||!selectedTaskIds.length;
 
   if(sprintLifecycleIsCompleted()){
@@ -6202,6 +6943,12 @@ periodName.onchange=()=>{if(periodName.value==="sprint")workdays.value=10;if(per
 document.getElementById("saveSprint").onclick=()=>saveSprintSet(false,{silent:false,source:"manual"});
 sprintLifecycleAction.onclick=handleSprintLifecycleAction;
 syncSprintGitLabButton.onclick=()=>requestSprintGitLabSync();
+calculateSprintActualsButton.onclick=requestSprintActualPreview;
+document.getElementById("saveActualCalculationSettings").onclick=saveActualCalculationSettings;
+document.getElementById("resetActualCalculationSettings").onclick=resetActualCalculationSettings;
+document.getElementById("closeActualPreviewDialog").onclick=closeActualPreviewDialog;
+document.getElementById("cancelActualPreview").onclick=closeActualPreviewDialog;
+acceptActualPreviewButton.onclick=acceptActualPreview;
 
 [
   sprintTaskDirectionFilter,
@@ -6258,6 +7005,7 @@ document.getElementById("resetDefaults").onclick=()=>{
   selectedTaskIds=[];
   completedTaskIds=[];
   sprintTaskSnapshots={};
+  sprintTaskActuals={};
   savedSprintSelect.value="";
   recalculateRolePlanFact();
   saveState();
@@ -6328,6 +7076,7 @@ document.getElementById("clearSprintTasks").onclick=()=>{
   selectedTaskIds=[];
   completedTaskIds=[];
   sprintTaskSnapshots={};
+  sprintTaskActuals={};
   recalculateRolePlanFact();
   saveState();
   render();
@@ -6428,6 +7177,10 @@ async function initializeFirebase(){
     }else{
       stopTaskPoolRealtime();
       stopGitLabJobRealtime();
+      if(unsubscribeActualPreviewJob){
+        unsubscribeActualPreviewJob();
+        unsubscribeActualPreviewJob=null;
+      }
       currentUser=null;
       currentProfile=null;
       savedSprintSets={};
@@ -6436,6 +7189,9 @@ async function initializeFirebase(){
       selectedTaskIds=[];
       completedTaskIds=[];
       sprintTaskSnapshots={};
+      sprintTaskActuals={};
+      actualPreviewJobData=null;
+      actualPreviewInProgress=false;
       appLoaded=false;
       document.body.classList.add("auth-locked");
       authScreen.style.display="block";
@@ -6506,9 +7262,10 @@ async function loadUserWorkspace(){
     const appRef=fsMod.doc(firebaseDb,"users",currentUser.uid,"app","main");
     const appSnap=await fsMod.getDoc(appRef);
 
-    const [sprintSnap,taskSnap]=await Promise.all([
+    const [sprintSnap,taskSnap,actualSettingsSnap]=await Promise.all([
       fsMod.getDocs(fsMod.collection(firebaseDb,"users",currentUser.uid,"sprints")),
-      fsMod.getDocs(fsMod.collection(firebaseDb,"workspaces",TEAM_CALCULATOR_WORKSPACE_ID,"taskPool"))
+      fsMod.getDocs(fsMod.collection(firebaseDb,"workspaces",TEAM_CALCULATOR_WORKSPACE_ID,"taskPool")),
+      fsMod.getDoc(fsMod.doc(firebaseDb,"workspaces",TEAM_CALCULATOR_WORKSPACE_ID,"settings","actualCalculation"))
     ]);
 
     savedSprintSets={};
@@ -6520,6 +7277,11 @@ async function loadUserWorkspace(){
     taskSnap.forEach(docSnap=>{
       taskPool[docSnap.id]=normalizeTask(Object.assign({id:docSnap.id},docSnap.data()));
     });
+
+    actualCalculationSettings=actualSettingsSnap.exists()
+      ?normalizeActualCalculationSettings(actualSettingsSnap.data())
+      :defaultActualCalculationSettings();
+    renderActualCalculationSettings();
 
     isHydrating=true;
     if(appSnap.exists()){
@@ -6553,6 +7315,7 @@ async function loadUserWorkspace(){
       selectedTaskIds=Array.isArray(state.selectedTaskIds)?state.selectedTaskIds:[];
       completedTaskIds=Array.isArray(state.completedTaskIds)?state.completedTaskIds:[];
       sprintTaskSnapshots=state.sprintTaskSnapshots||{};
+      sprintTaskActuals=state.sprintTaskActuals||{};
     }else{
       roles=JSON.parse(JSON.stringify(defaultRoles));
       currentSprintId=null;
@@ -6562,6 +7325,7 @@ async function loadUserWorkspace(){
       selectedTaskIds=[];
       completedTaskIds=[];
       sprintTaskSnapshots={};
+      sprintTaskActuals={};
     }
     isHydrating=false;
 

@@ -750,6 +750,22 @@
     }
     .actual-settings-status.good{color:#137333}
     .actual-settings-status.bad{color:#b3261e}
+    .actual-calendar-method{
+      display:grid!important;
+      align-content:start;
+      gap:5px;
+    }
+    .actual-calendar-method-value{
+      display:flex;
+      align-items:center;
+      min-height:38px;
+      padding:8px 10px;
+      border:1px solid var(--border);
+      border-radius:8px;
+      background:#f7f8fb;
+      color:#344054;
+      font-weight:800;
+    }
     .actual-settings-status.warn{color:#8a5b00}
     .actual-preview-dialog{
       width:min(1100px,calc(100vw - 28px));
@@ -2099,8 +2115,9 @@
             <div>
               <h2>Предварительный факт по GitLab</h2>
               <p class="muted" style="margin:0">
-                Статусы сопоставляются с ролями без изменения кода. Для одного assignee используется его часовой пояс. Расчёт только предлагает значения;
-                факт сохраняется после ручного подтверждения.
+                Статусы сопоставляются с ролями без изменения кода. Для одного assignee используется его часовой пояс.
+                Интервал учитывается целиком независимо от времени суток, но не более одного рабочего дня за календарные сутки.
+                Расчёт только предлагает значения; факт сохраняется после ручного подтверждения.
               </p>
             </div>
             <label class="actual-settings-toggle">
@@ -2113,10 +2130,20 @@
             <label>Часовой пояс по умолчанию
               <select id="actualTimezone"></select>
             </label>
-            <label>Начало рабочего дня
-              <input id="actualWorkdayStart" type="time" value="09:00">
+            <label class="actual-calendar-method">
+              Метод учёта
+              <span class="actual-calendar-method-value">
+                Календарные сутки 00:00–24:00
+              </span>
+              <span class="muted small">
+                Время начала работы не ограничивает расчёт.
+              </span>
+              <input
+                id="actualWorkdayStart"
+                type="hidden"
+                value="09:00">
             </label>
-            <label>Часов в рабочем дне
+            <label>Максимум часов за календарные сутки
               <input id="actualHoursPerDay" type="number" min="1" max="24" step="0.5" value="8">
             </label>
             <label>Округление, ч.д.
@@ -2939,7 +2966,29 @@ function taskRolePlanFact(
     acceptedAt:
       actualItem.acceptedAt||null,
     manuallyAdjusted:
-      Boolean(actualItem.manuallyAdjusted)
+      Boolean(actualItem.manuallyAdjusted),
+    calculationMethod:
+      actualItem.calculationMethod||null,
+    dailyCapHours:
+      Number(actualItem.dailyCapHours)||null,
+    countedHours:
+      Number(
+        actualItem.countedHoursByRole?.[
+          roleKey
+        ]
+      ),
+    activeCalendarDays:
+      Number(
+        actualItem.activeCalendarDaysByRole?.[
+          roleKey
+        ]
+      ),
+    cappedCalendarDays:
+      Number(
+        actualItem.cappedCalendarDaysByRole?.[
+          roleKey
+        ]
+      )
   };
 }
 
@@ -3023,6 +3072,47 @@ function taskPlanFactTooltip(
             .toLocaleString("ru-RU")
         }`
       );
+    }
+
+    if(
+      item.calculationMethod
+      ==="calendar_day_cap"
+    ){
+      lines.push(
+        "Метод: вся длительность статуса "
+        +"по календарным суткам"
+      );
+
+      if(
+        Number.isFinite(item.dailyCapHours)
+        &&item.dailyCapHours>0
+      ){
+        lines.push(
+          `Лимит: ${
+            fmt(item.dailyCapHours,2)
+          } ч за сутки`
+        );
+      }
+
+      if(
+        Number.isFinite(item.countedHours)
+      ){
+        lines.push(
+          `Учтено: ${
+            fmt(item.countedHours,2)
+          } ч за ${
+            item.activeCalendarDays||0
+          } дн.`
+        );
+      }
+
+      if(item.cappedCalendarDays>0){
+        lines.push(
+          `Лимит применён в ${
+            item.cappedCalendarDays
+          } дн.`
+        );
+      }
     }
   }else if(
     item.source==="completed_estimate"
@@ -3570,6 +3660,47 @@ function taskActualPreviewHtml(taskId){
         roleKey
       );
 
+    const dailyCap=Number(
+      result.dailyCapHours||0
+    );
+
+    const rawIntervalHours=Number(
+      result.rawIntervalHoursByRole?.[
+        roleKey
+      ]||0
+    );
+
+    const countedHours=Number(
+      result.countedHoursByRole?.[
+        roleKey
+      ]||0
+    );
+
+    const activeDays=Number(
+      result.activeCalendarDaysByRole?.[
+        roleKey
+      ]||0
+    );
+
+    const cappedDays=Number(
+      result.cappedCalendarDaysByRole?.[
+        roleKey
+      ]||0
+    );
+
+    const methodDetails=
+      result.calculationMethod
+      ==="calendar_day_cap"
+        ?(
+          `Метод: календарные сутки; `
+          +`лимит ${fmt(dailyCap,2)} ч/сутки; `
+          +`интервал ${fmt(rawIntervalHours,2)} ч; `
+          +`учтено ${fmt(countedHours,2)} ч `
+          +`за ${activeDays} дн.; `
+          +`ограничение применено: ${cappedDays} дн.`
+        )
+        :"";
+
     return `<span class="task-actual-preview-value">
       <span>${esc(roleLabelByKey(roleKey))}:</span>
       <input
@@ -3580,7 +3711,13 @@ function taskActualPreviewHtml(taskId){
       <span>ч.д.</span>
       <span
         class="task-actual-preview-details"
-        title="${esc(`Статусы: ${statuses}; до округления: ${fmt(raw,3)} ч.д.`)}">
+        title="${esc(
+          `Статусы: ${statuses}; `
+          +`до округления: ${fmt(raw,3)} ч.д.`
+          +(methodDetails
+            ?`; ${methodDetails}`
+            :"")
+        )}">
           по GitLab
       </span>
     </span>`;
@@ -3737,6 +3874,18 @@ async function acceptTaskActualPreview(
     calculationTimezone:result.calculationTimezone||null,
     timezoneSource:result.timezoneSource||null,
     timezoneWarning:result.timezoneWarning||null,
+    calculationMethod:
+      result.calculationMethod||null,
+    dailyCapHours:
+      Number(result.dailyCapHours)||null,
+    rawIntervalHoursByRole:
+      result.rawIntervalHoursByRole||{},
+    countedHoursByRole:
+      result.countedHoursByRole||{},
+    activeCalendarDaysByRole:
+      result.activeCalendarDaysByRole||{},
+    cappedCalendarDaysByRole:
+      result.cappedCalendarDaysByRole||{},
     periodStart:actualPreviewJobData.periodStart,
     periodEnd:actualPreviewJobData.periodEnd,
     settingsSnapshot:
@@ -3865,6 +4014,18 @@ async function acceptActualPreview(){
       calculatedValues,
       rawActuals:result.rawActuals||{},
       matchedStatusesByRole:result.matchedStatusesByRole||{},
+      calculationMethod:
+        result.calculationMethod||null,
+      dailyCapHours:
+        Number(result.dailyCapHours)||null,
+      rawIntervalHoursByRole:
+        result.rawIntervalHoursByRole||{},
+      countedHoursByRole:
+        result.countedHoursByRole||{},
+      activeCalendarDaysByRole:
+        result.activeCalendarDaysByRole||{},
+      cappedCalendarDaysByRole:
+        result.cappedCalendarDaysByRole||{},
       periodStart:actualPreviewJobData.periodStart,
       periodEnd:actualPreviewJobData.periodEnd,
       settingsSnapshot:actualPreviewJobData.settingsSnapshot||null,

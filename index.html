@@ -424,6 +424,42 @@
       font-size:10px;
       font-weight:600;
     }
+    .actual-assignee-timezones{
+      margin-top:14px;
+      padding:12px;
+      border:1px solid var(--border);
+      border-radius:12px;
+      background:#fafbfe;
+    }
+    .actual-assignee-timezones-header{
+      display:flex;
+      justify-content:space-between;
+      align-items:flex-start;
+      gap:12px;
+      flex-wrap:wrap;
+      margin-bottom:9px;
+    }
+    .actual-assignee-timezones-header h3{
+      margin:0 0 3px;
+      font-size:14px;
+    }
+    .actual-assignee-timezone-table input{
+      min-width:210px;
+    }
+    .actual-assignee-empty{
+      color:var(--muted);
+      text-align:center;
+      padding:12px!important;
+    }
+    .task-actual-timezone{
+      display:inline-flex;
+      align-items:center;
+      gap:4px;
+      color:var(--muted);
+      font-size:10px;
+      font-weight:650;
+    }
+    .task-actual-timezone.warning{color:#9a6100}
     .actual-preview-toolbar-status{
       min-width:180px;
     }
@@ -1791,7 +1827,7 @@
             <div>
               <h2>Предварительный факт по GitLab</h2>
               <p class="muted" style="margin:0">
-                Статусы сопоставляются с ролями без изменения кода. Расчёт только предлагает значения;
+                Статусы сопоставляются с ролями без изменения кода. Для одного assignee используется его часовой пояс. Расчёт только предлагает значения;
                 факт сохраняется после ручного подтверждения.
               </p>
             </div>
@@ -1802,8 +1838,8 @@
           </div>
 
           <div class="actual-settings-fields">
-            <label>Часовой пояс
-              <input id="actualTimezone" value="Europe/Moscow">
+            <label>Часовой пояс по умолчанию
+              <input id="actualTimezone" value="Europe/Moscow" list="actualTimezoneOptions">
             </label>
             <label>Начало рабочего дня
               <input id="actualWorkdayStart" type="time" value="09:00">
@@ -1823,6 +1859,45 @@
               Не учитывать выходные
             </label>
           </div>
+
+          <div class="actual-assignee-timezones">
+            <div class="actual-assignee-timezones-header">
+              <div>
+                <h3>Часовые пояса исполнителей</h3>
+                <div class="muted small">
+                  Список формируется из assignee GitLab-задач. Для задачи с одним исполнителем
+                  используется его часовой пояс; пустое значение означает часовой пояс по умолчанию.
+                </div>
+              </div>
+              <button class="secondary" id="refreshActualAssignees" type="button">Обновить список из задач</button>
+            </div>
+            <div class="task-table-wrap">
+              <table class="roles-table actual-assignee-timezone-table">
+                <thead>
+                  <tr>
+                    <th>Исполнитель</th>
+                    <th>GitLab username</th>
+                    <th>Часовой пояс</th>
+                  </tr>
+                </thead>
+                <tbody id="actualAssigneeTimezoneBody"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <datalist id="actualTimezoneOptions">
+            <option value="Europe/Moscow"></option>
+            <option value="Europe/Kaliningrad"></option>
+            <option value="Asia/Yekaterinburg"></option>
+            <option value="Asia/Omsk"></option>
+            <option value="Asia/Novosibirsk"></option>
+            <option value="Asia/Krasnoyarsk"></option>
+            <option value="Asia/Irkutsk"></option>
+            <option value="Asia/Yakutsk"></option>
+            <option value="Asia/Vladivostok"></option>
+            <option value="Asia/Magadan"></option>
+            <option value="Asia/Kamchatka"></option>
+          </datalist>
 
           <div class="task-table-wrap">
             <table class="roles-table actual-mapping-table">
@@ -2051,6 +2126,8 @@ actualWorkdayStartInput=document.getElementById("actualWorkdayStart"),
 actualHoursPerDayInput=document.getElementById("actualHoursPerDay"),
 actualRoundingStepInput=document.getElementById("actualRoundingStep"),
 actualExcludeWeekendsInput=document.getElementById("actualExcludeWeekends"),
+actualAssigneeTimezoneBody=document.getElementById("actualAssigneeTimezoneBody"),
+refreshActualAssigneesButton=document.getElementById("refreshActualAssignees"),
 actualMappingBody=document.getElementById("actualMappingBody"),
 actualCalculationSettingsStatus=document.getElementById("actualCalculationSettingsStatus"),
 actualPreviewDialog=document.getElementById("actualPreviewDialog"),
@@ -2154,13 +2231,14 @@ const ACTUAL_MAPPING_DEFINITIONS=[
 
 function defaultActualCalculationSettings(){
   return {
-    schemaVersion:1,
+    schemaVersion:2,
     enabled:true,
     timezone:"Europe/Moscow",
     workdayStart:"09:00",
     hoursPerDay:8,
     excludeWeekends:true,
     roundingStep:.25,
+    assigneeTimezones:[],
     mappings:ACTUAL_MAPPING_DEFINITIONS.map(item=>({
       id:item.id,
       taskType:item.taskType,
@@ -2168,6 +2246,110 @@ function defaultActualCalculationSettings(){
       statuses:[...item.statuses]
     }))
   };
+}
+
+function normalizeActualAssigneeTimezones(value){
+  const rows=Array.isArray(value)
+    ?value
+    :(value&&typeof value==="object"
+      ?Object.entries(value).map(([username,timezone])=>({
+          username,
+          timezone
+        }))
+      :[]);
+
+  const result=new Map();
+
+  rows.forEach(row=>{
+    const username=String(row?.username||"").trim();
+    const timezone=String(row?.timezone||"").trim();
+    const name=String(row?.name||username).trim()||username;
+
+    if(!username||!timezone)return;
+
+    result.set(username.toLowerCase(),{
+      username,
+      name,
+      timezone
+    });
+  });
+
+  return [...result.values()].sort((a,b)=>
+    a.name.localeCompare(b.name,"ru",{sensitivity:"base"})
+  );
+}
+
+function isValidActualTimezone(value){
+  const timezone=String(value||"").trim();
+  if(!timezone)return false;
+  try{
+    new Intl.DateTimeFormat("en-US",{
+      timeZone:timezone
+    }).format(new Date());
+    return true;
+  }catch(_error){
+    return false;
+  }
+}
+
+function addKnownActualAssignee(target,person){
+  if(!person||typeof person!=="object")return;
+  const username=String(person.username||"").trim();
+  if(!username)return;
+  const key=username.toLowerCase();
+  const name=String(person.name||username).trim()||username;
+  const existing=target.get(key);
+  target.set(key,{
+    username:existing?.username||username,
+    name:existing?.name&&existing.name!==existing.username
+      ?existing.name
+      :name
+  });
+}
+
+function knownActualAssignees(){
+  const result=new Map();
+  const settings=normalizeActualCalculationSettings(
+    actualCalculationSettings
+  );
+
+  settings.assigneeTimezones.forEach(row=>
+    addKnownActualAssignee(result,row)
+  );
+
+  const sourceIds=selectedTaskIds.length
+    ?selectedTaskIds
+    :Object.keys(taskPool||{});
+
+  sourceIds.forEach(taskId=>{
+    const snapshot=currentTaskSnapshot(taskId);
+    const poolTask=taskPool?.[taskId];
+    [snapshot,poolTask].forEach(task=>{
+      const assignees=Array.isArray(task?.gitlab?.assignees)
+        ?task.gitlab.assignees
+        :[];
+      assignees.forEach(person=>
+        addKnownActualAssignee(result,person)
+      );
+    });
+  });
+
+  const previewResults=Array.isArray(actualPreviewJobData?.results)
+    ?actualPreviewJobData.results
+    :[];
+
+  previewResults.forEach(item=>{
+    const assignees=Array.isArray(item?.assignees)
+      ?item.assignees
+      :[];
+    assignees.forEach(person=>
+      addKnownActualAssignee(result,person)
+    );
+  });
+
+  return [...result.values()].sort((a,b)=>
+    a.name.localeCompare(b.name,"ru",{sensitivity:"base"})
+  );
 }
 
 function parseActualStatusList(value){
@@ -2183,7 +2365,7 @@ function normalizeActualCalculationSettings(value){
   const sourceMappings=Array.isArray(source.mappings)?source.mappings:[];
   const mappingById=new Map(sourceMappings.map(item=>[String(item?.id||""),item]));
   return {
-    schemaVersion:1,
+    schemaVersion:2,
     enabled:source.enabled!==false,
     timezone:String(source.timezone||defaults.timezone).trim()||defaults.timezone,
     workdayStart:/^([01]\d|2[0-3]):[0-5]\d$/.test(String(source.workdayStart||""))
@@ -2194,6 +2376,9 @@ function normalizeActualCalculationSettings(value){
     roundingStep:[.25,.5,1].includes(Number(source.roundingStep))
       ?Number(source.roundingStep)
       :defaults.roundingStep,
+    assigneeTimezones:normalizeActualAssigneeTimezones(
+      source.assigneeTimezones
+    ),
     mappings:defaults.mappings.map(definition=>{
       const stored=mappingById.get(definition.id)||{};
       return {
@@ -2278,6 +2463,33 @@ function renderActualCalculationSettings(){
   actualHoursPerDayInput.value=settings.hoursPerDay;
   actualRoundingStepInput.value=String(settings.roundingStep);
   actualExcludeWeekendsInput.checked=settings.excludeWeekends;
+  const storedTimezoneByUsername=new Map(
+    settings.assigneeTimezones.map(row=>[
+      row.username.toLowerCase(),
+      row
+    ])
+  );
+  const knownAssignees=knownActualAssignees();
+  actualAssigneeTimezoneBody.innerHTML=knownAssignees.length
+    ?knownAssignees.map(person=>{
+      const stored=storedTimezoneByUsername.get(
+        person.username.toLowerCase()
+      );
+      return `<tr>
+        <td>${esc(person.name)}</td>
+        <td><code>@${esc(person.username)}</code></td>
+        <td><input
+          data-actual-assignee-username="${esc(person.username)}"
+          data-actual-assignee-name="${esc(person.name)}"
+          value="${esc(stored?.timezone||"")}"
+          placeholder="${esc(settings.timezone)}"
+          list="actualTimezoneOptions"></td>
+      </tr>`;
+    }).join("")
+    :`<tr><td colspan="3" class="actual-assignee-empty">
+      Исполнители ещё не загружены. Нажмите «Обновить из GitLab» для задач спринта
+      или выполните первый расчёт.
+    </td></tr>`;
   actualMappingBody.innerHTML=settings.mappings.map(mapping=>`<tr>
     <td>${esc(roleLabelByKey(mapping.taskType))}</td>
     <td>${esc(roleLabelByKey(mapping.actualRole))}</td>
@@ -2298,6 +2510,22 @@ function actualSettingsFromUi(){
     [...actualMappingBody.querySelectorAll("[data-actual-mapping-id]")]
       .map(input=>[input.dataset.actualMappingId,input])
   );
+  const assigneeTimezones=[
+    ...actualAssigneeTimezoneBody.querySelectorAll(
+      "[data-actual-assignee-username]"
+    )
+  ].map(input=>({
+    username:String(
+      input.dataset.actualAssigneeUsername||""
+    ).trim(),
+    name:String(
+      input.dataset.actualAssigneeName
+      ||input.dataset.actualAssigneeUsername
+      ||""
+    ).trim(),
+    timezone:String(input.value||"").trim()
+  })).filter(row=>row.username&&row.timezone);
+
   return normalizeActualCalculationSettings({
     ...current,
     enabled:actualCalculationEnabledInput.checked,
@@ -2306,6 +2534,7 @@ function actualSettingsFromUi(){
     hoursPerDay:Number(actualHoursPerDayInput.value),
     roundingStep:Number(actualRoundingStepInput.value),
     excludeWeekends:actualExcludeWeekendsInput.checked,
+    assigneeTimezones,
     mappings:current.mappings.map(mapping=>({
       ...mapping,
       statuses:parseActualStatusList(inputById.get(mapping.id)?.value||"")
@@ -2317,7 +2546,19 @@ async function saveActualCalculationSettings(){
   if(!currentUser||!firebaseDb)return;
   try{
     const settings=actualSettingsFromUi();
-    if(!settings.timezone)throw new Error("Укажите часовой пояс.");
+    if(!settings.timezone)throw new Error("Укажите часовой пояс по умолчанию.");
+    if(!isValidActualTimezone(settings.timezone)){
+      throw new Error(`Неизвестный часовой пояс: ${settings.timezone}`);
+    }
+    const invalidAssigneeTimezone=settings.assigneeTimezones.find(
+      row=>!isValidActualTimezone(row.timezone)
+    );
+    if(invalidAssigneeTimezone){
+      throw new Error(
+        `Неизвестный часовой пояс для @${invalidAssigneeTimezone.username}: `
+        +invalidAssigneeTimezone.timezone
+      );
+    }
     setActualSettingsStatus("Сохранение…","warn");
     const now=new Date().toISOString();
     const payload={
@@ -2444,7 +2685,8 @@ async function requestSprintActualPreview(){
           workdayStart:settings.workdayStart,
           hoursPerDay:settings.hoursPerDay,
           excludeWeekends:settings.excludeWeekends,
-          roundingStep:settings.roundingStep
+          roundingStep:settings.roundingStep,
+          assigneeTimezones:settings.assigneeTimezones
         },
         mappings:settings.mappings,
         tasks
@@ -2494,6 +2736,7 @@ async function subscribeActualPreviewJob(jobId){
       sprintActualStatus.textContent=`Ошибка расчёта: ${job.error||"неизвестная ошибка"}`;
     }
     render();
+    renderActualCalculationSettings();
   },error=>{
     console.error(error);
     actualPreviewInProgress=false;
@@ -2552,6 +2795,24 @@ function taskActualPreviewHtml(taskId){
   }
 
   const entries=nonQaActualEntries(result);
+  const timezone=String(
+    result.calculationTimezone||""
+  ).trim();
+  const timezoneSource=String(
+    result.timezoneSource||""
+  ).trim();
+  const timezoneWarning=String(
+    result.timezoneWarning||""
+  ).trim();
+  const timezoneAssignee=Array.isArray(result.assignees)
+    &&result.assignees.length===1
+      ?result.assignees[0]
+      :null;
+  const timezoneText=timezone
+    ?(timezoneSource==="assignee_mapping"&&timezoneAssignee
+      ?`Часовой пояс: ${timezone} · @${timezoneAssignee.username}`
+      :`Часовой пояс: ${timezone} · по умолчанию`)
+    :"";
 
   if(!entries.length){
     return `<div
@@ -2596,6 +2857,12 @@ function taskActualPreviewHtml(taskId){
     data-task-actual-preview="${esc(taskId)}">
       <span>Расчёт:</span>
       ${valuesHtml}
+      ${timezoneText
+        ?`<span class="task-actual-timezone ${timezoneWarning?"warning":""}"
+            title="${esc(timezoneWarning||timezoneText)}">
+              ${esc(timezoneText)}
+          </span>`
+        :""}
       <button
         type="button"
         data-accept-task-actual="${esc(taskId)}">
@@ -2728,6 +2995,10 @@ async function acceptTaskActualPreview(
     calculatedValues,
     rawActuals:filteredRawActuals,
     matchedStatusesByRole:filteredStatuses,
+    assignees:Array.isArray(result.assignees)?result.assignees:[],
+    calculationTimezone:result.calculationTimezone||null,
+    timezoneSource:result.timezoneSource||null,
+    timezoneWarning:result.timezoneWarning||null,
     periodStart:actualPreviewJobData.periodStart,
     periodEnd:actualPreviewJobData.periodEnd,
     settingsSnapshot:
@@ -7297,6 +7568,13 @@ syncSprintGitLabButton.onclick=()=>requestSprintGitLabSync();
 calculateSprintActualsButton.onclick=requestSprintActualPreview;
 document.getElementById("saveActualCalculationSettings").onclick=saveActualCalculationSettings;
 document.getElementById("resetActualCalculationSettings").onclick=resetActualCalculationSettings;
+refreshActualAssigneesButton.onclick=()=>{
+  renderActualCalculationSettings();
+  setActualSettingsStatus(
+    "Список исполнителей обновлён из уже загруженных GitLab-данных.",
+    "good"
+  );
+};
 // В v23.2 результат выводится непосредственно в строках задач.
 
 [

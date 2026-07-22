@@ -424,6 +424,120 @@
       font-size:10px;
       font-weight:600;
     }
+    .task-plan-fact{
+      display:grid;
+      gap:7px;
+      min-width:0;
+    }
+    .task-plan-fact-row{
+      display:grid;
+      gap:4px;
+      min-width:0;
+      padding-bottom:6px;
+      border-bottom:1px solid #edf0f5;
+    }
+    .task-plan-fact-row:last-child{
+      padding-bottom:0;
+      border-bottom:0;
+    }
+    .task-plan-fact-head{
+      display:flex;
+      align-items:baseline;
+      justify-content:space-between;
+      gap:7px;
+      min-width:0;
+      font-size:10px;
+      line-height:1.2;
+    }
+    .task-plan-fact-role{
+      min-width:0;
+      overflow:hidden;
+      color:#39465f;
+      font-weight:850;
+      text-overflow:ellipsis;
+      white-space:nowrap;
+    }
+    .task-plan-fact-values{
+      flex:0 0 auto;
+      color:#344054;
+      font-weight:850;
+      white-space:nowrap;
+    }
+    .task-plan-fact-meter{
+      display:grid;
+      grid-template-columns:4fr 1fr;
+      width:100%;
+      min-width:0;
+      height:9px;
+      overflow:hidden;
+      border:1px solid #dde3ee;
+      border-radius:999px;
+      background:#f4f6fa;
+    }
+    .task-plan-fact-plan-zone,
+    .task-plan-fact-overrun-zone{
+      position:relative;
+      min-width:0;
+      overflow:hidden;
+    }
+    .task-plan-fact-plan-zone{
+      background:#eef1f7;
+    }
+    .task-plan-fact-overrun-zone{
+      border-left:2px solid #8e99ac;
+      background:#fff7eb;
+    }
+    .task-plan-fact-fill,
+    .task-plan-fact-overrun-fill{
+      position:absolute;
+      inset:0 auto 0 0;
+      width:0;
+      transition:width .2s ease;
+    }
+    .task-plan-fact-row.active .task-plan-fact-fill{
+      background:#4d73d8;
+    }
+    .task-plan-fact-row.good .task-plan-fact-fill{
+      background:#2f8f4e;
+    }
+    .task-plan-fact-row.warn .task-plan-fact-fill,
+    .task-plan-fact-row.warn .task-plan-fact-overrun-fill{
+      background:#d97706;
+    }
+    .task-plan-fact-row.bad .task-plan-fact-fill,
+    .task-plan-fact-row.bad .task-plan-fact-overrun-fill{
+      background:#b3261e;
+    }
+    .task-plan-fact-row.empty .task-plan-fact-fill{
+      background:#aab2c2;
+    }
+    .task-plan-fact-caption{
+      color:var(--muted);
+      font-size:9px;
+      font-weight:650;
+      line-height:1.2;
+    }
+    .task-plan-fact-row.warn .task-plan-fact-caption{
+      color:#a85b00;
+      font-weight:800;
+    }
+    .task-plan-fact-row.bad .task-plan-fact-caption{
+      color:var(--bad);
+      font-weight:850;
+    }
+    .task-plan-fact-row.good .task-plan-fact-caption{
+      color:#137333;
+      font-weight:800;
+    }
+    .task-plan-fact-reset{
+      justify-self:start;
+      padding:3px 6px!important;
+      font-size:9px!important;
+    }
+    .task-plan-fact-empty{
+      color:var(--muted);
+      font-size:10px;
+    }
     .actual-assignee-timezones{
       margin-top:14px;
       padding:12px;
@@ -868,31 +982,34 @@
     }
     .sprint-tasks-card .sprint-task-title-column,
     .sprint-tasks-card .task-title-cell{
-      width:20%;
+      width:17%;
       min-width:0;
     }
     .sprint-tasks-card .sprint-direction-column{
-      width:8%;
+      width:7%;
     }
     .sprint-tasks-card .sprint-status-column{
-      width:13%;
-    }
-    .sprint-tasks-card .sprint-assignee-column{
       width:11%;
     }
+    .sprint-tasks-card .sprint-assignee-column{
+      width:9%;
+    }
+    .sprint-tasks-card .sprint-plan-fact-column{
+      width:20%;
+    }
     .sprint-tasks-card .sprint-role-column{
-      width:4%;
+      width:3%;
       text-align:center!important;
     }
     .sprint-tasks-card .sprint-total-column{
-      width:5%;
+      width:4%;
       text-align:center!important;
     }
     .sprint-tasks-card .sprint-completion-column{
-      width:8%;
+      width:6%;
     }
     .sprint-tasks-card .sprint-actions-column{
-      width:11%;
+      width:8%;
     }
     .sprint-tasks-card .sprint-direction-list,
     .sprint-tasks-card .gitlab-assignees{
@@ -985,9 +1102,16 @@
       }
       .sprint-tasks-card .sprint-status-cell,
       .sprint-tasks-card .sprint-assignee-cell,
+      .sprint-tasks-card .sprint-plan-fact-cell,
       .sprint-tasks-card .sprint-actions-cell{
         grid-column:1 / -1;
         border-right:0;
+      }
+      .sprint-tasks-card .sprint-plan-fact-cell{
+        align-items:flex-start;
+      }
+      .sprint-tasks-card .sprint-plan-fact-cell .task-plan-fact{
+        width:min(520px,58%);
       }
       .sprint-tasks-card .sprint-actions-cell{
         align-items:center;
@@ -2592,6 +2716,301 @@ function acceptedActualHtml(taskId){
   return `<div class="accepted-actual-note">
     <span>Факт: ${esc(parts.join(" · "))}</span>
     <button class="secondary" type="button" data-clear-task-actual="${esc(taskId)}">Сбросить</button>
+  </div>`;
+}
+
+function taskRolePlanFact(
+  taskId,
+  task,
+  roleKey,
+  done
+){
+  const normalized=normalizeTask(task);
+  const plan=Number(
+    normalized.estimates?.[roleKey]||0
+  );
+
+  if(
+    !Number.isFinite(plan)
+    ||plan<=0
+  ){
+    return null;
+  }
+
+  const actualItem=
+    sprintTaskActuals?.[taskId]||{};
+
+  const accepted=
+    actualCalculationFeatureEnabled()
+    &&roleKey!=="qa"
+      ?acceptedActualValues(taskId)
+      :null;
+
+  const hasAccepted=Boolean(
+    accepted
+    &&Object.prototype.hasOwnProperty.call(
+      accepted,
+      roleKey
+    )
+    &&Number.isFinite(
+      Number(accepted[roleKey])
+    )
+  );
+
+  let actual=null;
+  let source="not_available";
+
+  if(hasAccepted){
+    actual=Math.max(
+      0,
+      Number(accepted[roleKey])
+    );
+    source="accepted_gitlab";
+  }else if(done){
+    actual=plan;
+    source="completed_estimate";
+  }else if(
+    sprintLifecycleStatus
+    !==SPRINT_STATUS_PLANNING
+  ){
+    actual=0;
+  }
+
+  const calculatedValue=Number(
+    actualItem.calculatedValues?.[roleKey]
+  );
+
+  return {
+    roleKey,
+    plan,
+    actual,
+    source,
+    calculatedValue:
+      Number.isFinite(calculatedValue)
+        ?calculatedValue
+        :null,
+    acceptedAt:
+      actualItem.acceptedAt||null,
+    manuallyAdjusted:
+      Boolean(actualItem.manuallyAdjusted)
+  };
+}
+
+function taskPlanFactTone(
+  item,
+  done
+){
+  if(item.actual===null)return "empty";
+
+  const ratio=item.plan>0
+    ?item.actual/item.plan
+    :0;
+
+  if(ratio>1.25)return "bad";
+  if(ratio>1)return "warn";
+  if(done)return "good";
+  return "active";
+}
+
+function taskPlanFactCaption(
+  item,
+  done
+){
+  if(item.actual===null){
+    return "Факт появится после запуска спринта";
+  }
+
+  const delta=item.actual-item.plan;
+
+  if(delta>0){
+    return `Превышение: ${fmt(delta,2)} ч.д.`;
+  }
+
+  if(Math.abs(delta)<1e-9){
+    return done
+      ?"Выполнено в рамках плана"
+      :"План выбран полностью";
+  }
+
+  const remainder=Math.abs(delta);
+
+  return done
+    ?`Экономия: ${fmt(remainder,2)} ч.д.`
+    :`Осталось: ${fmt(remainder,2)} ч.д.`;
+}
+
+function taskPlanFactTooltip(
+  item
+){
+  const lines=[
+    `План: ${fmt(item.plan,2)} ч.д.`,
+    item.actual===null
+      ?"Факт: ещё не определён"
+      :`Факт: ${fmt(item.actual,2)} ч.д.`
+  ];
+
+  if(item.source==="accepted_gitlab"){
+    lines.push(
+      "Источник: принято пользователем "
+      +"из расчёта GitLab"
+    );
+
+    if(item.calculatedValue!==null){
+      lines.push(
+        `Рассчитано GitLab: ${
+          fmt(item.calculatedValue,3)
+        } ч.д.`
+      );
+    }
+
+    if(item.manuallyAdjusted){
+      lines.push(
+        "Принятое значение скорректировано вручную"
+      );
+    }
+
+    if(item.acceptedAt){
+      lines.push(
+        `Принято: ${
+          new Date(item.acceptedAt)
+            .toLocaleString("ru-RU")
+        }`
+      );
+    }
+  }else if(
+    item.source==="completed_estimate"
+  ){
+    lines.push(
+      "Источник: оценка задачи, "
+      +"так как задача выполнена"
+    );
+  }else{
+    lines.push(
+      "Источник: фактическое значение "
+      +"ещё не принято"
+    );
+  }
+
+  return lines.join("\n");
+}
+
+function taskPlanFactHtml(
+  taskId,
+  task,
+  done
+){
+  const items=taskEstimateKeys()
+    .map(roleKey=>
+      taskRolePlanFact(
+        taskId,
+        task,
+        roleKey,
+        done
+      )
+    )
+    .filter(Boolean);
+
+  if(!items.length){
+    return '<span class="task-plan-fact-empty">Нет оценки</span>';
+  }
+
+  const rows=items.map(item=>{
+    const ratio=
+      item.actual===null
+        ?0
+        :item.actual/item.plan;
+
+    const planFillPercent=Math.max(
+      0,
+      Math.min(100,ratio*100)
+    );
+
+    const overrunPercent=ratio>1
+      ?Math.max(
+        0,
+        Math.min(
+          100,
+          ((ratio-1)/.25)*100
+        )
+      )
+      :0;
+
+    const tone=taskPlanFactTone(
+      item,
+      done
+    );
+
+    const actualText=
+      item.actual===null
+        ?"—"
+        :fmt(item.actual,2);
+
+    const percentText=
+      item.actual===null
+        ?"—"
+        :`${fmt(ratio*100,0)}%`;
+
+    return `<div
+      class="task-plan-fact-row ${tone}"
+      title="${esc(
+        taskPlanFactTooltip(item)
+      )}">
+        <div class="task-plan-fact-head">
+          <span class="task-plan-fact-role">${
+            esc(roleLabelByKey(item.roleKey))
+          }</span>
+          <span class="task-plan-fact-values">${
+            esc(actualText)
+          } / ${esc(fmt(item.plan,2))} · ${
+            esc(percentText)
+          }</span>
+        </div>
+        <div
+          class="task-plan-fact-meter"
+          aria-label="${esc(
+            `${roleLabelByKey(item.roleKey)}: `
+            +`${actualText} из ${fmt(item.plan,2)} ч.д.`
+          )}">
+            <span class="task-plan-fact-plan-zone">
+              <span
+                class="task-plan-fact-fill"
+                style="width:${
+                  Math.min(planFillPercent,100)
+                }%"></span>
+            </span>
+            <span class="task-plan-fact-overrun-zone">
+              <span
+                class="task-plan-fact-overrun-fill"
+                style="width:${
+                  overrunPercent
+                }%"></span>
+            </span>
+        </div>
+        <div class="task-plan-fact-caption">${
+          esc(
+            taskPlanFactCaption(
+              item,
+              done
+            )
+          )
+        }</div>
+    </div>`;
+  }).join("");
+
+  const hasAccepted=Boolean(
+    acceptedActualValues(taskId)
+  );
+
+  return `<div class="task-plan-fact">
+    ${rows}
+    ${hasAccepted
+      ?`<button
+        class="secondary task-plan-fact-reset"
+        type="button"
+        data-clear-task-actual="${esc(taskId)}">
+          Сбросить принятый факт
+      </button>`
+      :""}
   </div>`;
 }
 
@@ -7622,6 +8041,7 @@ function renderSprintTasks(){
     <th class="sprint-direction-column">${sprintTaskSortButton("direction","Направление")}</th>
     <th class="sprint-status-column">${sprintTaskSortButton("status","Статус GitLab")}</th>
     <th class="sprint-assignee-column">${sprintTaskSortButton("assignee","Исполнитель")}</th>
+    <th class="sprint-plan-fact-column">План / факт</th>
     ${roleDefs.map(role=>
       `<th class="num sprint-role-column">${esc(role.name)}</th>`
     ).join("")}
@@ -7803,7 +8223,6 @@ function renderSprintTasks(){
           normalized,
           poolTask
         )}
-        ${acceptedActualHtml(id)}
         ${taskActualPreviewHtml(id)}
         ${estimateChanged&&!sprintLifecycleIsCompleted()
           ?'<div class="task-warning">В пуле есть обновлённая оценка</div>'
@@ -7829,6 +8248,13 @@ function renderSprintTasks(){
         data-label="Исполнитель">${gitLabAssigneesHtml(
           gitlabMetadata,
           hasGitLabUrl
+        )}</td>
+      <td
+        class="sprint-plan-fact-cell"
+        data-label="План / факт">${taskPlanFactHtml(
+          id,
+          normalized,
+          done
         )}</td>
       ${roleDefs.map(role=>
         `<td

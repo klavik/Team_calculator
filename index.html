@@ -6619,6 +6619,130 @@ function stopGitLabJobRealtime(){
   unsubscribeGitLabJob=null;
 }
 
+async function applyGitLabIssueCompletion(
+  job
+){
+  if(
+    !sprintLifecycleIsActive()
+    ||!currentSprintId
+    ||sprintLifecycleIsCompleted()
+  ){
+    return {
+      changed:0,
+      completed:0,
+      reopened:0
+    };
+  }
+
+  const results=Array.isArray(job?.results)
+    ?job.results
+    :[];
+
+  const completedSet=new Set(
+    completedTaskIds
+  );
+
+  let changed=0;
+  let completed=0;
+  let reopened=0;
+
+  results.forEach(result=>{
+    if(!result?.ok)return;
+
+    const taskId=String(
+      result.taskId||""
+    ).trim();
+
+    const issueState=String(
+      result.issueState||""
+    ).trim().toLowerCase();
+
+    if(
+      !taskId
+      ||!selectedTaskIds.includes(taskId)
+      ||!["closed","opened"].includes(
+        issueState
+      )
+    ){
+      return;
+    }
+
+    const wasCompleted=
+      completedSet.has(taskId);
+
+    const mustBeCompleted=
+      issueState==="closed";
+
+    if(mustBeCompleted){
+      completedSet.add(taskId);
+    }else{
+      completedSet.delete(taskId);
+    }
+
+    if(
+      wasCompleted===mustBeCompleted
+    ){
+      return;
+    }
+
+    changed+=1;
+
+    if(mustBeCompleted){
+      completed+=1;
+    }else{
+      reopened+=1;
+    }
+  });
+
+  if(!changed){
+    return {
+      changed,
+      completed,
+      reopened
+    };
+  }
+
+  completedTaskIds=[
+    ...completedSet
+  ].filter(taskId=>
+    selectedTaskIds.includes(taskId)
+  );
+
+  recalculateRolePlanFact();
+  saveState();
+  render();
+
+  return {
+    changed,
+    completed,
+    reopened
+  };
+}
+
+function gitLabCompletionStatusSuffix(
+  result
+){
+  if(!result?.changed)return "";
+
+  const parts=[];
+
+  if(result.completed){
+    parts.push(
+      `выполнено: ${result.completed}`
+    );
+  }
+
+  if(result.reopened){
+    parts.push(
+      `снято выполнение: ${result.reopened}`
+    );
+  }
+
+  return parts.length
+    ?` · ${parts.join(", ")}`
+    :"";
+}
+
 async function watchGitLabSyncJob(
   jobId,
   {onTerminal=null}={}
@@ -6681,24 +6805,46 @@ async function watchGitLabSyncJob(
         );
       }
 
-      if(typeof onTerminal==="function"){
-        Promise.resolve(
-          onTerminal({
+      Promise.resolve(
+        applyGitLabIssueCompletion(job)
+      ).then(completionResult=>{
+        const completionSuffix=
+          gitLabCompletionStatusSuffix(
+            completionResult
+          );
+
+        if(status==="succeeded"){
+          setSprintGitLabSyncStatus(
+            `GitLab обновлён: ${succeeded} задач${completionSuffix}.`,
+            "ok"
+          );
+        }else if(status==="partial"){
+          setSprintGitLabSyncStatus(
+            `GitLab обновлён частично: успешно ${succeeded}, ошибок ${failed}${completionSuffix}.`,
+            "bad"
+          );
+        }
+
+        if(typeof onTerminal==="function"){
+          return onTerminal({
             status,
             succeeded,
             failed,
-            error:job.error||null
-          })
-        ).catch(error=>{
-          console.error(error);
-          combinedGitLabActionInProgress=false;
-          setSprintGitLabSyncStatus(
-            `Ошибка продолжения сценария: ${error.message}`,
-            "bad"
-          );
-          render();
-        });
-      }
+            error:job.error||null,
+            completionResult
+          });
+        }
+
+        return null;
+      }).catch(error=>{
+        console.error(error);
+        combinedGitLabActionInProgress=false;
+        setSprintGitLabSyncStatus(
+          `Ошибка синхронизации выполнения: ${error.message}`,
+          "bad"
+        );
+        render();
+      });
 
       setTimeout(stopGitLabJobRealtime,2500);
     },
@@ -7509,7 +7655,15 @@ function renderSprintTasks(){
     }else if(
       sprintLifecycleStatus===SPRINT_STATUS_ACTIVE
     ){
-      completionHtml=`<label class="completion-toggle"><input type="checkbox" data-complete-task="${id}" ${done?"checked":""}> Выполнена</label>`;
+      completionHtml=`<label
+        class="completion-toggle"
+        title="После обновления GitLab значение синхронизируется с состоянием issue: Closed — выполнена, Opened — не выполнена.">
+          <input
+            type="checkbox"
+            data-complete-task="${id}"
+            ${done?"checked":""}>
+          Выполнена
+        </label>`;
     }else if(done){
       completionHtml=
         '<span class="task-status done">Выполнена</span>';

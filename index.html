@@ -1682,17 +1682,16 @@
         </p>
         <div class="sprint-summary-row" id="sprintTaskSummary"></div>
         <div class="sprint-gitlab-toolbar">
-          <button class="secondary" id="syncSprintGitLab" type="button">
-            Обновить из GitLab
+          <button
+            class="secondary"
+            id="combinedSprintGitLabAction"
+            type="button">
+              Обновить из GitLab и рассчитать факт
           </button>
-          <span class="muted" id="sprintGitLabSyncStatus">
-            Статус и исполнители ещё не запрашивались.
-          </span>
-          <button class="secondary" id="calculateSprintActuals" type="button">
-            Рассчитать факт из GitLab
-          </button>
-          <span class="muted actual-preview-toolbar-status" id="sprintActualStatus">
-            Предварительный факт ещё не рассчитывался.
+          <span
+            class="muted actual-preview-toolbar-status"
+            id="combinedSprintGitLabStatus">
+              Данные GitLab ещё не обновлялись.
           </span>
         </div>
 
@@ -2078,6 +2077,7 @@ let appLoaded=false;
 let unsubscribeTaskPool=null;
 let unsubscribeGitLabJob=null;
 let gitLabSyncInProgress=false;
+let combinedGitLabActionInProgress=false;
 const manualGitLabEstimateRequests=new Set();
 
 let sprintTaskSort={
@@ -2109,10 +2109,14 @@ taskPoolRealtimeStatus=document.getElementById("taskPoolRealtimeStatus"),
 sprintTasksHead=document.getElementById("sprintTasksHead"),
 sprintTasksBody=document.getElementById("sprintTasksBody"),
 sprintTaskSummary=document.getElementById("sprintTaskSummary"),
-syncSprintGitLabButton=document.getElementById("syncSprintGitLab"),
-sprintGitLabSyncStatus=document.getElementById("sprintGitLabSyncStatus"),
-calculateSprintActualsButton=document.getElementById("calculateSprintActuals"),
-sprintActualStatus=document.getElementById("sprintActualStatus"),
+combinedSprintGitLabActionButton=
+  document.getElementById("combinedSprintGitLabAction"),
+combinedSprintGitLabStatus=
+  document.getElementById("combinedSprintGitLabStatus"),
+syncSprintGitLabButton=combinedSprintGitLabActionButton,
+sprintGitLabSyncStatus=combinedSprintGitLabStatus,
+calculateSprintActualsButton=combinedSprintGitLabActionButton,
+sprintActualStatus=combinedSprintGitLabStatus,
 actualCalculationSettingsCard=document.getElementById("actualCalculationSettingsCard"),
 actualCalculationEnabledInput=document.getElementById("actualCalculationEnabled"),
 actualTimezoneInput=document.getElementById("actualTimezone"),
@@ -2776,21 +2780,21 @@ function actualPreviewPeriod(){
 async function requestSprintActualPreview(){
   if(!actualCalculationFeatureEnabled()){
     alert("Автоматический расчёт факта отключён в настройках.");
-    return;
+    return false;
   }
   if(!currentSprintId){
     alert("Сначала сохраните спринт.");
-    return;
+    return false;
   }
   const period=actualPreviewPeriod();
   if(!period){
     alert("Расчёт доступен после запуска спринта.");
-    return;
+    return false;
   }
   const endpoint=configuredActualPreviewEndpoint();
   if(!endpoint){
     alert("Не настроен actualPreviewEndpoint.");
-    return;
+    return false;
   }
   const settings=normalizeActualCalculationSettings(
     actualCalculationSettings
@@ -2814,13 +2818,14 @@ async function requestSprintActualPreview(){
       "В спринте нет задач с GitLab-ссылкой, "
       +"однозначным типом и активным правилом расчёта."
     );
-    return;
+    return false;
   }
   try{
     actualPreviewJobData=null;
     actualPreviewInProgress=true;
+    sprintActualStatus.style.color="";
     render();
-    sprintActualStatus.textContent="Создание задания…";
+    sprintActualStatus.textContent="Создание задания расчёта…";
     const token=await currentUser.getIdToken();
     const response=await fetch(endpoint,{
       method:"POST",
@@ -2848,11 +2853,15 @@ async function requestSprintActualPreview(){
       throw new Error(result.error||`HTTP ${response.status}`);
     }
     subscribeActualPreviewJob(result.jobId);
+    return true;
   }catch(error){
     console.error(error);
     actualPreviewInProgress=false;
+    combinedGitLabActionInProgress=false;
     sprintActualStatus.textContent=`Ошибка: ${error.message}`;
+    sprintActualStatus.style.color="var(--bad)";
     render();
+    return false;
   }
 }
 
@@ -2870,10 +2879,12 @@ async function subscribeActualPreviewJob(jobId){
     const processed=Number(job.processedCount||0);
     const total=Array.isArray(job.tasks)?job.tasks.length:0;
     if(["pending","processing"].includes(status)){
-      sprintActualStatus.textContent=`Расчёт: ${processed}/${total}`;
+      sprintActualStatus.style.color="";
+      sprintActualStatus.textContent=`Расчёт факта: ${processed}/${total}`;
       return;
     }
     actualPreviewInProgress=false;
+    combinedGitLabActionInProgress=false;
     if(unsubscribeActualPreviewJob){
       unsubscribeActualPreviewJob();
       unsubscribeActualPreviewJob=null;
@@ -2882,16 +2893,23 @@ async function subscribeActualPreviewJob(jobId){
       actualPreviewJobData=job;
       sprintActualStatus.textContent=status==="partial"
         ?"Расчёт завершён частично. Проверьте значения в строках задач."
-        :"Расчёт готов. Примите значения в строках задач.";
+        :"GitLab обновлён, расчёт готов. Примите значения в строках задач.";
+      sprintActualStatus.style.color=
+        status==="partial"
+          ?"var(--bad)"
+          :"var(--good)";
     }else{
       sprintActualStatus.textContent=`Ошибка расчёта: ${job.error||"неизвестная ошибка"}`;
+      sprintActualStatus.style.color="var(--bad)";
     }
     render();
     renderActualCalculationSettings();
   },error=>{
     console.error(error);
     actualPreviewInProgress=false;
+    combinedGitLabActionInProgress=false;
     sprintActualStatus.textContent=`Ошибка чтения задания: ${error.message}`;
+    sprintActualStatus.style.color="var(--bad)";
     render();
   });
 }
@@ -6454,7 +6472,10 @@ function stopGitLabJobRealtime(){
   unsubscribeGitLabJob=null;
 }
 
-async function watchGitLabSyncJob(jobId){
+async function watchGitLabSyncJob(
+  jobId,
+  {onTerminal=null}={}
+){
   stopGitLabJobRealtime();
 
   const {fsMod}=await loadFirebaseModules();
@@ -6513,21 +6534,54 @@ async function watchGitLabSyncJob(jobId){
         );
       }
 
+      if(typeof onTerminal==="function"){
+        Promise.resolve(
+          onTerminal({
+            status,
+            succeeded,
+            failed,
+            error:job.error||null
+          })
+        ).catch(error=>{
+          console.error(error);
+          combinedGitLabActionInProgress=false;
+          setSprintGitLabSyncStatus(
+            `Ошибка продолжения сценария: ${error.message}`,
+            "bad"
+          );
+          render();
+        });
+      }
+
       setTimeout(stopGitLabJobRealtime,2500);
     },
     error=>{
       console.error(error);
       gitLabSyncInProgress=false;
+      combinedGitLabActionInProgress=false;
       syncSprintGitLabButton.disabled=sprintLifecycleIsCompleted();
       setSprintGitLabSyncStatus(
         `Не удалось прочитать статус задания: ${error.message}`,
         "bad"
       );
+
+      if(typeof onTerminal==="function"){
+        onTerminal({
+          status:"failed",
+          succeeded:0,
+          failed:0,
+          error:error.message
+        });
+      }
+
+      render();
     }
   );
 }
 
-async function requestSprintGitLabSync(){
+async function requestSprintGitLabSync(
+  {onTerminal=null}={}
+){
   const config=configuredTeamCalculatorGitLabSync();
 
   if(!config){
@@ -6596,7 +6650,10 @@ async function requestSprintGitLabSync(){
       `Запрос создан: ${tasks.length} задач. Ожидается коннектор.`
     );
 
-    await watchGitLabSyncJob(result.jobId);
+    await watchGitLabSyncJob(
+      result.jobId,
+      {onTerminal}
+    );
     return true;
   }catch(error){
     console.error(error);
@@ -6607,6 +6664,69 @@ async function requestSprintGitLabSync(){
       "bad"
     );
     return false;
+  }
+}
+
+async function runCombinedSprintGitLabAction(){
+  if(
+    combinedGitLabActionInProgress
+    ||gitLabSyncInProgress
+    ||actualPreviewInProgress
+  ){
+    return;
+  }
+
+  const shouldCalculate=
+    actualCalculationFeatureEnabled()
+    &&Boolean(currentSprintId)
+    &&Boolean(sprintStartedAt)
+    &&!sprintLifecycleIsCompleted();
+
+  combinedGitLabActionInProgress=true;
+  combinedSprintGitLabStatus.style.color="";
+  render();
+
+  const queued=await requestSprintGitLabSync({
+    onTerminal:async result=>{
+      if(
+        !["succeeded","partial"].includes(
+          result.status
+        )
+      ){
+        combinedGitLabActionInProgress=false;
+        render();
+        return;
+      }
+
+      if(!shouldCalculate){
+        combinedGitLabActionInProgress=false;
+        setSprintGitLabSyncStatus(
+          actualCalculationFeatureEnabled()
+            ?"GitLab обновлён. Расчёт доступен после запуска спринта."
+            :"GitLab обновлён. Автоматический расчёт отключён.",
+          "ok"
+        );
+        render();
+        return;
+      }
+
+      setSprintGitLabSyncStatus(
+        "GitLab обновлён. Запуск расчёта факта…"
+      );
+
+      const calculationStarted=
+        await requestSprintActualPreview();
+
+      if(!calculationStarted){
+        combinedGitLabActionInProgress=false;
+        render();
+      }
+    }
+  });
+
+  if(!queued){
+    combinedGitLabActionInProgress=false;
+    render();
   }
 }
 
@@ -7407,20 +7527,26 @@ function render(){
   normalizeRoles();
   recalculateRolePlanFact();
 
-  syncSprintGitLabButton.disabled=
-    sprintLifecycleIsCompleted()
-    ||gitLabSyncInProgress
-    ||!selectedTaskIds.length;
+  const combinedWillCalculate=
+    actualCalculationFeatureEnabled()
+    &&Boolean(currentSprintId)
+    &&Boolean(sprintStartedAt);
 
-  calculateSprintActualsButton.style.display=
-    actualCalculationStaticEnabled()?"inline-flex":"none";
-  sprintActualStatus.style.display=
-    actualCalculationStaticEnabled()?"inline":"none";
-  calculateSprintActualsButton.disabled=
-    !actualCalculationFeatureEnabled()
+  combinedSprintGitLabActionButton.textContent=
+    combinedWillCalculate
+      ?"Обновить из GitLab и рассчитать факт"
+      :"Обновить из GitLab";
+
+  combinedSprintGitLabActionButton.style.display=
+    "inline-flex";
+  combinedSprintGitLabStatus.style.display=
+    "inline";
+
+  combinedSprintGitLabActionButton.disabled=
+    sprintLifecycleIsCompleted()
+    ||combinedGitLabActionInProgress
+    ||gitLabSyncInProgress
     ||actualPreviewInProgress
-    ||!currentSprintId
-    ||!sprintStartedAt
     ||!selectedTaskIds.length;
 
   if(sprintLifecycleIsCompleted()){
@@ -7718,8 +7844,8 @@ periodName.onchange=()=>{if(periodName.value==="sprint")workdays.value=10;if(per
 [workdays,utilization,buffer,devIssuesPerCrossTask,excludePrepRoles].forEach(el=>el.addEventListener("input",()=>{if(periodName.value!=="custom"&&((periodName.value==="sprint"&&workdays.value!=10)||(periodName.value==="quarter"&&workdays.value!=60)))periodName.value="custom";saveState();render()}));
 document.getElementById("saveSprint").onclick=()=>saveSprintSet(false,{silent:false,source:"manual"});
 sprintLifecycleAction.onclick=handleSprintLifecycleAction;
-syncSprintGitLabButton.onclick=()=>requestSprintGitLabSync();
-calculateSprintActualsButton.onclick=requestSprintActualPreview;
+combinedSprintGitLabActionButton.onclick=
+  runCombinedSprintGitLabAction;
 document.getElementById("saveActualCalculationSettings").onclick=saveActualCalculationSettings;
 document.getElementById("resetActualCalculationSettings").onclick=resetActualCalculationSettings;
 refreshActualAssigneesButton.onclick=()=>{

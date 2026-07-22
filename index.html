@@ -6501,16 +6501,54 @@ function gitLabStatusLabelsForDisplay(metadata){
   return label?[label]:[];
 }
 
-function gitLabStatusLabelPill(label,title){
-  const readyToProd=/^Ready to PROD(?:\s|$)/i.test(label);
-  const text=readyToProd?`✓ ${label}`:label;
+function isDesignGitLabTask(task,metadata){
+  return (
+    actualTaskType(task)==="design"
+    ||sprintTaskDirectionKeys(
+      task,
+      metadata
+    ).includes("design")
+  );
+}
+
+function isDesignApprovedGitLabStatus(
+  task,
+  metadata
+){
+  if(!isDesignGitLabTask(task,metadata)){
+    return false;
+  }
+
+  return gitLabMatchedStatusLabels(metadata).some(
+    label=>/^Approved$/i.test(
+      String(label||"").trim()
+    )
+  );
+}
+
+function gitLabStatusLabelPill(
+  label,
+  title,
+  {deliveryReady=false}={}
+){
+  const text=deliveryReady
+    ?`✓ ${label}`
+    :label;
+
+  const cssClass=deliveryReady
+    ?"ready-prod"
+    :gitLabStatusClass(label);
 
   return `<span
-    class="gitlab-status-pill ${gitLabStatusClass(label)}"
+    class="gitlab-status-pill ${cssClass}"
     title="${esc(title)}">${esc(text)}</span>`;
 }
 
-function gitLabStatusHtml(metadata,hasUrl){
+function gitLabStatusHtml(
+  metadata,
+  hasUrl,
+  task=null
+){
   if(!hasUrl){
     return '<span class="gitlab-status-pill warn">Нет ссылки GitLab</span>';
   }
@@ -6532,7 +6570,20 @@ function gitLabStatusHtml(metadata,hasUrl){
   if(state==="conflict"){
     return `<div class="gitlab-status-set conflict" title="${esc(title)}">
       <span class="gitlab-status-pill status-conflict">⚠ Конфликт</span>
-      ${labels.map(label=>gitLabStatusLabelPill(label,title)).join("")}
+      ${labels.map(label=>
+        gitLabStatusLabelPill(
+          label,
+          title,
+          {
+            deliveryReady:
+              /^Ready to PROD(?:\s|$)/i.test(label)
+              ||(
+                isDesignGitLabTask(task,metadata)
+                &&/^Approved$/i.test(label)
+              )
+          }
+        )
+      ).join("")}
     </div>`;
   }
 
@@ -6549,7 +6600,20 @@ function gitLabStatusHtml(metadata,hasUrl){
   }
 
   return `<div class="gitlab-status-set">
-    ${labels.map(label=>gitLabStatusLabelPill(label,title)).join("")}
+    ${labels.map(label=>
+      gitLabStatusLabelPill(
+        label,
+        title,
+        {
+          deliveryReady:
+            /^Ready to PROD(?:\s|$)/i.test(label)
+            ||(
+              isDesignGitLabTask(task,metadata)
+              &&/^Approved$/i.test(label)
+            )
+        }
+      )
+    ).join("")}
   </div>`;
 }
 
@@ -7137,9 +7201,29 @@ function gitLabMatchedStatusLabels(metadata){
   return label?[label]:[];
 }
 
-function isReadyToProdGitLabStatus(metadata){
-  return gitLabMatchedStatusLabels(metadata).some(
-    label=>/^Ready to PROD(?:\s|$)/i.test(label)
+function isReadyToProdGitLabStatus(
+  metadata,
+  task=null
+){
+  const labels=gitLabMatchedStatusLabels(
+    metadata
+  );
+
+  if(
+    labels.some(
+      label=>/^Ready to PROD(?:\s|$)/i.test(label)
+    )
+  ){
+    return true;
+  }
+
+  return (
+    isDesignGitLabTask(task,metadata)
+    &&labels.some(
+      label=>/^Approved$/i.test(
+        String(label||"").trim()
+      )
+    )
   );
 }
 
@@ -7570,9 +7654,16 @@ function renderSprintTasks(){
         poolTask,
         gitlabMetadata,
         hasGitLabUrl,
-        readyToProd:isReadyToProdGitLabStatus(
-          gitlabMetadata
-        )
+        designApproved:
+          isDesignApprovedGitLabStatus(
+            normalized,
+            gitlabMetadata
+          ),
+        readyToProd:
+          isReadyToProdGitLabStatus(
+            gitlabMetadata,
+            normalized
+          )
       };
     })
     .filter(Boolean);
@@ -7595,7 +7686,7 @@ function renderSprintTasks(){
     <span class="sprint-summary-pill"><b>${fmt(allTasks.reduce((sum,item)=>sum+taskTotalEstimate(item.task),0),1)}</b> ч.д. текущий состав</span>
     <span class="sprint-summary-pill"><b>${fmt(allTasks.filter(item=>completedSet.has(item.id)).reduce((sum,item)=>sum+taskTotalEstimate(item.task),0),1)}</b> ч.д. выполнено</span>
     ${readyToProdCount
-      ?`<span class="sprint-summary-pill"><b>✓ ${readyToProdCount}</b> Ready to PROD</span>`
+      ?`<span class="sprint-summary-pill"><b>✓ ${readyToProdCount}</b> Ready to PROD / Approved</span>`
       :""}
     ${sprintBaseline
       ?`<span class="baseline-pill"><b>${baselineTaskIds().length}</b>&nbsp;задач и&nbsp;<b>${fmt(baselineTotalEstimate(),1)}</b>&nbsp;ч.д. в исходном плане</span>`
@@ -7629,7 +7720,8 @@ function renderSprintTasks(){
       poolTask,
       gitlabMetadata,
       hasGitLabUrl,
-      readyToProd
+      readyToProd,
+      designApproved
     }=item;
 
     const done=completedSet.has(id);
@@ -7683,7 +7775,11 @@ function renderSprintTasks(){
         :"");
 
     const readyToProdNote=readyToProd
-      ?'<div class="sprint-ready-prod-note">✓ Успешно доведена до Ready to PROD</div>'
+      ?(
+        designApproved
+          ?'<div class="sprint-ready-prod-note">✓ Дизайн согласован (Approved)</div>'
+          :'<div class="sprint-ready-prod-note">✓ Успешно доведена до Ready to PROD</div>'
+      )
       :"";
 
     const actions=sprintLifecycleIsCompleted()
@@ -7725,7 +7821,8 @@ function renderSprintTasks(){
         class="sprint-status-cell"
         data-label="Статус GitLab">${gitLabStatusHtml(
           gitlabMetadata,
-          hasGitLabUrl
+          hasGitLabUrl,
+          normalized
         )}</td>
       <td
         class="sprint-assignee-cell"

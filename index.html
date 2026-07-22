@@ -5692,6 +5692,102 @@ async function updateTaskEstimate(taskId,roleKey,rawValue){
   }
 }
 
+async function renameTaskInPool(taskId){
+  const task=normalizeTask(taskPool[taskId]);
+
+  if(!task?.id)return;
+
+  if(task.source!=="team_calculator"){
+    alert(
+      "Переименование доступно только для задач, "
+      +"созданных вручную в Team_calculator."
+    );
+    return;
+  }
+
+  const currentTitle=String(
+    task.title||""
+  ).trim();
+
+  const enteredTitle=prompt(
+    "Новое название задачи",
+    currentTitle
+  );
+
+  if(enteredTitle===null)return;
+
+  const nextTitle=String(
+    enteredTitle||""
+  ).trim();
+
+  if(!nextTitle){
+    alert("Название задачи не может быть пустым.");
+    return;
+  }
+
+  if(nextTitle.length>300){
+    alert(
+      "Название задачи не должно превышать "
+      +"300 символов."
+    );
+    return;
+  }
+
+  if(nextTitle===currentTitle)return;
+
+  task.title=nextTitle;
+
+  try{
+    setSyncState("Переименование…","warn");
+
+    await saveTaskPoolItem(task);
+
+    const isCurrentSprintTask=
+      selectedTaskIds.includes(taskId)
+      &&!sprintLifecycleIsCompleted();
+
+    if(isCurrentSprintTask){
+      const snapshot=normalizeTask(
+        sprintTaskSnapshots[taskId]
+        ||taskPool[taskId]
+      );
+
+      snapshot.title=nextTitle;
+      snapshot.updatedAt=new Date().toISOString();
+      sprintTaskSnapshots[taskId]=snapshot;
+
+      recalculateRolePlanFact();
+
+      if(
+        currentSprintId
+        &&String(sprintName.value||"").trim()
+      ){
+        await saveSprintSet(
+          false,
+          {
+            silent:true,
+            source:"task_rename"
+          }
+        );
+      }else{
+        saveState();
+        await saveCurrentStateNow();
+      }
+    }
+
+    setSyncState("Задача переименована");
+    render();
+  }catch(error){
+    console.error(error);
+    setSyncState("Ошибка переименования","bad");
+    alert(
+      "Не удалось переименовать задачу:\n\n"
+      +error.message
+    );
+    render();
+  }
+}
+
 async function deleteTaskFromPool(taskId){
   const task=taskPool[taskId];
   if(!task)return;
@@ -6135,6 +6231,17 @@ function renderTaskPool(){
       );
     }
 
+    if(task.source==="team_calculator"){
+      actionButtons.unshift(
+        `<button
+          class="secondary"
+          type="button"
+          data-rename-task="${task.id}">
+            Переименовать
+        </button>`
+      );
+    }
+
     const gitLabEstimateRole=
       manualTaskTypeRole(task);
 
@@ -6230,6 +6337,13 @@ function renderTaskPool(){
   document.querySelectorAll("[data-remove-task]").forEach(btn=>btn.onclick=()=>removeTaskFromSprint(btn.dataset.removeTask));
   document.querySelectorAll("[data-release-task]").forEach(btn=>btn.onclick=()=>releaseTaskToPool(btn.dataset.releaseTask));
   document.querySelectorAll("[data-delete-task]").forEach(btn=>btn.onclick=()=>deleteTaskFromPool(btn.dataset.deleteTask));
+  document.querySelectorAll("[data-rename-task]").forEach(
+    button=>{
+      button.onclick=()=>renameTaskInPool(
+        button.dataset.renameTask
+      );
+    }
+  );
   document.querySelectorAll("[data-send-gitlab-estimate]").forEach(
     button=>{
       button.onclick=()=>sendTaskGitLabEstimate(

@@ -263,7 +263,7 @@
       min-height:44px;
     }
     .plan-cell{
-      min-height:58px;
+      min-height:82px;
       font-size:14px;
     }
     .plan-grid .plan-cell:nth-last-child(-n+6){
@@ -339,6 +339,63 @@
       width:2px;
       background:#94a3b8;
       opacity:.8;
+    }
+    .plan-task-progress{
+      display:grid;
+      gap:4px;
+      margin-top:2px;
+      padding-top:6px;
+      border-top:1px solid rgba(148,163,184,.28);
+    }
+    .plan-task-progress-meta{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:8px;
+      color:#536078;
+      font-size:10px;
+      font-weight:750;
+      line-height:1.2;
+    }
+    .plan-task-progress-meta.complete{
+      color:#137333;
+      font-weight:900;
+    }
+    .plan-task-progress-count{
+      min-width:0;
+      overflow:hidden;
+      text-overflow:ellipsis;
+      white-space:nowrap;
+    }
+    .plan-task-progress-pct{
+      flex:0 0 auto;
+      white-space:nowrap;
+    }
+    .plan-task-progress-bar{
+      position:relative;
+      width:100%;
+      height:7px;
+      overflow:hidden;
+      border:1px solid #dce5df;
+      border-radius:999px;
+      background:#edf2ef;
+    }
+    .plan-task-progress-fill{
+      position:absolute;
+      inset:0 auto 0 0;
+      width:0;
+      border-radius:999px;
+      background:#2f8f4e;
+      transition:width .2s ease;
+    }
+    .plan-task-progress.empty
+      .plan-task-progress-bar{
+      border-color:#e1e5ec;
+      background:#f4f6f9;
+    }
+    .plan-task-progress.empty
+      .plan-task-progress-fill{
+      background:#aab2c2;
     }
     .plan-comment{
       color:var(--muted);
@@ -1957,7 +2014,8 @@
 <h2>Загрузка спринта по ролям</h2>
 <p class="muted">
           План и факт рассчитываются автоматически в человеко-днях по конкретным задачам текущего спринта.
-          Светлая линия показывает план, заполнение — выполненный объём.
+          Светлая линия показывает план, оранжевое заполнение — выполненный объём,
+          нижняя зелёная полоса — количество выполненных задач роли из запланированных.
         </p>
         <div class="plan-grid-wrap">
           <div class="plan-grid" id="planningBody"></div>
@@ -3965,6 +4023,122 @@ function completedTaskObjects(){
   return selectedTaskIds.filter(id=>done.has(id)).map(id=>currentTaskSnapshot(id)).filter(Boolean);
 }
 
+function roleTaskCompletion(
+  role
+){
+  const roleKey=roleKeyFromName(
+    role?.name
+  );
+
+  const plannedTaskIds=
+    selectedTaskIds.filter(taskId=>{
+      const task=currentTaskSnapshot(
+        taskId
+      );
+
+      if(!task)return false;
+
+      const value=normalizeTask(
+        task
+      ).estimates?.[roleKey];
+
+      return (
+        isEstimateFilled(value)
+        &&Number(value)>0
+      );
+    });
+
+  const completedSet=new Set(
+    completedTaskIds
+  );
+
+  const completedCount=
+    plannedTaskIds.filter(taskId=>
+      completedSet.has(taskId)
+    ).length;
+
+  const plannedCount=
+    plannedTaskIds.length;
+
+  return {
+    roleKey,
+    plannedCount,
+    completedCount,
+    percent:
+      plannedCount>0
+        ?completedCount/plannedCount*100
+        :0,
+    complete:
+      plannedCount>0
+      &&completedCount===plannedCount
+  };
+}
+
+function roleTaskProgressHtml(
+  progress
+){
+  const plannedCount=
+    Number(progress?.plannedCount)||0;
+
+  const completedCount=
+    Number(progress?.completedCount)||0;
+
+  const percent=Math.max(
+    0,
+    Math.min(
+      100,
+      Number(progress?.percent)||0
+    )
+  );
+
+  const complete=Boolean(
+    progress?.complete
+  );
+
+  const empty=plannedCount===0;
+
+  const caption=empty
+    ?"Задачи: нет запланированных"
+    :`${complete?"✓ ":""}Задачи: ${
+        completedCount
+      } из ${plannedCount}`;
+
+  return `<div
+    class="plan-task-progress ${
+      empty?"empty":""
+    }"
+    title="${esc(
+      empty
+        ?"У роли нет задач с положительной оценкой в текущем спринте."
+        :`Выполнено ${completedCount} из ${plannedCount} задач роли.`
+    )}">
+      <div
+        class="plan-task-progress-meta ${
+          complete?"complete":""
+        }">
+          <span class="plan-task-progress-count">${
+            esc(caption)
+          }</span>
+          <span class="plan-task-progress-pct">${
+            empty
+              ?"—"
+              :`${fmt(percent,0)}%`
+          }</span>
+      </div>
+      <div
+        class="plan-task-progress-bar"
+        aria-label="${esc(
+          empty
+            ?"Нет запланированных задач"
+            :`Выполнено ${completedCount} из ${plannedCount} задач`
+        )}">
+          <div
+            class="plan-task-progress-fill"
+            style="width:${percent}%"></div>
+      </div>
+  </div>`;
+}
+
 function recalculateRolePlanFact(){
   const selected=selectedTaskObjects();
   const completed=completedTaskObjects();
@@ -4682,12 +4856,24 @@ function getCurrentResultSnapshot(){
     const cap=caps[idx];
     const planned=Number(role.planned)||0;
     const actual=Number(role.actual)||0;
+    const taskCompletion=
+      roleTaskCompletion(role);
+
     return {
       role: role.name,
       capacity: cap,
       limit: cap,
       planned,
       actual,
+      plannedTaskCount:
+        taskCompletion.plannedCount,
+      completedTaskCount:
+        taskCompletion.completedCount,
+      taskCompletionPct:
+        taskCompletion.plannedCount>0
+          ?taskCompletion.completedCount
+            /taskCompletion.plannedCount
+          :null,
       planFactDelta: actual-planned,
       planFactPct: planned>0?actual/planned:null,
       load: cap>0?planned/cap:null,
@@ -8780,6 +8966,8 @@ function renderPlanningTable(caps){
     const remaining=cap-planned;
     const planPct=cap>0?Math.min(100,planned/cap*100):0;
     const factPct=cap>0?Math.min(100,actual/cap*100):0;
+    const taskCompletion=
+      roleTaskCompletion(role);
 
     let rowClass="";
     if((load!==null&&load>1.2)||(actualLoad!==null&&actualLoad>1.2))rowClass="plan-row-over-hard";
@@ -8814,6 +9002,9 @@ function renderPlanningTable(caps){
         <div class="fact-fill ${actual>planned?'over-plan':''}" style="width:${factPct}%"></div>
         <div class="plan-cap-line"></div>
       </div>
+      ${roleTaskProgressHtml(
+        taskCompletion
+      )}
     `;
 
     const remainingCell=document.createElement("div");
@@ -9215,11 +9406,29 @@ document.getElementById("downloadCsv").onclick=()=>{
   });
 
   rows.push([]);
-  rows.push(["Роль","Сотрудников","Рабочих дней","Отсутствия","Коэффициент","Резерв %","Ёмкость ч.д.","План ч.д.","Факт ч.д.","Остаток ч.д.","Загрузка плана %"]);
+  rows.push(["Роль","Сотрудников","Рабочих дней","Отсутствия","Коэффициент","Резерв %","Ёмкость ч.д.","План ч.д.","Факт ч.д.","Остаток ч.д.","Загрузка плана %","Задач запланировано","Задач выполнено","Выполнение задач %"]);
 
   roles.forEach(r=>{
     const cap=capacity(r),planned=Number(r.planned)||0,actual=Number(r.actual)||0,load=cap>0?planned/cap*100:null;
-    rows.push([r.name,r.people,wd,r.absence,util,buf,cap.toFixed(2),planned.toFixed(2),actual.toFixed(2),(cap-planned).toFixed(2),load!==null?load.toFixed(0):""]);
+    const taskCompletion=roleTaskCompletion(r);
+    rows.push([
+      r.name,
+      r.people,
+      wd,
+      r.absence,
+      util,
+      buf,
+      cap.toFixed(2),
+      planned.toFixed(2),
+      actual.toFixed(2),
+      (cap-planned).toFixed(2),
+      load!==null?load.toFixed(0):"",
+      taskCompletion.plannedCount,
+      taskCompletion.completedCount,
+      taskCompletion.plannedCount>0
+        ?taskCompletion.percent.toFixed(0)
+        :""
+    ]);
   });
 
   const csv=rows.map(row=>row.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(";")).join("\n");

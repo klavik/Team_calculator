@@ -443,8 +443,14 @@
       margin:0 0 3px;
       font-size:14px;
     }
-    .actual-assignee-timezone-table input{
-      min-width:210px;
+    .actual-assignee-timezone-table input,
+    .actual-assignee-timezone-table select{
+      min-width:280px;
+      width:100%;
+    }
+    #actualTimezone{
+      min-width:260px;
+      width:100%;
     }
     .actual-assignee-empty{
       color:var(--muted);
@@ -1839,7 +1845,7 @@
 
           <div class="actual-settings-fields">
             <label>Часовой пояс по умолчанию
-              <input id="actualTimezone" value="Europe/Moscow" list="actualTimezoneOptions">
+              <select id="actualTimezone"></select>
             </label>
             <label>Начало рабочего дня
               <input id="actualWorkdayStart" type="time" value="09:00">
@@ -1865,8 +1871,9 @@
               <div>
                 <h3>Часовые пояса исполнителей</h3>
                 <div class="muted small">
-                  Список формируется из assignee GitLab-задач. Для задачи с одним исполнителем
-                  используется его часовой пояс; пустое значение означает часовой пояс по умолчанию.
+                  Список формируется из assignee GitLab-задач. Смещение показывается в формате
+                  UTC±ЧЧ:ММ. Для задачи с одним исполнителем используется его часовой пояс;
+                  значение «По умолчанию» означает общий часовой пояс команды.
                 </div>
               </div>
               <button class="secondary" id="refreshActualAssignees" type="button">Обновить список из задач</button>
@@ -1885,19 +1892,6 @@
             </div>
           </div>
 
-          <datalist id="actualTimezoneOptions">
-            <option value="Europe/Moscow"></option>
-            <option value="Europe/Kaliningrad"></option>
-            <option value="Asia/Yekaterinburg"></option>
-            <option value="Asia/Omsk"></option>
-            <option value="Asia/Novosibirsk"></option>
-            <option value="Asia/Krasnoyarsk"></option>
-            <option value="Asia/Irkutsk"></option>
-            <option value="Asia/Yakutsk"></option>
-            <option value="Asia/Vladivostok"></option>
-            <option value="Asia/Magadan"></option>
-            <option value="Asia/Kamchatka"></option>
-          </datalist>
 
           <div class="task-table-wrap">
             <table class="roles-table actual-mapping-table">
@@ -2229,6 +2223,155 @@ const ACTUAL_MAPPING_DEFINITIONS=[
   {id:"devops__devops",taskType:"devops",actualRole:"devops",statuses:["In Progress"]}
 ];
 
+const ACTUAL_TIMEZONE_OPTIONS=[
+  "Europe/Kaliningrad",
+  "Europe/Moscow",
+  "Asia/Yekaterinburg",
+  "Asia/Omsk",
+  "Asia/Novosibirsk",
+  "Asia/Krasnoyarsk",
+  "Asia/Irkutsk",
+  "Asia/Yakutsk",
+  "Asia/Vladivostok",
+  "Asia/Magadan",
+  "Asia/Kamchatka"
+];
+
+function actualTimezoneOffsetMinutes(
+  timezone,
+  date=new Date()
+){
+  const value=String(timezone||"").trim();
+
+  if(!value)return null;
+
+  try{
+    const formatter=new Intl.DateTimeFormat(
+      "en-CA",
+      {
+        timeZone:value,
+        year:"numeric",
+        month:"2-digit",
+        day:"2-digit",
+        hour:"2-digit",
+        minute:"2-digit",
+        second:"2-digit",
+        hourCycle:"h23"
+      }
+    );
+
+    const parts=Object.fromEntries(
+      formatter
+        .formatToParts(date)
+        .filter(part=>part.type!=="literal")
+        .map(part=>[part.type,part.value])
+    );
+
+    const representedAsUtc=Date.UTC(
+      Number(parts.year),
+      Number(parts.month)-1,
+      Number(parts.day),
+      Number(parts.hour),
+      Number(parts.minute),
+      Number(parts.second)
+    );
+
+    const sourceUtc=Date.UTC(
+      date.getUTCFullYear(),
+      date.getUTCMonth(),
+      date.getUTCDate(),
+      date.getUTCHours(),
+      date.getUTCMinutes(),
+      date.getUTCSeconds()
+    );
+
+    return Math.round(
+      (representedAsUtc-sourceUtc)/60000
+    );
+  }catch(_error){
+    return null;
+  }
+}
+
+function actualTimezoneUtcLabel(timezone){
+  const minutes=actualTimezoneOffsetMinutes(
+    timezone
+  );
+
+  if(minutes===null)return "UTC?";
+
+  const sign=minutes>=0?"+":"-";
+  const absolute=Math.abs(minutes);
+  const hours=String(
+    Math.floor(absolute/60)
+  ).padStart(2,"0");
+  const remainder=String(
+    absolute%60
+  ).padStart(2,"0");
+
+  return `UTC${sign}${hours}:${remainder}`;
+}
+
+function actualTimezoneDisplayLabel(timezone){
+  const value=String(timezone||"").trim();
+
+  if(!value)return "";
+
+  return `${actualTimezoneUtcLabel(value)} — ${value}`;
+}
+
+function actualTimezoneOptionsHtml({
+  selectedTimezone="",
+  includeDefault=false,
+  defaultTimezone=""
+}={}){
+  const selected=String(
+    selectedTimezone||""
+  ).trim();
+
+  const fallback=String(
+    defaultTimezone||""
+  ).trim();
+
+  const values=[...ACTUAL_TIMEZONE_OPTIONS];
+
+  if(
+    selected
+    &&!values.includes(selected)
+    &&isValidActualTimezone(selected)
+  ){
+    values.push(selected);
+  }
+
+  if(
+    fallback
+    &&!values.includes(fallback)
+    &&isValidActualTimezone(fallback)
+  ){
+    values.push(fallback);
+  }
+
+  const defaultOption=includeDefault
+    ?`<option value="">
+        По умолчанию: ${esc(
+          actualTimezoneDisplayLabel(fallback)
+        )}
+      </option>`
+    :"";
+
+  const timezoneOptions=values
+    .map(timezone=>`<option
+      value="${esc(timezone)}"
+      ${timezone===selected?"selected":""}>
+        ${esc(
+          actualTimezoneDisplayLabel(timezone)
+        )}
+    </option>`)
+    .join("");
+
+  return defaultOption+timezoneOptions;
+}
+
 function defaultActualCalculationSettings(){
   return {
     schemaVersion:2,
@@ -2458,6 +2601,10 @@ function renderActualCalculationSettings(){
   const staticEnabled=actualCalculationStaticEnabled();
   actualCalculationSettingsCard.style.display=staticEnabled?"block":"none";
   actualCalculationEnabledInput.checked=settings.enabled;
+  actualTimezoneInput.innerHTML=
+    actualTimezoneOptionsHtml({
+      selectedTimezone:settings.timezone
+    });
   actualTimezoneInput.value=settings.timezone;
   actualWorkdayStartInput.value=settings.workdayStart;
   actualHoursPerDayInput.value=settings.hoursPerDay;
@@ -2478,12 +2625,15 @@ function renderActualCalculationSettings(){
       return `<tr>
         <td>${esc(person.name)}</td>
         <td><code>@${esc(person.username)}</code></td>
-        <td><input
+        <td><select
           data-actual-assignee-username="${esc(person.username)}"
-          data-actual-assignee-name="${esc(person.name)}"
-          value="${esc(stored?.timezone||"")}"
-          placeholder="${esc(settings.timezone)}"
-          list="actualTimezoneOptions"></td>
+          data-actual-assignee-name="${esc(person.name)}">
+            ${actualTimezoneOptionsHtml({
+              selectedTimezone:stored?.timezone||"",
+              includeDefault:true,
+              defaultTimezone:settings.timezone
+            })}
+        </select></td>
       </tr>`;
     }).join("")
     :`<tr><td colspan="3" class="actual-assignee-empty">
@@ -2808,10 +2958,13 @@ function taskActualPreviewHtml(taskId){
     &&result.assignees.length===1
       ?result.assignees[0]
       :null;
-  const timezoneText=timezone
+  const timezoneDisplay=timezone
+    ?actualTimezoneDisplayLabel(timezone)
+    :"";
+  const timezoneText=timezoneDisplay
     ?(timezoneSource==="assignee_mapping"&&timezoneAssignee
-      ?`Часовой пояс: ${timezone} · @${timezoneAssignee.username}`
-      :`Часовой пояс: ${timezone} · по умолчанию`)
+      ?`Часовой пояс: ${timezoneDisplay} · @${timezoneAssignee.username}`
+      :`Часовой пояс: ${timezoneDisplay} · по умолчанию`)
     :"";
 
   if(!entries.length){

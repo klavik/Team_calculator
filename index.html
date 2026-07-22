@@ -5735,12 +5735,30 @@ async function renameTaskInPool(taskId){
 
   if(nextTitle===currentTitle)return;
 
-  task.title=nextTitle;
+  const updatedAt=new Date().toISOString();
 
   try{
     setSyncState("Переименование…","warn");
 
-    await saveTaskPoolItem(task);
+    const {fsMod}=await loadFirebaseModules();
+
+    await fsMod.updateDoc(
+      fsMod.doc(
+        firebaseDb,
+        "workspaces",
+        TEAM_CALCULATOR_WORKSPACE_ID,
+        "taskPool",
+        taskId
+      ),
+      {
+        title:nextTitle,
+        updatedAt
+      }
+    );
+
+    task.title=nextTitle;
+    task.updatedAt=updatedAt;
+    taskPool[taskId]=task;
 
     const isCurrentSprintTask=
       selectedTaskIds.includes(taskId)
@@ -5749,29 +5767,44 @@ async function renameTaskInPool(taskId){
     if(isCurrentSprintTask){
       const snapshot=normalizeTask(
         sprintTaskSnapshots[taskId]
-        ||taskPool[taskId]
+        ||task
       );
 
       snapshot.title=nextTitle;
-      snapshot.updatedAt=new Date().toISOString();
+      snapshot.updatedAt=updatedAt;
       sprintTaskSnapshots[taskId]=snapshot;
 
       recalculateRolePlanFact();
 
-      if(
-        currentSprintId
-        &&String(sprintName.value||"").trim()
-      ){
-        await saveSprintSet(
-          false,
-          {
-            silent:true,
-            source:"task_rename"
-          }
+      try{
+        if(
+          currentSprintId
+          &&String(sprintName.value||"").trim()
+        ){
+          await saveSprintSet(
+            false,
+            {
+              silent:true,
+              source:"task_rename"
+            }
+          );
+        }else{
+          saveState();
+          await saveCurrentStateNow();
+        }
+      }catch(sprintError){
+        console.error(sprintError);
+        setSyncState(
+          "Задача переименована, ошибка обновления спринта",
+          "bad"
         );
-      }else{
-        saveState();
-        await saveCurrentStateNow();
+        alert(
+          "Название в общем пуле изменено, но не удалось "
+          +"обновить снимок текущего спринта:\n\n"
+          +sprintError.message
+        );
+        render();
+        return;
       }
     }
 

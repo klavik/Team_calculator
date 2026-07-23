@@ -1259,7 +1259,8 @@
       color:#9a4e00;
       font-weight:900;
     }
-    .gitlab-iteration-pill.unsynced{
+    .gitlab-iteration-pill.unsynced,
+    .gitlab-iteration-pill.unknown{
       border-color:#d9dee8;
       background:#f5f6f9;
       color:#667085;
@@ -7668,6 +7669,29 @@ function gitLabIteration(metadata){
   };
 }
 
+function gitLabIterationState(
+  metadata
+){
+  if(gitLabIteration(metadata)){
+    return "assigned";
+  }
+
+  const explicit=String(
+    metadata?.iterationState||""
+  ).trim().toLowerCase();
+
+  if(
+    explicit==="missing"
+    ||explicit==="unknown"
+  ){
+    return explicit;
+  }
+
+  // Metadata from connector 1.4.1 did not distinguish
+  // an absent iteration from an unavailable API field.
+  return "unknown";
+}
+
 function gitLabIterationMissing(
   metadata,
   hasUrl
@@ -7675,7 +7699,8 @@ function gitLabIterationMissing(
   return Boolean(
     hasUrl
     &&metadata
-    &&!gitLabIteration(metadata)
+    &&gitLabIterationState(metadata)
+      ==="missing"
   );
 }
 
@@ -7699,6 +7724,26 @@ function gitLabIterationHtml(
   const iteration=gitLabIteration(metadata);
 
   if(!iteration){
+    const state=gitLabIterationState(
+      metadata
+    );
+
+    if(state!=="missing"){
+      const error=String(
+        metadata.iterationSyncError||""
+      ).trim();
+
+      return `<span
+        class="gitlab-iteration-pill unknown"
+        title="${esc(
+          error
+            ?`Iteration не удалось проверить: ${error}`
+            :"Обновите данные после установки Mac connector 1.4.2."
+        )}">
+          Iteration: не удалось проверить
+      </span>`;
+    }
+
     const url=String(
       issueUrl
       ||metadata.webUrl

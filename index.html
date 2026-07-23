@@ -1225,6 +1225,51 @@
     .sprint-tasks-card .gitlab-assignees{
       font-size:11px;
     }
+    .gitlab-metadata-stack{
+      display:grid;
+      align-content:start;
+      gap:5px;
+      min-width:0;
+    }
+    .gitlab-iteration-pill{
+      display:inline-flex;
+      align-items:center;
+      gap:4px;
+      width:fit-content;
+      max-width:100%;
+      padding:3px 6px;
+      border:1px solid #bfd0ec;
+      border-radius:999px;
+      background:#eef5ff;
+      color:#174ea6;
+      font-size:10px;
+      font-weight:800;
+      line-height:1.2;
+      text-decoration:none;
+    }
+    .gitlab-iteration-pill .gitlab-iteration-title{
+      min-width:0;
+      overflow:hidden;
+      text-overflow:ellipsis;
+      white-space:nowrap;
+    }
+    .gitlab-iteration-pill.missing{
+      border-color:#efb56b;
+      background:#fff4e5;
+      color:#9a4e00;
+      font-weight:900;
+    }
+    .gitlab-iteration-pill.unsynced{
+      border-color:#d9dee8;
+      background:#f5f6f9;
+      color:#667085;
+    }
+    a.gitlab-iteration-pill:hover{
+      text-decoration:underline;
+    }
+    .sprint-missing-iteration-row td:first-child{
+      box-shadow:inset 4px 0 #d97706;
+    }
     .sprint-tasks-card .completion-toggle{
       align-items:flex-start;
       white-space:normal;
@@ -1660,6 +1705,12 @@
     .task-empty{padding:22px;text-align:center;color:var(--muted)}
     .sprint-summary-row{display:flex;gap:10px;flex-wrap:wrap;margin:10px 0 14px}
     .sprint-summary-pill{border:1px solid var(--border);background:#fafbfe;border-radius:999px;padding:6px 10px;font-size:12px}
+    .sprint-summary-pill.warn{
+      border-color:#efb56b;
+      background:#fff4e5;
+      color:#9a4e00;
+      font-weight:800;
+    }
     .completion-toggle{display:flex;align-items:center;gap:7px;white-space:nowrap}
     .completion-toggle input{width:auto}
     .task-estimate-total{font-weight:800;white-space:nowrap}
@@ -7598,6 +7649,104 @@ function gitLabMetadataForSprintTask(taskId,snapshotTask){
     ||null;
 }
 
+function gitLabIteration(metadata){
+  const value=metadata?.iteration;
+
+  if(!value||typeof value!=="object"){
+    return null;
+  }
+
+  const title=String(value.title||"").trim();
+  if(!title)return null;
+
+  return {
+    title,
+    state:String(value.state||"").trim(),
+    startDate:String(value.startDate||"").trim(),
+    dueDate:String(value.dueDate||"").trim(),
+    webUrl:String(value.webUrl||"").trim()
+  };
+}
+
+function gitLabIterationMissing(
+  metadata,
+  hasUrl
+){
+  return Boolean(
+    hasUrl
+    &&metadata
+    &&!gitLabIteration(metadata)
+  );
+}
+
+function gitLabIterationHtml(
+  metadata,
+  hasUrl,
+  issueUrl=""
+){
+  if(!hasUrl){
+    return "";
+  }
+
+  if(!metadata){
+    return `<span
+      class="gitlab-iteration-pill unsynced"
+      title="Iteration появится после обновления данных из GitLab.">
+        Iteration: не синхронизировано
+    </span>`;
+  }
+
+  const iteration=gitLabIteration(metadata);
+
+  if(!iteration){
+    const url=String(
+      issueUrl
+      ||metadata.webUrl
+      ||""
+    ).trim();
+
+    const content="⚠ Iteration не указан";
+
+    if(url){
+      return `<a
+        class="gitlab-iteration-pill missing"
+        href="${esc(url)}"
+        target="_blank"
+        rel="noopener"
+        title="Открыть issue в GitLab и указать Iteration.">${esc(content)}</a>`;
+    }
+
+    return `<span
+      class="gitlab-iteration-pill missing"
+      title="Укажите Iteration в GitLab.">${esc(content)}</span>`;
+  }
+
+  const details=[
+    iteration.state?`Состояние: ${iteration.state}`:"",
+    iteration.startDate?`Начало: ${iteration.startDate}`:"",
+    iteration.dueDate?`Окончание: ${iteration.dueDate}`:""
+  ].filter(Boolean).join(" · ");
+
+  const content=`Iteration: ${iteration.title}`;
+
+  if(iteration.webUrl){
+    return `<a
+      class="gitlab-iteration-pill"
+      href="${esc(iteration.webUrl)}"
+      target="_blank"
+      rel="noopener"
+      title="${esc(details)}">
+        <span class="gitlab-iteration-title">${esc(content)}</span>
+    </a>`;
+  }
+
+  return `<span
+    class="gitlab-iteration-pill"
+    title="${esc(details)}">
+      <span class="gitlab-iteration-title">${esc(content)}</span>
+  </span>`;
+}
+
 function gitLabStatusClass(label){
   const normalized=String(label||"")
     .trim()
@@ -8804,6 +8953,11 @@ function renderSprintTasks(){
         poolTask,
         gitlabMetadata,
         hasGitLabUrl,
+        iterationMissing:
+          gitLabIterationMissing(
+            gitlabMetadata,
+            hasGitLabUrl
+          ),
         designApproved:
           isDesignApprovedGitLabStatus(
             normalized,
@@ -8830,6 +8984,11 @@ function renderSprintTasks(){
     item=>item.readyToProd
   ).length;
 
+  const missingIterationCount=
+    allTasks.filter(
+      item=>item.iterationMissing
+    ).length;
+
   sprintTaskSummary.innerHTML=`
     <span class="sprint-summary-pill"><b>${allTasks.length}</b> задач в составе</span>
     <span class="sprint-summary-pill"><b>${allTasks.filter(item=>completedSet.has(item.id)).length}</b> выполнено</span>
@@ -8837,6 +8996,9 @@ function renderSprintTasks(){
     <span class="sprint-summary-pill"><b>${fmt(allTasks.filter(item=>completedSet.has(item.id)).reduce((sum,item)=>sum+taskTotalEstimate(item.task),0),1)}</b> ч.д. выполнено</span>
     ${readyToProdCount
       ?`<span class="sprint-summary-pill"><b>✓ ${readyToProdCount}</b> Ready to PROD / Approved</span>`
+      :""}
+    ${missingIterationCount
+      ?`<span class="sprint-summary-pill warn"><b>⚠ ${missingIterationCount}</b> без Iteration</span>`
       :""}
     ${sprintBaseline
       ?`<span class="baseline-pill"><b>${baselineTaskIds().length}</b>&nbsp;задач и&nbsp;<b>${fmt(baselineTotalEstimate(),1)}</b>&nbsp;ч.д. в исходном плане</span>`
@@ -8870,6 +9032,7 @@ function renderSprintTasks(){
       poolTask,
       gitlabMetadata,
       hasGitLabUrl,
+      iterationMissing,
       readyToProd,
       designApproved
     }=item;
@@ -8947,6 +9110,12 @@ function renderSprintTasks(){
       tr.classList.add("sprint-ready-prod-row");
     }
 
+    if(iterationMissing){
+      tr.classList.add(
+        "sprint-missing-iteration-row"
+      );
+    }
+
     tr.innerHTML=`<td class="task-title-cell">
         <div class="task-title">${title}</div>
         ${teamPokerTaskLinksHtml(
@@ -8968,11 +9137,22 @@ function renderSprintTasks(){
         )}</td>
       <td
         class="sprint-status-cell"
-        data-label="Статус GitLab">${gitLabStatusHtml(
-          gitlabMetadata,
-          hasGitLabUrl,
-          normalized
-        )}</td>
+        data-label="Статус GitLab">
+          <div class="gitlab-metadata-stack">
+            ${gitLabStatusHtml(
+              gitlabMetadata,
+              hasGitLabUrl,
+              normalized
+            )}
+            ${gitLabIterationHtml(
+              gitlabMetadata,
+              hasGitLabUrl,
+              normalized.externalTaskUrl
+              ||poolTask?.externalTaskUrl
+              ||""
+            )}
+          </div>
+      </td>
       <td
         class="sprint-assignee-cell"
         data-label="Исполнитель">${gitLabAssigneesHtml(

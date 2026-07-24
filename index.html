@@ -2113,6 +2113,13 @@
               </select>
             </label>
 
+            <label>
+              <span>Iteration</span>
+              <select id="sprintTaskIterationFilter">
+                <option value="all">Все Iteration</option>
+              </select>
+            </label>
+
             <button
               class="secondary"
               id="resetSprintTaskFilters"
@@ -2553,6 +2560,7 @@ acceptActualPreviewButton=document.getElementById("acceptActualPreview"),
 sprintTaskDirectionFilter=document.getElementById("sprintTaskDirectionFilter"),
 sprintTaskStatusFilter=document.getElementById("sprintTaskStatusFilter"),
 sprintTaskAssigneeFilter=document.getElementById("sprintTaskAssigneeFilter"),
+sprintTaskIterationFilter=document.getElementById("sprintTaskIterationFilter"),
 resetSprintTaskFiltersButton=document.getElementById("resetSprintTaskFilters"),
 sprintTaskVisibleCount=document.getElementById("sprintTaskVisibleCount"),
 authScreen=document.getElementById("authScreen"),
@@ -7669,6 +7677,144 @@ function gitLabIteration(metadata){
   };
 }
 
+function parseGitLabDateOnly(value){
+  const text=String(value||"").trim();
+  const match=text.match(
+    /^(\d{4})-(\d{2})-(\d{2})$/
+  );
+
+  if(!match)return null;
+
+  const date=new Date(
+    Date.UTC(
+      Number(match[1]),
+      Number(match[2])-1,
+      Number(match[3])
+    )
+  );
+
+  return Number.isNaN(date.getTime())
+    ?null
+    :date;
+}
+
+function formatGitLabIterationDate(value){
+  const date=parseGitLabDateOnly(value);
+
+  if(!date){
+    return String(value||"").trim();
+  }
+
+  return new Intl.DateTimeFormat(
+    "en-US",
+    {
+      month:"short",
+      day:"numeric",
+      year:"numeric",
+      timeZone:"UTC"
+    }
+  ).format(date);
+}
+
+function gitLabIterationWindow(iteration){
+  if(!iteration)return "";
+
+  const start=formatGitLabIterationDate(
+    iteration.startDate
+  );
+  const due=formatGitLabIterationDate(
+    iteration.dueDate
+  );
+
+  if(start&&due){
+    return `${start} - ${due}`;
+  }
+
+  if(start)return `с ${start}`;
+  if(due)return `до ${due}`;
+
+  return "";
+}
+
+function gitLabIterationDisplayLabel(iteration){
+  if(!iteration)return "";
+
+  return (
+    gitLabIterationWindow(iteration)
+    ||String(iteration.title||"").trim()
+    ||"Iteration назначен"
+  );
+}
+
+function gitLabIterationFilterKey(
+  metadata,
+  hasUrl
+){
+  if(!hasUrl)return "__no_url__";
+  if(!metadata)return "__unsynced__";
+
+  const state=gitLabIterationState(
+    metadata
+  );
+
+  if(state==="unknown"){
+    return "__unknown__";
+  }
+
+  const iteration=gitLabIteration(
+    metadata
+  );
+
+  if(!iteration){
+    return "__missing__";
+  }
+
+  const id=String(
+    metadata?.iteration?.id||""
+  ).trim();
+
+  if(id){
+    return `iteration:${id}`;
+  }
+
+  return `iteration:${
+    iteration.startDate
+  }|${iteration.dueDate}|${
+    iteration.title
+  }`;
+}
+
+function gitLabIterationFilterOption(
+  metadata,
+  hasUrl
+){
+  const value=gitLabIterationFilterKey(
+    metadata,
+    hasUrl
+  );
+
+  const special={
+    "__no_url__":"Нет ссылки GitLab",
+    "__unsynced__":"Не синхронизировано",
+    "__unknown__":"Не удалось проверить",
+    "__missing__":"Iteration не указан"
+  };
+
+  if(special[value]){
+    return {
+      value,
+      label:special[value]
+    };
+  }
+
+  return {
+    value,
+    label:gitLabIterationDisplayLabel(
+      gitLabIteration(metadata)
+    )
+  };
+}
+
 function gitLabIterationState(
   metadata
 ){
@@ -7738,7 +7884,7 @@ function gitLabIterationHtml(
         title="${esc(
           error
             ?`Iteration не удалось проверить: ${error}`
-            :"Обновите данные после установки Mac connector 1.4.4."
+            :"Обновите данные после установки Mac connector 1.4.5."
         )}">
           Iteration: не удалось проверить
       </span>`;
@@ -7767,12 +7913,33 @@ function gitLabIterationHtml(
   }
 
   const details=[
-    iteration.state?`Состояние: ${iteration.state}`:"",
-    iteration.startDate?`Начало: ${iteration.startDate}`:"",
-    iteration.dueDate?`Окончание: ${iteration.dueDate}`:""
+    iteration.title
+      &&iteration.title
+        !==gitLabIterationDisplayLabel(iteration)
+      ?`Название: ${iteration.title}`
+      :"",
+    iteration.state
+      ?`Состояние: ${iteration.state}`
+      :"",
+    iteration.startDate
+      ?`Начало: ${
+        formatGitLabIterationDate(
+          iteration.startDate
+        )
+      }`
+      :"",
+    iteration.dueDate
+      ?`Окончание: ${
+        formatGitLabIterationDate(
+          iteration.dueDate
+        )
+      }`
+      :""
   ].filter(Boolean).join(" · ");
 
-  const content=`Iteration: ${iteration.title}`;
+  const content=`Iteration: ${
+    gitLabIterationDisplayLabel(iteration)
+  }`;
 
   if(iteration.webUrl){
     return `<a
@@ -8760,10 +8927,12 @@ function renderSprintTaskFilterOptions(tasks){
   const currentDirection=sprintTaskDirectionFilter.value||"all";
   const currentStatus=sprintTaskStatusFilter.value||"all";
   const currentAssignee=sprintTaskAssigneeFilter.value||"all";
+  const currentIteration=sprintTaskIterationFilter.value||"all";
 
   const usedDirections=new Set();
   const statusOptions=new Map();
   const assigneeOptions=new Map();
+  const iterationOptions=new Map();
 
   let hasNoDirection=false;
   let hasUnassigned=false;
@@ -8799,6 +8968,17 @@ function renderSprintTaskFilterOptions(tasks){
         specialLabels[key]||key
       );
     });
+
+    const iterationOption=
+      gitLabIterationFilterOption(
+        item.gitlabMetadata,
+        item.hasGitLabUrl
+      );
+
+    iterationOptions.set(
+      iterationOption.value,
+      iterationOption.label
+    );
 
     const people=sprintTaskAssigneeEntries(
       item.gitlabMetadata,
@@ -8884,6 +9064,43 @@ function renderSprintTaskFilterOptions(tasks){
       :[])
   ];
 
+  const iterationPriority=[
+    "__missing__",
+    "__unknown__",
+    "__unsynced__",
+    "__no_url__"
+  ];
+
+  const iterationNormal=[];
+  const iterationSpecial=[];
+
+  iterationOptions.forEach((label,value)=>{
+    const option={value,label};
+
+    if(iterationPriority.includes(value)){
+      iterationSpecial.push(option);
+    }else{
+      iterationNormal.push(option);
+    }
+  });
+
+  iterationNormal.sort(
+    (a,b)=>a.label.localeCompare(
+      b.label,
+      "en",
+      {
+        sensitivity:"base",
+        numeric:true
+      }
+    )
+  );
+
+  iterationSpecial.sort(
+    (a,b)=>
+      iterationPriority.indexOf(a.value)
+      -iterationPriority.indexOf(b.value)
+  );
+
   setSelectOptions(
     sprintTaskDirectionFilter,
     directionOptions,
@@ -8904,6 +9121,13 @@ function renderSprintTaskFilterOptions(tasks){
     "Все исполнители",
     currentAssignee
   );
+
+  setSelectOptions(
+    sprintTaskIterationFilter,
+    [...iterationNormal,...iterationSpecial],
+    "Все Iteration",
+    currentIteration
+  );
 }
 
 function sprintTaskMatchesFilters(item){
@@ -8913,6 +9137,8 @@ function sprintTaskMatchesFilters(item){
     sprintTaskStatusFilter.value||"all";
   const assigneeFilter=
     sprintTaskAssigneeFilter.value||"all";
+  const iterationFilter=
+    sprintTaskIterationFilter.value||"all";
 
   if(directionFilter!=="all"){
     const directions=sprintTaskDirectionKeys(
@@ -8947,6 +9173,17 @@ function sprintTaskMatchesFilters(item){
     );
 
     if(!keys.includes(assigneeFilter)){
+      return false;
+    }
+  }
+
+  if(iterationFilter!=="all"){
+    const key=gitLabIterationFilterKey(
+      item.gitlabMetadata,
+      item.hasGitLabUrl
+    );
+
+    if(key!==iterationFilter){
       return false;
     }
   }
@@ -9645,7 +9882,8 @@ refreshActualAssigneesButton.onclick=()=>{
 [
   sprintTaskDirectionFilter,
   sprintTaskStatusFilter,
-  sprintTaskAssigneeFilter
+  sprintTaskAssigneeFilter,
+  sprintTaskIterationFilter
 ].forEach(select=>{
   select.onchange=renderSprintTasks;
 });
@@ -9654,6 +9892,7 @@ resetSprintTaskFiltersButton.onclick=()=>{
   sprintTaskDirectionFilter.value="all";
   sprintTaskStatusFilter.value="all";
   sprintTaskAssigneeFilter.value="all";
+  sprintTaskIterationFilter.value="all";
   renderSprintTasks();
 };
 

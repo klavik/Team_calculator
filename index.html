@@ -1226,20 +1226,28 @@
       font-size:11px;
     }
     .gitlab-metadata-stack{
+      box-sizing:border-box;
       display:grid;
       align-content:start;
       gap:5px;
+      width:100%;
+      max-width:100%;
       min-width:0;
+      overflow:hidden;
     }
     .gitlab-iteration-pill{
-      display:inline-flex;
-      align-items:center;
-      gap:4px;
-      width:fit-content;
+      box-sizing:border-box;
+      display:grid;
+      grid-template-columns:minmax(0,1fr);
+      align-items:start;
+      gap:2px;
+      width:100%;
       max-width:100%;
-      padding:3px 6px;
+      min-width:0;
+      overflow:hidden;
+      padding:4px 6px;
       border:1px solid #bfd0ec;
-      border-radius:999px;
+      border-radius:8px;
       background:#eef5ff;
       color:#174ea6;
       font-size:10px;
@@ -1247,11 +1255,23 @@
       line-height:1.2;
       text-decoration:none;
     }
-    .gitlab-iteration-pill .gitlab-iteration-title{
+    .gitlab-iteration-pill .gitlab-iteration-label{
+      display:block;
       min-width:0;
+      color:inherit;
+      font-size:9px;
+      font-weight:750;
+      line-height:1.1;
+    }
+    .gitlab-iteration-pill .gitlab-iteration-title{
+      display:block;
+      min-width:0;
+      max-width:100%;
       overflow:hidden;
-      text-overflow:ellipsis;
-      white-space:nowrap;
+      overflow-wrap:anywhere;
+      word-break:normal;
+      white-space:normal;
+      line-height:1.25;
     }
     .gitlab-iteration-pill.missing{
       border-color:#efb56b;
@@ -7863,7 +7883,8 @@ function gitLabIterationHtml(
     return `<span
       class="gitlab-iteration-pill unsynced"
       title="Iteration появится после обновления данных из GitLab.">
-        Iteration: не синхронизировано
+        <span class="gitlab-iteration-label">Iteration:</span>
+        <span class="gitlab-iteration-title">не синхронизировано</span>
     </span>`;
   }
 
@@ -7886,7 +7907,8 @@ function gitLabIterationHtml(
             ?`Iteration не удалось проверить: ${error}`
             :"Обновите данные после установки Mac connector 1.4.5."
         )}">
-          Iteration: не удалось проверить
+          <span class="gitlab-iteration-label">Iteration:</span>
+          <span class="gitlab-iteration-title">не удалось проверить</span>
       </span>`;
     }
 
@@ -7896,20 +7918,24 @@ function gitLabIterationHtml(
       ||""
     ).trim();
 
-    const content="⚠ Iteration не указан";
-
     if(url){
       return `<a
         class="gitlab-iteration-pill missing"
         href="${esc(url)}"
         target="_blank"
         rel="noopener"
-        title="Открыть issue в GitLab и указать Iteration.">${esc(content)}</a>`;
+        title="Открыть issue в GitLab и указать Iteration.">
+          <span class="gitlab-iteration-label">Iteration:</span>
+          <span class="gitlab-iteration-title">⚠ не указан</span>
+      </a>`;
     }
 
     return `<span
       class="gitlab-iteration-pill missing"
-      title="Укажите Iteration в GitLab.">${esc(content)}</span>`;
+      title="Укажите Iteration в GitLab.">
+        <span class="gitlab-iteration-label">Iteration:</span>
+        <span class="gitlab-iteration-title">⚠ не указан</span>
+    </span>`;
   }
 
   const details=[
@@ -7937,10 +7963,6 @@ function gitLabIterationHtml(
       :""
   ].filter(Boolean).join(" · ");
 
-  const content=`Iteration: ${
-    gitLabIterationDisplayLabel(iteration)
-  }`;
-
   if(iteration.webUrl){
     return `<a
       class="gitlab-iteration-pill"
@@ -7948,14 +7970,20 @@ function gitLabIterationHtml(
       target="_blank"
       rel="noopener"
       title="${esc(details)}">
-        <span class="gitlab-iteration-title">${esc(content)}</span>
+        <span class="gitlab-iteration-label">Iteration:</span>
+        <span class="gitlab-iteration-title">${esc(
+          gitLabIterationDisplayLabel(iteration)
+        )}</span>
     </a>`;
   }
 
   return `<span
     class="gitlab-iteration-pill"
     title="${esc(details)}">
-      <span class="gitlab-iteration-title">${esc(content)}</span>
+      <span class="gitlab-iteration-label">Iteration:</span>
+      <span class="gitlab-iteration-title">${esc(
+        gitLabIterationDisplayLabel(iteration)
+      )}</span>
   </span>`;
 }
 

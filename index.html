@@ -8823,12 +8823,33 @@ function sprintTaskStatusSortText(metadata,hasUrl){
   return "Статус не указан";
 }
 
-function sprintTaskStatusFilterKeys(metadata,hasUrl){
-  if(!hasUrl)return ["__no_url__"];
-  if(!metadata)return ["__unsynced__"];
+function sprintTaskStatusFilterKeys(
+  metadata,
+  hasUrl,
+  taskId=""
+){
+  const result=[];
+
+  if(taskId){
+    result.push(
+      completedTaskIds.includes(taskId)
+        ?"__completed__"
+        :"__incomplete__"
+    );
+  }
+
+  if(!hasUrl){
+    result.push("__no_url__");
+    return [...new Set(result)];
+  }
+
+  if(!metadata){
+    result.push("__unsynced__");
+    return [...new Set(result)];
+  }
 
   const labels=gitLabMatchedStatusLabels(metadata);
-  const result=[...labels];
+  result.push(...labels);
 
   if(metadata.statusState==="conflict"){
     result.push("__conflict__");
@@ -9026,9 +9047,12 @@ function renderSprintTaskFilterOptions(tasks){
 
     sprintTaskStatusFilterKeys(
       item.gitlabMetadata,
-      item.hasGitLabUrl
+      item.hasGitLabUrl,
+      item.id
     ).forEach(key=>{
       const specialLabels={
+        "__completed__":"Выполнена",
+        "__incomplete__":"Не выполнена",
         "__no_url__":"Нет ссылки GitLab",
         "__unsynced__":"Не синхронизировано",
         "__conflict__":"Конфликт статусов",
@@ -9084,6 +9108,8 @@ function renderSprintTaskFilterOptions(tasks){
   ];
 
   const statusPriority=[
+    "__completed__",
+    "__incomplete__",
     "__no_url__",
     "__unsynced__",
     "__missing__",
@@ -9231,7 +9257,8 @@ function sprintTaskMatchesFilters(item){
   if(statusFilter!=="all"){
     const keys=sprintTaskStatusFilterKeys(
       item.gitlabMetadata,
-      item.hasGitLabUrl
+      item.hasGitLabUrl,
+      item.id
     );
 
     if(!keys.includes(statusFilter)){

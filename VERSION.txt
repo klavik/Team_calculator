@@ -1,16 +1,15 @@
-Team_calculator v23.4.25
-Release: team_calculator_v23_4_25_other_sprints_filter_deploy
-Base version: v23.4.24 completed_task_pool_filter_deploy
+Team_calculator v23.4.26
+Release: team_calculator_v23_4_26_task_pool_planning_permissions_fix_deploy
+Base version: v23.4.25 other_sprints_filter_deploy
 
 Changes:
-- Added the "Задачи других спринтов" filter to "Общий пул оценённых задач".
-- "Готовы к планированию" now contains only estimated, unfinished tasks that are not linked to any sprint.
-- "Добавлены в текущий спринт" remains limited to unfinished tasks in the currently opened sprint.
-- "Задачи других спринтов" contains unfinished tasks linked to a different sprint.
-- Completed tasks remain available only through "Выполненные" and "Все задачи".
-- The task pool summary now shows current-sprint and other-sprint counts separately.
+- Fixed "Missing or insufficient permissions" when a task is returned from an active sprint while its actuals remain saved in that sprint.
+- Planning operations now update only planning-related taskPool fields instead of writing the whole normalized task document.
+- Firestore Rules now explicitly allow only planning-field updates for ordinary active users.
+- Added a recovery action "Повторить возврат в пул" for tasks whose sprint state was saved but taskPool update previously failed.
+- Manual estimates and Team_poker estimates remain protected by the existing v23.4.23 logic.
 
 Deployment:
 - Application change: index.html
-- Firestore Rules change for this feature: not required
-- Included firestore.rules: current v23.4.23 rules supplied by the product owner
+- Firestore Rules change: REQUIRED
+- Publish firestore.rules from this package before retrying the task-pool update.

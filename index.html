@@ -7312,6 +7312,60 @@ async function saveTaskPoolItem(task){
   );
 }
 
+async function saveTaskPlanningFields(task){
+  if(!currentUser||!firebaseDb)return null;
+
+  const normalized=normalizeTask(task);
+  normalized.updatedAt=
+    new Date().toISOString();
+
+  const planningUpdate={
+    plannedSprintId:
+      normalized.plannedSprintId||null,
+    plannedSprintName:
+      normalized.plannedSprintName||null,
+    plannedByUid:
+      normalized.plannedByUid||null,
+    plannedByName:
+      normalized.plannedByName||null,
+    planningStatus:
+      String(normalized.planningStatus||"available"),
+    carryover:
+      normalized.carryover||null,
+    updatedAt:normalized.updatedAt
+  };
+
+  const {fsMod}=await loadFirebaseModules();
+
+  try{
+    await fsMod.updateDoc(
+      fsMod.doc(
+        firebaseDb,
+        "workspaces",
+        TEAM_CALCULATOR_WORKSPACE_ID,
+        "taskPool",
+        normalized.id
+      ),
+      planningUpdate
+    );
+  }catch(error){
+    const message=String(error?.message||"");
+    if(
+      error?.code==="permission-denied"
+      ||message.includes("Missing or insufficient permissions")
+    ){
+      throw new Error(
+        "Недостаточно прав для изменения статуса задачи в общем пуле. "
+        +"Опубликуйте firestore.rules версии 23.4.26."
+      );
+    }
+    throw error;
+  }
+
+  taskPool[normalized.id]=normalized;
+  return normalized;
+}
+
 async function saveTaskEstimateFields(task){
   if(!currentUser||!firebaseDb)return null;
 
@@ -7688,7 +7742,7 @@ async function addTaskToSprint(taskId){
 
   if(currentSprintId){
     try{
-      await saveTaskPoolItem(normalized);
+      await saveTaskPlanningFields(normalized);
     }catch(error){
       console.error(error);
       alert(
@@ -7772,7 +7826,7 @@ async function removeTaskFromSprint(taskId){
     render();
 
     try{
-      await saveTaskPoolItem(task);
+      await saveTaskPlanningFields(task);
     }catch(error){
       console.error(error);
       alert(
@@ -7821,7 +7875,7 @@ async function removeTaskFromSprint(taskId){
     task.planningStatus="available";
 
     try{
-      await saveTaskPoolItem(task);
+      await saveTaskPlanningFields(task);
     }catch(error){
       console.error(error);
     }
@@ -7863,7 +7917,7 @@ async function toggleTaskCompleted(taskId,completed){
     task.planningStatus=completed?"completed":"planned";
     task.plannedSprintId=currentSprintId;
     task.plannedSprintName=sprintName.value||task.plannedSprintName||"";
-    try{await saveTaskPoolItem(task)}catch(e){console.error(e)}
+    try{await saveTaskPlanningFields(task)}catch(e){console.error(e)}
   }
   render();
 }
@@ -7883,11 +7937,23 @@ function updateSprintTaskSnapshot(taskId){
 async function releaseTaskToPool(taskId){
   const task=normalizeTask(taskPool[taskId]);
   if(!task)return;
+
+  const returnedFromCurrentSprint=
+    selectedTaskIds.includes(taskId)
+    &&sprintReturnedTaskIds.includes(taskId);
+
   task.plannedSprintId=null;
   task.plannedSprintName=null;
+  task.plannedByUid=null;
+  task.plannedByName=null;
   task.planningStatus="available";
+
+  if(returnedFromCurrentSprint&&!task.carryover){
+    task.carryover=buildTaskCarryover(taskId);
+  }
+
   try{
-    await saveTaskPoolItem(task);
+    await saveTaskPlanningFields(task);
     render();
   }catch(e){
     console.error(e);
@@ -8303,12 +8369,20 @@ function renderTaskPool(){
           ??taskEffectiveActualTotal(task.id)
         );
 
+      const poolReleasePending=
+        task.plannedSprintId===currentSprintId;
+
       statusHtml=
         '<span class="task-status incomplete">Перенесена в пул</span>'
         +(
           Number.isFinite(previousActual)
           &&previousActual>0
             ?`<div class="task-warning carryover">В исходном спринте учтено ${esc(fmt(previousActual,2))} ч.д.</div>`
+            :""
+        )
+        +(
+          poolReleasePending
+            ?'<div class="task-warning">Общий пул ещё не обновлён</div>'
             :""
         );
     }else if(selected){
@@ -8343,6 +8417,12 @@ function renderTaskPool(){
     const actionButtons=[];
 
     if(returnedFromCurrentSprint){
+      if(task.plannedSprintId===currentSprintId){
+        actionButtons.push(
+          `<button class="secondary" data-release-task="${task.id}">Повторить возврат в пул</button>`
+        );
+      }
+
       actionButtons.push(
         sprintLifecycleIsCompleted()
           ?'<button class="secondary" disabled>Доступна для нового спринта</button>'
@@ -10979,7 +11059,7 @@ async function clearCurrentSprintTasks(){
 
   const results=await Promise.allSettled(
     updatedTasks.map(task=>
-      saveTaskPoolItem(task)
+      saveTaskPlanningFields(task)
     )
   );
 

@@ -72,31 +72,40 @@ service cloud.firestore {
         && importedEstimateIsPreserved("frontend");
     }
 
-    function integrationMetadataIsPreserved() {
-      return request.resource.data.source
-          == resource.data.source
-        && request.resource.data.get("identityKey", null)
-          == resource.data.get("identityKey", null)
-        && request.resource.data.externalTaskUrl
-          == resource.data.externalTaskUrl
-        && request.resource.data.get("taskTypeRole", null)
-          == resource.data.get("taskTypeRole", null)
-        && request.resource.data.sourceTaskIds
-          == resource.data.sourceTaskIds
-        && request.resource.data.finalizedAtByRole
-          == resource.data.finalizedAtByRole
-        && request.resource.data.finalizedByRole
-          == resource.data.finalizedByRole
-        && request.resource.data.teamByRole
-          == resource.data.teamByRole
-        && request.resource.data.sessionByRole
-          == resource.data.sessionByRole
-        && request.resource.data.get("gitlab", null)
-          == resource.data.get("gitlab", null)
-        && request.resource.data.get("gitlabEstimate", null)
-          == resource.data.get("gitlabEstimate", null)
-        && importedEstimateIsPreserved("backend")
-        && importedEstimateIsPreserved("frontend");
+    function planningUpdateOnly() {
+      return request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly([
+            "plannedSprintId",
+            "plannedSprintName",
+            "plannedByUid",
+            "plannedByName",
+            "planningStatus",
+            "carryover",
+            "updatedAt"
+          ])
+        && request.resource.data.updatedAt is string
+        && request.resource.data.get("planningStatus", "")
+          in ["available", "planned", "completed"]
+        && (
+          request.resource.data.get("plannedSprintId", null) == null
+          || request.resource.data.get("plannedSprintId", null) is string
+        )
+        && (
+          request.resource.data.get("plannedSprintName", null) == null
+          || request.resource.data.get("plannedSprintName", null) is string
+        )
+        && (
+          request.resource.data.get("plannedByUid", null) == null
+          || request.resource.data.get("plannedByUid", null) is string
+        )
+        && (
+          request.resource.data.get("plannedByName", null) == null
+          || request.resource.data.get("plannedByName", null) is string
+        )
+        && (
+          request.resource.data.get("carryover", null) == null
+          || request.resource.data.get("carryover", null) is map
+        );
     }
 
     match /users/{userId} {
@@ -143,9 +152,10 @@ service cloud.firestore {
             && request.resource.data.createdByUid == request.auth.uid
           );
 
-        // Интеграция обновляет оценки Team_poker.
-        // Обычные пользователи дополняют остальные роли и планируют спринт,
-        // но не могут изменить импортированные Backend/Frontend-оценки.
+        // Интеграция обновляет данные Team_poker.
+        // Обычный активный пользователь может переименовать ручную задачу,
+        // изменить разрешённые ручные оценки или ограниченный набор полей
+        // планирования. Импортированные Backend/Frontend-оценки защищены.
         allow update: if integrationUser()
           || (
             activeUser()
@@ -153,7 +163,7 @@ service cloud.firestore {
             && (
               manualTaskRenameOnly()
               || manualEstimateUpdateOnly()
-              || integrationMetadataIsPreserved()
+              || planningUpdateOnly()
             )
           );
 

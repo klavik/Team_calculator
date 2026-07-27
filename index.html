@@ -4,6 +4,22 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Team_calculator — планирование спринта</title>
+  <link
+    rel="icon"
+    type="image/svg+xml"
+    href="team-calculator-logo.svg?v=23.4.19" />
+  <link
+    rel="icon"
+    type="image/png"
+    sizes="32x32"
+    href="favicon-32x32.png?v=23.4.19" />
+  <link
+    rel="shortcut icon"
+    href="favicon.ico?v=23.4.19" />
+  <link
+    rel="apple-touch-icon"
+    sizes="180x180"
+    href="apple-touch-icon.png?v=23.4.19" />
   <style>
     :root{
       --bg:#f6f7fb;--card:#fff;--text:#172033;--muted:#687084;--border:#dfe3ee;
@@ -24,6 +40,26 @@
     }
     .app-title-line h1{
       margin:0;
+    }
+    .app-brand{
+      display:inline-flex;
+      align-items:center;
+      gap:10px;
+      min-width:0;
+    }
+    .app-logo{
+      display:block;
+      width:34px;
+      height:34px;
+      flex:0 0 34px;
+      object-fit:contain;
+    }
+    @media(max-width:560px){
+      .app-logo{
+        width:30px;
+        height:30px;
+        flex-basis:30px;
+      }
     }
     .header-sprint-context{
       display:inline-flex;
@@ -1876,7 +1912,16 @@
 <body>
 <header>
   <div class="app-title-line">
-    <h1>Team_calculator</h1>
+    <div class="app-brand">
+      <img
+        class="app-logo"
+        src="team-calculator-logo.svg?v=23.4.19"
+        width="34"
+        height="34"
+        alt=""
+        aria-hidden="true" />
+      <h1>Team_calculator</h1>
+    </div>
     <div
       class="header-sprint-context empty"
       id="headerSprintContext">

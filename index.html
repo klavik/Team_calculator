@@ -7302,8 +7302,44 @@ async function saveTaskPoolItem(task){
   );
 }
 
+async function saveTaskEstimateFields(task){
+  if(!currentUser||!firebaseDb)return null;
+
+  const normalized=normalizeTask(task);
+  normalized.updatedAt=
+    new Date().toISOString();
+
+  const {fsMod}=await loadFirebaseModules();
+
+  await fsMod.updateDoc(
+    fsMod.doc(
+      firebaseDb,
+      "workspaces",
+      TEAM_CALCULATOR_WORKSPACE_ID,
+      "taskPool",
+      normalized.id
+    ),
+    {
+      estimates:normalized.estimates,
+      estimateSources:
+        normalized.estimateSources,
+      estimateVersions:
+        normalized.estimateVersions,
+      updatedAt:normalized.updatedAt
+    }
+  );
+
+  taskPool[normalized.id]=normalized;
+  return normalized;
+}
+
 async function updateTaskEstimate(taskId,roleKey,rawValue){
-  const task=normalizeTask(taskPool[taskId]);
+  const originalTask=
+    normalizeTask(taskPool[taskId]);
+
+  const task=
+    normalizeTask(originalTask);
+
   if(!task?.id)return;
 
   if(task.estimateSources[roleKey]==="team_poker"){
@@ -7362,10 +7398,17 @@ async function updateTaskEstimate(taskId,roleKey,rawValue){
 
   try{
     setSyncState("Сохранение…","warn");
-    await saveTaskPoolItem(task);
+    const savedTask=
+      await saveTaskEstimateFields(task);
 
-    if(selectedTaskIds.includes(taskId)&&!currentSprintId){
-      sprintTaskSnapshots[taskId]=JSON.parse(JSON.stringify(task));
+    if(
+      selectedTaskIds.includes(taskId)
+      &&!currentSprintId
+    ){
+      sprintTaskSnapshots[taskId]=
+        JSON.parse(
+          JSON.stringify(savedTask)
+        );
       recalculateRolePlanFact();
     }
 
@@ -7378,8 +7421,25 @@ async function updateTaskEstimate(taskId,roleKey,rawValue){
     render();
   }catch(error){
     console.error(error);
+
+    taskPool[taskId]=originalTask;
+
     setSyncState("Ошибка сохранения","bad");
-    alert(`Не удалось сохранить оценку: ${error.message}`);
+
+    const permissionDenied=[
+      "permission-denied",
+      "firestore/permission-denied"
+    ].includes(error?.code);
+
+    alert(
+      permissionDenied
+        ? "Не удалось сохранить оценку: Firestore Rules "
+          +"не разрешают изменение полей оценки. "
+          +"Опубликуйте firestore.rules версии 23.4.23."
+        : `Не удалось сохранить оценку: ${error.message}`
+    );
+
+    render();
   }
 }
 

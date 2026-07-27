@@ -1,0 +1,13 @@
+Team_calculator v23.4.24
+Release: team_calculator_v23_4_24_completed_task_pool_filter_deploy
+Base version: v23.4.23 estimate_permissions_fix_patch
+
+Changes:
+- Added the "Выполненные" status filter to "Общий пул оценённых задач".
+- Completed tasks are excluded from "Готовы к планированию".
+- The task pool summary now shows the number of completed tasks.
+
+Deployment:
+- Application change: index.html
+- Firestore Rules change for this feature: not required
+- Included firestore.rules: current v23.4.23 rules supplied by the product owner

@@ -38,18 +38,49 @@ service cloud.firestore {
             == resource.data.estimateSources.get(roleName, null)
           && request.resource.data.estimates.get(roleName, null)
             == resource.data.estimates.get(roleName, null)
+          && request.resource.data.estimateVersions.get(roleName, null)
+            == resource.data.estimateVersions.get(roleName, null)
         );
+    }
+
+    function manualTaskRenameOnly() {
+      return resource.data.get("source", "")
+          == "team_calculator"
+        && request.resource.data.get("source", "")
+          == "team_calculator"
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(["title", "updatedAt"])
+        && request.resource.data.title is string
+        && request.resource.data.title.size() > 0
+        && request.resource.data.title.size() <= 300
+        && request.resource.data.updatedAt is string;
+    }
+
+    function manualEstimateUpdateOnly() {
+      return request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly([
+            "estimates",
+            "estimateSources",
+            "estimateVersions",
+            "updatedAt"
+          ])
+        && request.resource.data.estimates is map
+        && request.resource.data.estimateSources is map
+        && request.resource.data.estimateVersions is map
+        && request.resource.data.updatedAt is string
+        && importedEstimateIsPreserved("backend")
+        && importedEstimateIsPreserved("frontend");
     }
 
     function integrationMetadataIsPreserved() {
       return request.resource.data.source
           == resource.data.source
-        && request.resource.data.identityKey
-          == resource.data.identityKey
+        && request.resource.data.get("identityKey", null)
+          == resource.data.get("identityKey", null)
         && request.resource.data.externalTaskUrl
           == resource.data.externalTaskUrl
-        && request.resource.data.estimateVersions
-          == resource.data.estimateVersions
+        && request.resource.data.get("taskTypeRole", null)
+          == resource.data.get("taskTypeRole", null)
         && request.resource.data.sourceTaskIds
           == resource.data.sourceTaskIds
         && request.resource.data.finalizedAtByRole
@@ -62,6 +93,8 @@ service cloud.firestore {
           == resource.data.sessionByRole
         && request.resource.data.get("gitlab", null)
           == resource.data.get("gitlab", null)
+        && request.resource.data.get("gitlabEstimate", null)
+          == resource.data.get("gitlabEstimate", null)
         && importedEstimateIsPreserved("backend")
         && importedEstimateIsPreserved("frontend");
     }
@@ -117,10 +150,40 @@ service cloud.firestore {
           || (
             activeUser()
             && !integrationUser()
-            && integrationMetadataIsPreserved()
+            && (
+              manualTaskRenameOnly()
+              || manualEstimateUpdateOnly()
+              || integrationMetadataIsPreserved()
+            )
           );
 
         allow delete: if activeUser() && !integrationUser();
+      }
+
+
+      match /settings/{settingId} {
+        allow read: if activeUser();
+        allow create, update: if activeUser()
+          && !integrationUser()
+          && settingId == "actualCalculation"
+          && request.resource.data.schemaVersion in [1, 2]
+          && request.resource.data.enabled is bool
+          && request.resource.data.timezone is string
+          && request.resource.data.workdayStart is string
+          && request.resource.data.hoursPerDay is number
+          && request.resource.data.excludeWeekends is bool
+          && request.resource.data.roundingStep is number
+          && request.resource.data.mappings is list
+          && request.resource.data.mappings.size() > 0
+          && request.resource.data.mappings.size() <= 30
+          && (
+            request.resource.data.schemaVersion == 1
+            || (
+              request.resource.data.assigneeTimezones is list
+              && request.resource.data.assigneeTimezones.size() <= 200
+            )
+          );
+        allow delete: if false;
       }
 
       // Очередь запросов к корпоративному GitLab.
@@ -131,14 +194,45 @@ service cloud.firestore {
 
         allow create: if integrationUser()
           && request.resource.data.schemaVersion == 1
-          && request.resource.data.type
-            == "sync_gitlab_issue_metadata"
           && request.resource.data.status == "pending"
           && request.resource.data.idempotencyKey == jobId
           && request.resource.data.workspaceId == workspaceId
-          && request.resource.data.tasks is list
-          && request.resource.data.tasks.size() > 0
-          && request.resource.data.tasks.size() <= 100;
+          && (
+            (
+              request.resource.data.type
+                == "sync_gitlab_issue_metadata"
+              && request.resource.data.tasks is list
+              && request.resource.data.tasks.size() > 0
+              && request.resource.data.tasks.size() <= 100
+            )
+            ||
+            (
+              request.resource.data.type
+                == "sync_gitlab_estimate"
+              && request.resource.data.taskId is string
+              && request.resource.data.externalTaskUrl is string
+              && request.resource.data.estimatedRole
+                in ["analytics", "design", "qa", "devops"]
+              && request.resource.data.finalEstimate is number
+              && request.resource.data.finalEstimate > 0
+              && request.resource.data.estimateVersion is number
+              && request.resource.data.estimateVersion >= 1
+            )
+            ||
+            (
+              request.resource.data.type
+                == "calculate_gitlab_actual_preview"
+              && request.resource.data.sprintId is string
+              && request.resource.data.periodStart is string
+              && request.resource.data.periodEnd is string
+              && request.resource.data.tasks is list
+              && request.resource.data.tasks.size() > 0
+              && request.resource.data.tasks.size() <= 100
+              && request.resource.data.mappings is list
+              && request.resource.data.mappings.size() > 0
+              && request.resource.data.mappings.size() <= 30
+            )
+          );
 
         // Коннектор использует серверные IAM-права и не ограничен Rules.
         allow update, delete: if false;

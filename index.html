@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+<!-- Team_calculator v23.4.24: фильтр выполненных задач в общем пуле -->
 <html lang="ru">
 <head>
   <meta charset="UTF-8" />
@@ -2114,6 +2115,7 @@
               <option value="incomplete">Без оценки</option>
               <option value="reestimate">На переоценку</option>
               <option value="ready">Готовы к планированию</option>
+              <option value="completed">Выполненные</option>
               <option value="planned">Добавлены в текущий спринт</option>
             </select>
 
@@ -4436,6 +4438,13 @@ function renderTaskReestimateBadge(task){
       <span aria-hidden="true">↻</span>
       На переоценку${roles?` · ${esc(roles)}`:""}
   </span>`;
+}
+
+function isTaskCompleted(task){
+  const normalized=normalizeTask(task);
+
+  return normalized.planningStatus==="completed"
+    || completedTaskIds.includes(normalized.id);
 }
 
 function isTaskReady(task){
@@ -8124,11 +8133,17 @@ function renderTaskPool(){
 
   items=items.filter(task=>{
     const ready=isTaskReady(task);
+    const completed=isTaskCompleted(task);
     const planned=
       activeSprintTaskSet().has(task.id);
 
     let matchesStatus=true;
-    if(filter==="ready")matchesStatus=ready&&!planned;
+    if(filter==="ready"){
+      matchesStatus=ready&&!planned&&!completed;
+    }
+    else if(filter==="completed"){
+      matchesStatus=completed;
+    }
     else if(filter==="incomplete"){
       matchesStatus=!ready&&!taskNeedsReestimate(task);
     }
@@ -8152,8 +8167,16 @@ function renderTaskPool(){
   ));
 
   const allTasks=Object.values(taskPool).map(normalizeTask);
+  const activeTaskSet=activeSprintTaskSet();
   const allCount=allTasks.length;
-  const readyCount=allTasks.filter(isTaskReady).length;
+  const readyCount=allTasks.filter(
+    task=>isTaskReady(task)
+      &&!activeTaskSet.has(task.id)
+      &&!isTaskCompleted(task)
+  ).length;
+  const completedCount=allTasks.filter(
+    isTaskCompleted
+  ).length;
   const reestimateCount=allTasks.filter(
     taskNeedsReestimate
   ).length;
@@ -8161,8 +8184,8 @@ function renderTaskPool(){
 
   taskPoolCount.textContent=
     filter==="all"&&directionFilter==="all"
-      ? `${allCount} всего · ${readyCount} готовы · ${reestimateCount} на переоценку`
-      : `${shownCount} показано · ${allCount} всего · ${readyCount} готовы · ${reestimateCount} на переоценку`;
+      ? `${allCount} всего · ${readyCount} готовы · ${completedCount} выполнено · ${reestimateCount} на переоценку`
+      : `${shownCount} показано · ${allCount} всего · ${readyCount} готовы · ${completedCount} выполнено · ${reestimateCount} на переоценку`;
 
   if(!items.length){
     taskPoolBody.innerHTML='<tr><td class="task-empty" colspan="20">Нет задач для выбранного фильтра.</td></tr>';

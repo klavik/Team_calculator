@@ -491,6 +491,11 @@
     .task-table tr:last-child td{border-bottom:0}
     .task-title-cell{min-width:240px}
     .task-title{font-weight:800}
+    /* TEAM_POKER_TRANSFER_MARKER_V1 */
+    .task-title-line{display:flex;align-items:flex-start;gap:7px;flex-wrap:wrap}
+    .task-title-line .task-title{min-width:0;flex:1 1 180px}
+    .transferred-task-badge{display:inline-flex;align-items:center;gap:4px;padding:3px 7px;border:1px solid #9fc0f5;border-radius:999px;background:#eef5ff;color:#174ea6;font-size:10px;font-weight:900;line-height:1.2;white-space:nowrap}
+
     .task-meta{color:var(--muted);font-size:11px;margin-top:3px}
     .task-link{color:var(--accent-dark);text-decoration:none}
     .task-link:hover{text-decoration:underline}
@@ -7355,6 +7360,66 @@ function setTaskPoolSort(key){
   renderTaskPool();
 }
 
+
+function taskTransferEntries(task) {
+  const sources =
+    task?.transferSources
+    && typeof task.transferSources === "object"
+      ? task.transferSources
+      : {};
+
+  const entries = Object.entries(sources).filter(
+    ([, transfer]) => transfer?.isTransferred === true
+  );
+
+  if (
+    !entries.length
+    && task?.latestTransfer?.isTransferred === true
+  ) {
+    entries.push([
+      task.latestTransfer.estimatedRole || "",
+      task.latestTransfer
+    ]);
+  }
+
+  return entries;
+}
+
+function renderTaskTransferBadge(task) {
+  const entries = taskTransferEntries(task);
+  if (!entries.length) return "";
+
+  const roleLabel = role => ({
+    backend: "Backend",
+    frontend: "Frontend"
+  })[role] || role || "Оценка";
+
+  const tooltip = entries.map(([role, transfer]) => {
+    const from = transfer.fromSessionName
+      ? `из «${transfer.fromSessionName}»`
+      : "из другой сессии";
+    const to = transfer.toSessionName
+      ? ` в «${transfer.toSessionName}»`
+      : "";
+    return `${roleLabel(role)}: ${from}${to}`;
+  }).join(". ");
+
+  const roles = entries
+    .map(([role]) => roleLabel(role))
+    .filter(Boolean)
+    .join(", ");
+
+  return `
+    <span
+      class="transferred-task-badge"
+      title="${esc(tooltip)}"
+    >
+      <span aria-hidden="true">↪</span>
+      Перенесена${roles ? ` · ${esc(roles)}` : ""}
+    </span>
+  `;
+}
+
 function renderTaskPool(){
   const roleDefs=roles.map(role=>({key:roleKeyFromName(role.name),name:role.name}));
   const validSortKeys=new Set([
@@ -7453,6 +7518,8 @@ function renderTaskPool(){
     const title=task.externalTaskUrl
       ? `<a class="task-link" href="${esc(task.externalTaskUrl)}" target="_blank" rel="noopener">${esc(task.title||task.id)}</a>`
       : esc(task.title||task.id);
+
+    const transferBadge=renderTaskTransferBadge(task);
 
     const estimates=roleDefs.map(role=>{
       const value=task.estimates[role.key];
@@ -7603,7 +7670,10 @@ function renderTaskPool(){
 
     const tr=document.createElement("tr");
     tr.innerHTML=`<td class="task-title-cell" data-label="Задача">
-        <div class="task-title">${title}</div>
+        <div class="task-title-line">
+          <div class="task-title">${title}</div>
+          ${transferBadge}
+        </div>
         <div class="task-meta">${taskMeta}</div>
         ${teamPokerTaskLinksHtml(task)}
         ${gitLabEstimateHtml}

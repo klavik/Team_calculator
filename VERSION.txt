@@ -1,11 +1,14 @@
-Team_calculator v23.4.24
-Release: team_calculator_v23_4_24_completed_task_pool_filter_deploy
-Base version: v23.4.23 estimate_permissions_fix_patch
+Team_calculator v23.4.25
+Release: team_calculator_v23_4_25_other_sprints_filter_deploy
+Base version: v23.4.24 completed_task_pool_filter_deploy
 
 Changes:
-- Added the "Выполненные" status filter to "Общий пул оценённых задач".
-- Completed tasks are excluded from "Готовы к планированию".
-- The task pool summary now shows the number of completed tasks.
+- Added the "Задачи других спринтов" filter to "Общий пул оценённых задач".
+- "Готовы к планированию" now contains only estimated, unfinished tasks that are not linked to any sprint.
+- "Добавлены в текущий спринт" remains limited to unfinished tasks in the currently opened sprint.
+- "Задачи других спринтов" contains unfinished tasks linked to a different sprint.
+- Completed tasks remain available only through "Выполненные" and "Все задачи".
+- The task pool summary now shows current-sprint and other-sprint counts separately.
 
 Deployment:
 - Application change: index.html

@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- Team_calculator v23.4.24: фильтр выполненных задач в общем пуле -->
+<!-- Team_calculator v23.4.25: взаимоисключающие фильтры пула и задачи других спринтов -->
 <html lang="ru">
 <head>
   <meta charset="UTF-8" />
@@ -2115,8 +2115,9 @@
               <option value="incomplete">Без оценки</option>
               <option value="reestimate">На переоценку</option>
               <option value="ready">Готовы к планированию</option>
-              <option value="completed">Выполненные</option>
               <option value="planned">Добавлены в текущий спринт</option>
+              <option value="other-sprints">Задачи других спринтов</option>
+              <option value="completed">Выполненные</option>
             </select>
 
             <label for="taskDirectionFilter" style="margin:0 0 0 6px">Направление</label>
@@ -8131,15 +8132,30 @@ function renderTaskPool(){
   const directionFilter=taskDirectionFilter.value||"all";
   let items=Object.values(taskPool).map(normalizeTask);
 
+  const activeTaskSet=activeSprintTaskSet();
+
   items=items.filter(task=>{
     const ready=isTaskReady(task);
     const completed=isTaskCompleted(task);
-    const planned=
-      activeSprintTaskSet().has(task.id);
+    const plannedInCurrentSprint=
+      activeTaskSet.has(task.id);
+    const plannedInOtherSprint=Boolean(
+      !completed
+      &&task.plannedSprintId
+      &&task.plannedSprintId!==currentSprintId
+      &&!plannedInCurrentSprint
+    );
+    const plannedInAnySprint=Boolean(
+      plannedInCurrentSprint
+      ||task.plannedSprintId
+    );
 
     let matchesStatus=true;
     if(filter==="ready"){
-      matchesStatus=ready&&!planned&&!completed;
+      matchesStatus=
+        ready
+        &&!completed
+        &&!plannedInAnySprint;
     }
     else if(filter==="completed"){
       matchesStatus=completed;
@@ -8150,7 +8166,12 @@ function renderTaskPool(){
     else if(filter==="reestimate"){
       matchesStatus=taskNeedsReestimate(task);
     }
-    else if(filter==="planned")matchesStatus=planned;
+    else if(filter==="planned"){
+      matchesStatus=plannedInCurrentSprint&&!completed;
+    }
+    else if(filter==="other-sprints"){
+      matchesStatus=plannedInOtherSprint;
+    }
 
     const matchesDirection=
       directionFilter==="all"
@@ -8167,12 +8188,22 @@ function renderTaskPool(){
   ));
 
   const allTasks=Object.values(taskPool).map(normalizeTask);
-  const activeTaskSet=activeSprintTaskSet();
   const allCount=allTasks.length;
-  const readyCount=allTasks.filter(
-    task=>isTaskReady(task)
-      &&!activeTaskSet.has(task.id)
-      &&!isTaskCompleted(task)
+  const readyCount=allTasks.filter(task=>
+    isTaskReady(task)
+    &&!isTaskCompleted(task)
+    &&!activeTaskSet.has(task.id)
+    &&!task.plannedSprintId
+  ).length;
+  const currentSprintCount=allTasks.filter(task=>
+    activeTaskSet.has(task.id)
+    &&!isTaskCompleted(task)
+  ).length;
+  const otherSprintsCount=allTasks.filter(task=>
+    !isTaskCompleted(task)
+    &&Boolean(task.plannedSprintId)
+    &&task.plannedSprintId!==currentSprintId
+    &&!activeTaskSet.has(task.id)
   ).length;
   const completedCount=allTasks.filter(
     isTaskCompleted
@@ -8181,11 +8212,17 @@ function renderTaskPool(){
     taskNeedsReestimate
   ).length;
   const shownCount=items.length;
+  const poolSummary=
+    `${allCount} всего · ${readyCount} готовы · `
+    +`${currentSprintCount} в текущем спринте · `
+    +`${otherSprintsCount} в других спринтах · `
+    +`${completedCount} выполнено · `
+    +`${reestimateCount} на переоценку`;
 
   taskPoolCount.textContent=
     filter==="all"&&directionFilter==="all"
-      ? `${allCount} всего · ${readyCount} готовы · ${completedCount} выполнено · ${reestimateCount} на переоценку`
-      : `${shownCount} показано · ${allCount} всего · ${readyCount} готовы · ${completedCount} выполнено · ${reestimateCount} на переоценку`;
+      ? poolSummary
+      : `${shownCount} показано · ${poolSummary}`;
 
   if(!items.length){
     taskPoolBody.innerHTML='<tr><td class="task-empty" colspan="20">Нет задач для выбранного фильтра.</td></tr>';

@@ -484,6 +484,28 @@
     .task-pool-card,.sprint-tasks-card{margin-bottom:0}
     .task-toolbar{display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap;margin:12px 0}
     .task-toolbar-left,.task-toolbar-right{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+    .task-pool-hide-completed{
+      display:inline-flex;
+      align-items:center;
+      gap:6px;
+      margin:0 0 0 6px;
+      cursor:pointer;
+      color:var(--text);
+      font-size:12px;
+      font-weight:750;
+      white-space:nowrap;
+    }
+    .task-pool-hide-completed input[type="checkbox"]{
+      appearance:auto;
+      width:16px!important;
+      min-width:16px!important;
+      max-width:16px!important;
+      height:16px!important;
+      margin:0!important;
+      padding:0!important;
+      flex:0 0 16px;
+      cursor:pointer;
+    }
     .task-table-wrap{max-width:100%;overflow-x:auto;border:1px solid var(--border);border-radius:14px}
     .task-table{width:100%;min-width:980px;border-collapse:collapse;background:#fff}
     .task-table th{position:sticky;top:0;z-index:1;background:#fafbfe;color:var(--muted);font-size:12px;white-space:nowrap}
@@ -491,17 +513,6 @@
     .task-table tr:last-child td{border-bottom:0}
     .task-title-cell{min-width:240px}
     .task-title{font-weight:800}
-    /* TEAM_POKER_TRANSFER_MARKER_V1 */
-    .task-title-line{display:flex;align-items:flex-start;gap:7px;flex-wrap:wrap}
-    .task-title-line .task-title{min-width:0;flex:1 1 180px}
-    .transferred-task-badge{display:inline-flex;align-items:center;gap:4px;padding:3px 7px;border:1px solid #9fc0f5;border-radius:999px;background:#eef5ff;color:#174ea6;font-size:10px;font-weight:900;line-height:1.2;white-space:nowrap}
-    .reestimate-task-badge{display:inline-flex;align-items:center;gap:4px;padding:3px 7px;border:1px solid #e3aa35;border-radius:999px;background:#fff5d9;color:#805000;font-size:10px;font-weight:900;line-height:1.2;white-space:nowrap}
-    .carryover-task-badge{display:inline-flex;align-items:center;gap:4px;padding:3px 7px;border:1px solid #b7a5e8;border-radius:999px;background:#f3efff;color:#55349a;font-size:10px;font-weight:900;line-height:1.2;white-space:nowrap}
-    .task-status.reestimate{border-color:#e3aa35;background:#fff5d9;color:#805000}
-    .task-warning.reestimate{color:#805000}
-    .task-warning.carryover{color:#55349a}
-    .sprint-summary-pill.carryover{border-color:#b7a5e8;background:#f3efff;color:#55349a}
-
     .task-meta{color:var(--muted);font-size:11px;margin-top:3px}
     .task-link{color:var(--accent-dark);text-decoration:none}
     .task-link:hover{text-decoration:underline}
@@ -2112,7 +2123,6 @@
             <select id="taskPoolFilter">
               <option value="all">Все задачи</option>
               <option value="incomplete">Без оценки</option>
-              <option value="reestimate">На переоценку</option>
               <option value="ready">Готовы к планированию</option>
               <option value="planned">Добавлены в текущий спринт</option>
             </select>
@@ -2129,6 +2139,16 @@
               <option value="qa">QA</option>
               <option value="devops">DevOps</option>
             </select>
+
+            <label
+              class="task-pool-hide-completed"
+              title="Скрыть задачи, уже отмеченные выполненными">
+              <input
+                id="taskPoolHideCompleted"
+                type="checkbox"
+                checked />
+              <span>Не показывать выполненные</span>
+            </label>
           </div>
           <div class="task-toolbar-right">
             <button id="openManualTaskDialog">Добавить задачу</button>
@@ -2604,6 +2624,7 @@ taskImportJson=document.getElementById("taskImportJson"),
 taskImportStatus=document.getElementById("taskImportStatus"),
 taskPoolFilter=document.getElementById("taskPoolFilter"),
 taskDirectionFilter=document.getElementById("taskDirectionFilter"),
+taskPoolHideCompleted=document.getElementById("taskPoolHideCompleted"),
 taskPoolHead=document.getElementById("taskPoolHead"),
 taskPoolBody=document.getElementById("taskPoolBody"),
 taskPoolCount=document.getElementById("taskPoolCount"),
@@ -3661,7 +3682,7 @@ async function requestSprintActualPreview(){
     actualCalculationSettings
   );
   const activeTaskTypes=activeActualTaskTypes(settings);
-  const tasks=activeSprintTaskIds().map(taskId=>{
+  const tasks=selectedTaskIds.map(taskId=>{
     const task=normalizeTask(currentTaskSnapshot(taskId));
     const externalTaskUrl=String(task.externalTaskUrl||taskPool[taskId]?.externalTaskUrl||"").trim();
     const taskType=actualTaskType(task);
@@ -4270,22 +4291,6 @@ function normalizeTask(task){
   normalized.finalizedAtByRole=Object.assign({},normalized.finalizedAtByRole||{});
   normalized.teamByRole=Object.assign({},normalized.teamByRole||{});
   normalized.sessionByRole=Object.assign({},normalized.sessionByRole||{});
-  normalized.reestimateByRole=Object.assign({},normalized.reestimateByRole||{});
-  normalized.reestimateRequired=
-    normalized.reestimateRequired===true
-    || Object.values(
-      normalized.reestimateByRole
-    ).some(item=>item?.required===true);
-  normalized.latestReestimate=
-    normalized.latestReestimate
-    &&typeof normalized.latestReestimate==="object"
-      ?Object.assign({},normalized.latestReestimate)
-      :null;
-  normalized.carryover=
-    normalized.carryover
-    &&typeof normalized.carryover==="object"
-      ?Object.assign({},normalized.carryover)
-      :null;
   normalized.gitlab=normalized.gitlab&&typeof normalized.gitlab==="object"
     ?Object.assign({},normalized.gitlab)
     :null;
@@ -4379,72 +4384,8 @@ function bindEstimateScaleInput(input,{allowZero=true}={}){
   });
 }
 
-function taskReestimateEntries(task){
-  const normalized=normalizeTask(task);
-
-  return Object.entries(
-    normalized.reestimateByRole || {}
-  ).filter(([,item])=>item?.required===true);
-}
-
-function taskNeedsReestimate(task){
-  const normalized=normalizeTask(task);
-
-  return normalized.reestimateRequired===true
-    || taskReestimateEntries(normalized).length>0;
-}
-
-function renderTaskReestimateBadge(task){
-  const entries=taskReestimateEntries(task);
-
-  if(!entries.length&&!taskNeedsReestimate(task)){
-    return "";
-  }
-
-  const roleLabel=role=>({
-    backend:"Backend",
-    frontend:"Frontend"
-  })[role]||role||"Оценка";
-
-  const roles=entries
-    .map(([role])=>roleLabel(role))
-    .filter(Boolean)
-    .join(", ");
-
-  const tooltip=entries
-    .map(([role,item])=>{
-      const previous=
-        Number.isFinite(
-          Number(item?.previousFinalEstimate)
-        )
-          ?` · прежняя оценка: ${fmt(
-              Number(item.previousFinalEstimate),
-              1
-            )} ч.д.`
-          :"";
-
-      return `${roleLabel(role)}: требуется повторная оценка${previous}`;
-    })
-    .join(". ");
-
-  return `<span
-    class="reestimate-task-badge"
-    title="${esc(
-      tooltip
-      ||"После переноса требуется повторная оценка"
-    )}">
-      <span aria-hidden="true">↻</span>
-      На переоценку${roles?` · ${esc(roles)}`:""}
-  </span>`;
-}
-
 function isTaskReady(task){
   const normalized=normalizeTask(task);
-
-  if(taskNeedsReestimate(normalized)){
-    return false;
-  }
-
   return taskEstimateKeys().some(key=>{
     const value=normalized.estimates[key];
     return isEstimateFilled(value)&&Number(value)>0;
@@ -4461,18 +4402,12 @@ function currentTaskSnapshot(taskId){
 }
 
 function selectedTaskObjects(){
-  return activeSprintTaskIds()
-    .map(id=>currentTaskSnapshot(id))
-    .filter(Boolean);
+  return selectedTaskIds.map(id=>currentTaskSnapshot(id)).filter(Boolean);
 }
 
 function completedTaskObjects(){
   const done=new Set(completedTaskIds);
-
-  return activeSprintTaskIds()
-    .filter(id=>done.has(id))
-    .map(id=>currentTaskSnapshot(id))
-    .filter(Boolean);
+  return selectedTaskIds.filter(id=>done.has(id)).map(id=>currentTaskSnapshot(id)).filter(Boolean);
 }
 
 function roleTaskCompletion(
@@ -4483,7 +4418,7 @@ function roleTaskCompletion(
   );
 
   const plannedTaskIds=
-    activeSprintTaskIds().filter(taskId=>{
+    selectedTaskIds.filter(taskId=>{
       const task=currentTaskSnapshot(
         taskId
       );
@@ -4600,40 +4535,19 @@ function recalculateRolePlanFact(){
       const value=normalizeTask(task).estimates[key];
       return sum+(isEstimateFilled(value)?Number(value):0);
     },0);
-    /*
-      Факт считается по всем задачам, которые участвовали в спринте.
-      Поэтому возврат незавершённой задачи в пул не удаляет уже
-      принятые трудозатраты из исходного спринта.
-    */
     role.actual=selectedTaskIds.reduce((sum,taskId)=>{
       const accepted=
         actualCalculationFeatureEnabled()
         &&key!=="qa"
           ?acceptedActualValues(taskId)
           :null;
-
-      if(
-        accepted
-        &&Object.prototype.hasOwnProperty.call(
-          accepted,
-          key
-        )
-      ){
+      if(accepted&&Object.prototype.hasOwnProperty.call(accepted,key)){
         return sum+(Number(accepted[key])||0);
       }
-
-      if(!completedTaskIds.includes(taskId)){
-        return sum;
-      }
-
+      if(!completedTaskIds.includes(taskId))return sum;
       const task=currentTaskSnapshot(taskId);
       const value=normalizeTask(task).estimates[key];
-
-      return sum+(
-        isEstimateFilled(value)
-          ?Number(value)
-          :0
-      );
+      return sum+(isEstimateFilled(value)?Number(value):0);
     },0);
   });
 }
@@ -4922,199 +4836,6 @@ function sprintLifecycleIsActive(){
   return sprintLifecycleStatus===SPRINT_STATUS_ACTIVE;
 }
 
-function sprintReturnedTaskSet(){
-  return new Set(
-    Array.isArray(sprintReturnedTaskIds)
-      ? sprintReturnedTaskIds
-      : []
-  );
-}
-
-function activeSprintTaskIds(){
-  const returned=sprintReturnedTaskSet();
-
-  return selectedTaskIds.filter(
-    taskId=>!returned.has(taskId)
-  );
-}
-
-function activeSprintTaskSet(){
-  return new Set(activeSprintTaskIds());
-}
-
-function activeSprintTaskIdsFromState(state){
-  const selected=Array.isArray(
-    state?.selectedTaskIds
-  )
-    ?state.selectedTaskIds
-    :[];
-
-  const returned=new Set(
-    Array.isArray(state?.sprintReturnedTaskIds)
-      ?state.sprintReturnedTaskIds
-      :[]
-  );
-
-  return selected.filter(
-    taskId=>!returned.has(taskId)
-  );
-}
-
-function taskEffectiveActuals(
-  taskId,
-  task=currentTaskSnapshot(taskId),
-  done=completedTaskIds.includes(taskId)
-){
-  const normalized=normalizeTask(task);
-  const accepted=acceptedActualValues(taskId);
-  const result={};
-
-  taskEstimateKeys().forEach(roleKey=>{
-    const acceptedValue=Number(
-      accepted?.[roleKey]
-    );
-
-    if(
-      accepted
-      &&Object.prototype.hasOwnProperty.call(
-        accepted,
-        roleKey
-      )
-      &&Number.isFinite(acceptedValue)
-    ){
-      result[roleKey]=Math.max(
-        0,
-        acceptedValue
-      );
-      return;
-    }
-
-    if(done){
-      const planned=Number(
-        normalized.estimates?.[roleKey]
-      );
-
-      if(
-        Number.isFinite(planned)
-        &&planned>0
-      ){
-        result[roleKey]=planned;
-      }
-    }
-  });
-
-  return result;
-}
-
-function taskEffectiveActualTotal(
-  taskId,
-  task=currentTaskSnapshot(taskId),
-  done=completedTaskIds.includes(taskId)
-){
-  return Object.values(
-    taskEffectiveActuals(
-      taskId,
-      task,
-      done
-    )
-  ).reduce(
-    (sum,value)=>sum+(Number(value)||0),
-    0
-  );
-}
-
-function buildTaskCarryover(
-  taskId,
-  returnedAt=new Date().toISOString()
-){
-  const task=currentTaskSnapshot(taskId)
-    ||taskPool[taskId]
-    ||{id:taskId};
-
-  const actuals=taskEffectiveActuals(
-    taskId,
-    task,
-    completedTaskIds.includes(taskId)
-  );
-
-  return {
-    schemaVersion:1,
-    pending:true,
-    fromSprintId:currentSprintId||null,
-    fromSprintName:
-      (sprintName.value||"").trim()
-      ||currentSprintId
-      ||"",
-    returnedAt,
-    actuals,
-    totalActual:Object.values(
-      actuals
-    ).reduce(
-      (sum,value)=>sum+(Number(value)||0),
-      0
-    )
-  };
-}
-
-function taskCarryoverInfo(task){
-  const carryover=
-    task?.carryover
-    &&typeof task.carryover==="object"
-      ?task.carryover
-      :null;
-
-  if(
-    !carryover
-    ||(
-      !carryover.fromSprintId
-      &&!carryover.fromSprintName
-    )
-  ){
-    return null;
-  }
-
-  return carryover;
-}
-
-function taskCarryoverBadgeHtml(task){
-  const carryover=taskCarryoverInfo(task);
-  if(!carryover)return "";
-
-  const fromName=
-    carryover.fromSprintName
-    ||carryover.fromSprintId
-    ||"предыдущего спринта";
-
-  const actual=Number(
-    carryover.totalActual
-  );
-
-  const title=[
-    `Перенесена из спринта «${fromName}»`,
-    Number.isFinite(actual)&&actual>0
-      ?`Учтённый там факт: ${fmt(actual,2)} ч.д.`
-      :"Учтённый там факт: 0 ч.д.",
-    carryover.pending
-      ?"Ожидает добавления в следующий спринт"
-      :(
-        carryover.toSprintName
-          ?`Добавлена в «${carryover.toSprintName}»`
-          :"Добавлена в следующий спринт"
-      )
-  ].join(". ");
-
-  return `<span
-    class="carryover-task-badge"
-    title="${esc(title)}">
-      <span aria-hidden="true">↪</span>
-      Из ${esc(fromName)}${
-        Number.isFinite(actual)&&actual>0
-          ?` · факт ${esc(fmt(actual,2))}`
-          :""
-      }
-  </span>`;
-}
-
 function formatLifecycleDate(value){
   if(!value)return "";
   const date=new Date(value);
@@ -5328,35 +5049,17 @@ async function completeSprintLifecycle(){
     if(!saved)return;
   }
 
-  const activeTaskIds=
-    activeSprintTaskIds();
-
-  const activeTaskSet=
-    new Set(activeTaskIds);
-
-  const unfinishedTaskIds=
-    activeTaskIds.filter(
-      id=>!completedTaskIds.includes(id)
-    );
-
-  const alreadyReturnedIds=
-    [...sprintReturnedTaskIds];
-
-  const allReturnedTaskIds=[
-    ...new Set([
-      ...alreadyReturnedIds,
-      ...unfinishedTaskIds
-    ])
-  ];
+  const unfinishedTaskIds=selectedTaskIds.filter(
+    id=>!completedTaskIds.includes(id)
+  );
 
   const approved=confirm(
     `Завершить спринт «${(sprintName.value||"").trim()}»?\n\n`
-    +`Выполнено: ${completedTaskIds.filter(id=>activeTaskSet.has(id)).length}.\n`
-    +`Не выполнено в текущем составе: ${unfinishedTaskIds.length}.\n`
-    +`Уже возвращено в пул: ${alreadyReturnedIds.length}.\n\n`
+    +`Выполнено: ${completedTaskIds.filter(id=>selectedTaskIds.includes(id)).length}.\n`
+    +`Не выполнено: ${unfinishedTaskIds.length}.\n\n`
     +(
-      allReturnedTaskIds.length
-        ? "Все незавершённые задачи останутся в истории этого спринта с сохранённым фактом и будут доступны для следующего спринта."
+      unfinishedTaskIds.length
+        ? "Незавершённые задачи будут возвращены в общий пул."
         : "Все задачи выполнены."
     )
   );
@@ -5367,12 +5070,9 @@ async function completeSprintLifecycle(){
 
   sprintLifecycleStatus=SPRINT_STATUS_COMPLETED;
   sprintCompletedAt=new Date().toISOString();
-  sprintReturnedTaskIds=
-    JSON.parse(
-      JSON.stringify(
-        allReturnedTaskIds
-      )
-    );
+  sprintReturnedTaskIds=JSON.parse(
+    JSON.stringify(unfinishedTaskIds)
+  );
 
   // Перед завершением фиксируем последние GitLab-данные в снимках
   // спринта, чтобы история больше не менялась.
@@ -5421,17 +5121,7 @@ async function completeSprintLifecycle(){
       saved
     );
 
-    const completedAtIso=
-      sprintCompletedAt
-      ||new Date().toISOString();
-
-    allReturnedTaskIds.forEach(taskId=>{
-      const carryover=
-        buildTaskCarryover(
-          taskId,
-          completedAtIso
-        );
-
+    unfinishedTaskIds.forEach(taskId=>{
       batch.set(
         fsMod.doc(
           firebaseDb,
@@ -5446,7 +5136,6 @@ async function completeSprintLifecycle(){
           plannedByUid:null,
           plannedByName:null,
           planningStatus:"available",
-          carryover,
           updatedAt:new Date().toISOString()
         },
         {merge:true}
@@ -5455,19 +5144,13 @@ async function completeSprintLifecycle(){
 
     await batch.commit();
 
-    allReturnedTaskIds.forEach(taskId=>{
+    unfinishedTaskIds.forEach(taskId=>{
       if(!taskPool[taskId])return;
-
       taskPool[taskId].plannedSprintId=null;
       taskPool[taskId].plannedSprintName=null;
       taskPool[taskId].plannedByUid=null;
       taskPool[taskId].plannedByName=null;
       taskPool[taskId].planningStatus="available";
-      taskPool[taskId].carryover=
-        buildTaskCarryover(
-          taskId,
-          sprintCompletedAt
-        );
     });
 
     const sprints=getSavedSprints();
@@ -5493,8 +5176,7 @@ async function completeSprintLifecycle(){
 
     sprintLifecycleStatus=SPRINT_STATUS_ACTIVE;
     sprintCompletedAt=null;
-    sprintReturnedTaskIds=
-      alreadyReturnedIds;
+    sprintReturnedTaskIds=[];
 
     setSyncState("Ошибка завершения","bad");
     alert(`Не удалось завершить спринт: ${error.message}`);
@@ -5592,25 +5274,16 @@ function getCurrentResultSnapshot(){
     totalCapacity: caps.reduce((a,b)=>a+b,0),
     bottleneck,
     highestLoad: isFinite(highestLoad)?highestLoad:null,
-    taskCount: activeSprintTaskIds().length,
-    participantTaskCount:
-      selectedTaskIds.length,
-    completedTaskCount:
-      completedTaskIds.filter(
-        id=>activeSprintTaskSet().has(id)
-      ).length,
+    taskCount: selectedTaskIds.length,
+    completedTaskCount: completedTaskIds.filter(id=>selectedTaskIds.includes(id)).length,
     sprintLifecycleStatus,
     sprintStartedAt,
     sprintCompletedAt,
     baselineTaskCount:baselineTaskIds().length,
     baselineTotalEstimate:baselineTotalEstimate(),
     returnedTaskCount:sprintReturnedTaskIds.length,
-    crossTaskLimit:
-      activeSprintTaskIds().length,
-    developmentTaskLimit:
-      completedTaskIds.filter(
-        id=>activeSprintTaskSet().has(id)
-      ).length,
+    crossTaskLimit: selectedTaskIds.length,
+    developmentTaskLimit: completedTaskIds.filter(id=>selectedTaskIds.includes(id)).length,
     roleLimits,
     taskSnapshots: JSON.parse(JSON.stringify(sprintTaskSnapshots))
   };
@@ -5945,25 +5618,6 @@ async function saveSprintSet(
       ?previousSprint.input.selectedTaskIds
       :[]);
 
-  const previousReturnedTaskIds=forceNew
-    ?[]
-    :(Array.isArray(
-      previousSprint?.input?.sprintReturnedTaskIds
-    )
-      ?previousSprint.input.sprintReturnedTaskIds
-      :[]);
-
-  const previousReturnedTaskSet=
-    new Set(previousReturnedTaskIds);
-
-  const previousPlannedTaskIds=
-    previousTaskIds.filter(
-      taskId=>!previousReturnedTaskSet.has(taskId)
-    );
-
-  const currentPlannedTaskIds=
-    activeSprintTaskIds();
-
   const previousCompletedIds=forceNew
     ?[]
     :(Array.isArray(previousSprint?.input?.completedTaskIds)
@@ -6012,26 +5666,20 @@ async function saveSprintSet(
         :""
     );
 
-  const previousTaskSet=
-    new Set(previousPlannedTaskIds);
-
-  const currentTaskSet=
-    new Set(currentPlannedTaskIds);
+  const previousTaskSet=new Set(previousTaskIds);
+  const currentTaskSet=new Set(selectedTaskIds);
   const previousCompletedSet=new Set(previousCompletedIds);
   const currentCompletedSet=new Set(completedTaskIds);
 
-  const removedTaskIds=
-    previousPlannedTaskIds.filter(
-      taskId=>!currentTaskSet.has(taskId)
-    );
+  const removedTaskIds=previousTaskIds.filter(
+    taskId=>!currentTaskSet.has(taskId)
+  );
 
-  const addedTaskIds=
-    currentPlannedTaskIds.filter(
-      taskId=>!previousTaskSet.has(taskId)
-    );
+  const addedTaskIds=selectedTaskIds.filter(
+    taskId=>!previousTaskSet.has(taskId)
+  );
 
-  const completionChangedIds=
-    currentPlannedTaskIds.filter(
+  const completionChangedIds=selectedTaskIds.filter(
     taskId=>
       previousTaskSet.has(taskId)
       &&previousCompletedSet.has(taskId)!==currentCompletedSet.has(taskId)
@@ -6046,7 +5694,7 @@ async function saveSprintSet(
     ...completionChangedIds,
     ...(
       nameChanged||lifecycleChanged
-        ?currentPlannedTaskIds
+        ?selectedTaskIds
         :[]
     )
   ]);
@@ -6126,43 +5774,6 @@ async function saveSprintSet(
       });
 
       tasksToPlan.forEach(taskId=>{
-        const poolTask=normalizeTask(
-          taskPool[taskId]||{id:taskId}
-        );
-
-        const carryover=
-          taskCarryoverInfo(poolTask)
-            ?{
-                ...poolTask.carryover,
-                pending:false,
-                toSprintId:id,
-                toSprintName:name,
-                addedAt:
-                  poolTask.carryover.addedAt
-                  ||new Date().toISOString()
-              }
-            :null;
-
-        const taskUpdate={
-          plannedSprintId:id,
-          plannedSprintName:name,
-          plannedByUid:currentUser.uid,
-          plannedByName:(
-            currentProfile?.alias
-            ||currentUser.email
-            ||""
-          ).trim(),
-          planningStatus:
-            currentCompletedSet.has(taskId)
-              ?"completed"
-              :"planned",
-          updatedAt:new Date().toISOString()
-        };
-
-        if(carryover){
-          taskUpdate.carryover=carryover;
-        }
-
         taskBatch.set(
           fsMod.doc(
             firebaseDb,
@@ -6171,15 +5782,30 @@ async function saveSprintSet(
             "taskPool",
             taskId
           ),
-          taskUpdate,
+          {
+            plannedSprintId:id,
+            plannedSprintName:name,
+            plannedByUid:currentUser.uid,
+            plannedByName:(
+              currentProfile?.alias
+              ||currentUser.email
+              ||""
+            ).trim(),
+            planningStatus:currentCompletedSet.has(taskId)
+              ?"completed"
+              :"planned",
+            updatedAt:new Date().toISOString()
+          },
           {merge:true}
         );
 
         if(taskPool[taskId]){
-          Object.assign(
-            taskPool[taskId],
-            taskUpdate
-          );
+          taskPool[taskId].plannedSprintId=id;
+          taskPool[taskId].plannedSprintName=name;
+          taskPool[taskId].planningStatus=
+            currentCompletedSet.has(taskId)
+              ?"completed"
+              :"planned";
         }
       });
 
@@ -6641,17 +6267,7 @@ function validateTeamPokerPayload(payload){
   if(!["backend","frontend"].includes(payload.estimatedRole)){
     throw new Error("estimatedRole должен быть backend или frontend.");
   }
-  const reestimateRequired=
-    payload.eventType==="reestimate_required"
-    ||payload.reestimate?.required===true;
-
-  if(
-    !reestimateRequired
-    &&(
-      !isFinite(Number(payload.finalEstimate))
-      ||Number(payload.finalEstimate)<=0
-    )
-  ){
+  if(!isFinite(Number(payload.finalEstimate))||Number(payload.finalEstimate)<=0){
     throw new Error("finalEstimate должен быть положительным числом.");
   }
   if(payload.source&&payload.source!=="team_poker"){
@@ -7302,44 +6918,8 @@ async function saveTaskPoolItem(task){
   );
 }
 
-async function saveTaskEstimateFields(task){
-  if(!currentUser||!firebaseDb)return null;
-
-  const normalized=normalizeTask(task);
-  normalized.updatedAt=
-    new Date().toISOString();
-
-  const {fsMod}=await loadFirebaseModules();
-
-  await fsMod.updateDoc(
-    fsMod.doc(
-      firebaseDb,
-      "workspaces",
-      TEAM_CALCULATOR_WORKSPACE_ID,
-      "taskPool",
-      normalized.id
-    ),
-    {
-      estimates:normalized.estimates,
-      estimateSources:
-        normalized.estimateSources,
-      estimateVersions:
-        normalized.estimateVersions,
-      updatedAt:normalized.updatedAt
-    }
-  );
-
-  taskPool[normalized.id]=normalized;
-  return normalized;
-}
-
 async function updateTaskEstimate(taskId,roleKey,rawValue){
-  const originalTask=
-    normalizeTask(taskPool[taskId]);
-
-  const task=
-    normalizeTask(originalTask);
-
+  const task=normalizeTask(taskPool[taskId]);
   if(!task?.id)return;
 
   if(task.estimateSources[roleKey]==="team_poker"){
@@ -7398,17 +6978,10 @@ async function updateTaskEstimate(taskId,roleKey,rawValue){
 
   try{
     setSyncState("Сохранение…","warn");
-    const savedTask=
-      await saveTaskEstimateFields(task);
+    await saveTaskPoolItem(task);
 
-    if(
-      selectedTaskIds.includes(taskId)
-      &&!currentSprintId
-    ){
-      sprintTaskSnapshots[taskId]=
-        JSON.parse(
-          JSON.stringify(savedTask)
-        );
+    if(selectedTaskIds.includes(taskId)&&!currentSprintId){
+      sprintTaskSnapshots[taskId]=JSON.parse(JSON.stringify(task));
       recalculateRolePlanFact();
     }
 
@@ -7421,25 +6994,8 @@ async function updateTaskEstimate(taskId,roleKey,rawValue){
     render();
   }catch(error){
     console.error(error);
-
-    taskPool[taskId]=originalTask;
-
     setSyncState("Ошибка сохранения","bad");
-
-    const permissionDenied=[
-      "permission-denied",
-      "firestore/permission-denied"
-    ].includes(error?.code);
-
-    alert(
-      permissionDenied
-        ? "Не удалось сохранить оценку: Firestore Rules "
-          +"не разрешают изменение полей оценки. "
-          +"Опубликуйте firestore.rules версии 23.4.23."
-        : `Не удалось сохранить оценку: ${error.message}`
-    );
-
-    render();
+    alert(`Не удалось сохранить оценку: ${error.message}`);
   }
 }
 
@@ -7596,7 +7152,7 @@ async function deleteTaskFromPool(taskId){
   }
 }
 
-async function addTaskToSprint(taskId){
+function addTaskToSprint(taskId){
   if(sprintLifecycleIsCompleted()){
     alert("Завершённый спринт доступен только для просмотра.");
     return;
@@ -7605,21 +7161,13 @@ async function addTaskToSprint(taskId){
   const task=taskPool[taskId];
   if(!task)return;
 
-  const wasReturned=
-    selectedTaskIds.includes(taskId)
-    &&sprintReturnedTaskIds.includes(taskId);
-
-  if(
-    !wasReturned
-    &&!isTaskReady(task)
-  ){
+  if(!isTaskReady(task)){
     alert("Для добавления в спринт нужна хотя бы одна оценка больше 0. Прочерк означает, что роль не участвует.");
     return;
   }
 
   if(
     sprintLifecycleIsActive()
-    &&!wasReturned
     &&!confirm(
       "Спринт уже идёт. Добавить задачу после старта? "
       +"Она не войдёт в исходный план."
@@ -7628,65 +7176,14 @@ async function addTaskToSprint(taskId){
     return;
   }
 
-  pushSprintRecoverySnapshot(
-    wasReturned
-      ?"возврат задачи в спринт"
-      :"добавление задачи в спринт"
-  );
-
-  if(wasReturned){
-    sprintReturnedTaskIds=
-      sprintReturnedTaskIds.filter(
-        id=>id!==taskId
-      );
-  }else if(!selectedTaskIds.includes(taskId)){
+  if(!selectedTaskIds.includes(taskId)){
     selectedTaskIds.push(taskId);
-    sprintTaskSnapshots[taskId]=
-      JSON.parse(JSON.stringify(task));
+    sprintTaskSnapshots[taskId]=JSON.parse(JSON.stringify(task));
   }
-
-  const normalized=normalizeTask(task);
-  const carryover=taskCarryoverInfo(normalized);
-
-  if(carryover){
-    normalized.carryover={
-      ...carryover,
-      pending:false,
-      toSprintId:currentSprintId||null,
-      toSprintName:
-        (sprintName.value||"").trim(),
-      addedAt:new Date().toISOString()
-    };
-  }
-
-  if(currentSprintId){
-    normalized.plannedSprintId=
-      currentSprintId;
-    normalized.plannedSprintName=
-      (sprintName.value||"").trim();
-    normalized.planningStatus=
-      completedTaskIds.includes(taskId)
-        ?"completed"
-        :"planned";
-  }
-
-  taskPool[taskId]=normalized;
 
   recalculateRolePlanFact();
   saveState();
   render();
-
-  if(currentSprintId){
-    try{
-      await saveTaskPoolItem(normalized);
-    }catch(error){
-      console.error(error);
-      alert(
-        `Задача возвращена в состав локально, `
-        +`но не удалось обновить общий пул: ${error.message}`
-      );
-    }
-  }
 }
 
 async function removeTaskFromSprint(taskId){
@@ -7695,141 +7192,34 @@ async function removeTaskFromSprint(taskId){
     return;
   }
 
-  if(!selectedTaskIds.includes(taskId)){
+  if(
+    sprintLifecycleIsActive()
+    &&!confirm(
+      "Убрать задачу из идущего спринта? "
+      +"Исходный план останется зафиксированным."
+    )
+  ){
     return;
   }
 
-  if(sprintLifecycleIsActive()){
-    if(sprintReturnedTaskIds.includes(taskId)){
-      return;
-    }
-
-    const actualTotal=
-      taskEffectiveActualTotal(taskId);
-
-    const approved=confirm(
-      "Вернуть задачу в общий пул и перенести её на следующий спринт?\n\n"
-      +"Уже учтённый факт останется в текущем спринте"
-      +(
-        actualTotal>0
-          ?`: ${fmt(actualTotal,2)} ч.д.`
-          :"."
-      )
-      +"\nНовый спринт начнёт считать факт этой задачи с нуля."
-    );
-
-    if(!approved)return;
-
-    pushSprintRecoverySnapshot(
-      "возврат задачи в пул с сохранением факта"
-    );
-
-    sprintReturnedTaskIds=[
-      ...new Set([
-        ...sprintReturnedTaskIds,
-        taskId
-      ])
-    ];
-
-    completedTaskIds=
-      completedTaskIds.filter(
-        id=>id!==taskId
-      );
-
-    /*
-      sprintTaskSnapshots и sprintTaskActuals намеренно не удаляются:
-      они являются историей участия задачи в этом спринте.
-    */
-    const task=normalizeTask(
-      taskPool[taskId]
-      ||currentTaskSnapshot(taskId)
-      ||{id:taskId}
-    );
-
-    task.plannedSprintId=null;
-    task.plannedSprintName=null;
-    task.plannedByUid=null;
-    task.plannedByName=null;
-    task.planningStatus="available";
-    task.carryover=buildTaskCarryover(
-      taskId
-    );
-
-    taskPool[taskId]=task;
-
-    recalculateRolePlanFact();
-    saveState();
-    render();
-
-    try{
-      await saveTaskPoolItem(task);
-    }catch(error){
-      console.error(error);
-      alert(
-        "Факт в текущем спринте сохранён, "
-        +"но не удалось обновить общий пул: "
-        +error.message
-      );
-    }
-
-    return;
-  }
-
-  pushSprintRecoverySnapshot(
-    "удаление задачи из планируемого спринта"
-  );
-
-  selectedTaskIds=
-    selectedTaskIds.filter(
-      id=>id!==taskId
-    );
-
-  completedTaskIds=
-    completedTaskIds.filter(
-      id=>id!==taskId
-    );
-
-  sprintReturnedTaskIds=
-    sprintReturnedTaskIds.filter(
-      id=>id!==taskId
-    );
-
+  selectedTaskIds=selectedTaskIds.filter(id=>id!==taskId);
+  completedTaskIds=completedTaskIds.filter(id=>id!==taskId);
   delete sprintTaskSnapshots[taskId];
   delete sprintTaskActuals[taskId];
-
   recalculateRolePlanFact();
   saveState();
 
-  if(
-    currentSprintId
-    &&taskPool[taskId]?.plannedSprintId
-      ===currentSprintId
-  ){
+  if(currentSprintId&&taskPool[taskId]?.plannedSprintId===currentSprintId){
     const task=normalizeTask(taskPool[taskId]);
     task.plannedSprintId=null;
     task.plannedSprintName=null;
     task.planningStatus="available";
-
-    try{
-      await saveTaskPoolItem(task);
-    }catch(error){
-      console.error(error);
-    }
+    try{await saveTaskPoolItem(task)}catch(e){console.error(e)}
   }
-
   render();
 }
 
 async function toggleTaskCompleted(taskId,completed){
-  if(sprintReturnedTaskIds.includes(taskId)){
-    alert(
-      "Задача уже возвращена в общий пул. "
-      +"Сначала верните её в состав спринта."
-    );
-    render();
-    return;
-  }
-
   if(!sprintLifecycleIsActive()){
     alert(
       sprintLifecycleIsCompleted()
@@ -7886,33 +7276,31 @@ async function releaseTaskToPool(taskId){
 }
 
 
+function taskPoolTaskCompleted(task){
+  const normalized=normalizeTask(task);
+
+  return (
+    normalized.planningStatus==="completed"
+    ||completedTaskIds.includes(normalized.id)
+  );
+}
+
+
 function taskPoolStatusLabel(task){
-  if(taskNeedsReestimate(task)){
-    return "На переоценку";
-  }
-
-  const participant=
-    selectedTaskIds.includes(task.id);
-
-  const returned=
-    participant
-    &&sprintReturnedTaskIds.includes(task.id);
-
-  const selected=
-    participant&&!returned;
-
+  const selected=selectedTaskIds.includes(task.id);
   const plannedElsewhere=
     task.plannedSprintId
     &&task.plannedSprintId!==currentSprintId
     &&!selected;
 
-  if(returned){
-    return sprintLifecycleIsCompleted()
-      ?"Перенесена в следующий спринт"
-      :"Возвращена в пул · факт сохранён";
-  }
-
   if(selected){
+    if(
+      sprintLifecycleIsCompleted()
+      &&sprintReturnedTaskIds.includes(task.id)
+    ){
+      return "Возвращена в пул";
+    }
+
     return sprintLifecycleIsCompleted()
       ?"В завершённом спринте"
       :"В текущем спринте";
@@ -8010,66 +7398,6 @@ function setTaskPoolSort(key){
   renderTaskPool();
 }
 
-
-function taskTransferEntries(task) {
-  const sources =
-    task?.transferSources
-    && typeof task.transferSources === "object"
-      ? task.transferSources
-      : {};
-
-  const entries = Object.entries(sources).filter(
-    ([, transfer]) => transfer?.isTransferred === true
-  );
-
-  if (
-    !entries.length
-    && task?.latestTransfer?.isTransferred === true
-  ) {
-    entries.push([
-      task.latestTransfer.estimatedRole || "",
-      task.latestTransfer
-    ]);
-  }
-
-  return entries;
-}
-
-function renderTaskTransferBadge(task) {
-  const entries = taskTransferEntries(task);
-  if (!entries.length) return "";
-
-  const roleLabel = role => ({
-    backend: "Backend",
-    frontend: "Frontend"
-  })[role] || role || "Оценка";
-
-  const tooltip = entries.map(([role, transfer]) => {
-    const from = transfer.fromSessionName
-      ? `из «${transfer.fromSessionName}»`
-      : "из другой сессии";
-    const to = transfer.toSessionName
-      ? ` в «${transfer.toSessionName}»`
-      : "";
-    return `${roleLabel(role)}: ${from}${to}`;
-  }).join(". ");
-
-  const roles = entries
-    .map(([role]) => roleLabel(role))
-    .filter(Boolean)
-    .join(", ");
-
-  return `
-    <span
-      class="transferred-task-badge"
-      title="${esc(tooltip)}"
-    >
-      <span aria-hidden="true">↪</span>
-      Перенесена${roles ? ` · ${esc(roles)}` : ""}
-    </span>
-  `;
-}
-
 function renderTaskPool(){
   const roleDefs=roles.map(role=>({key:roleKeyFromName(role.name),name:role.name}));
   const validSortKeys=new Set([
@@ -8120,26 +7448,37 @@ function renderTaskPool(){
 
   const filter=taskPoolFilter.value||"all";
   const directionFilter=taskDirectionFilter.value||"all";
+  const hideCompleted=
+    taskPoolHideCompleted?.checked!==false;
   let items=Object.values(taskPool).map(normalizeTask);
 
   items=items.filter(task=>{
     const ready=isTaskReady(task);
-    const planned=
-      activeSprintTaskSet().has(task.id);
+    const planned=selectedTaskIds.includes(task.id);
+    const completed=taskPoolTaskCompleted(task);
+
+    if(hideCompleted&&completed){
+      return false;
+    }
 
     let matchesStatus=true;
-    if(filter==="ready")matchesStatus=ready&&!planned;
-    else if(filter==="incomplete"){
-      matchesStatus=!ready&&!taskNeedsReestimate(task);
+
+    if(filter==="ready"){
+      // A completed task is never ready for another planning cycle,
+      // even when the hide-completed checkbox is disabled.
+      matchesStatus=ready&&!planned&&!completed;
+    }else if(filter==="incomplete"){
+      matchesStatus=!ready;
+    }else if(filter==="planned"){
+      matchesStatus=planned;
     }
-    else if(filter==="reestimate"){
-      matchesStatus=taskNeedsReestimate(task);
-    }
-    else if(filter==="planned")matchesStatus=planned;
 
     const matchesDirection=
       directionFilter==="all"
-      || Number(task.estimates?.[directionFilter]||0)>0;
+      ||Number(
+        task.estimates?.[directionFilter]
+        ||0
+      )>0;
 
     return matchesStatus&&matchesDirection;
   });
@@ -8153,16 +7492,28 @@ function renderTaskPool(){
 
   const allTasks=Object.values(taskPool).map(normalizeTask);
   const allCount=allTasks.length;
-  const readyCount=allTasks.filter(isTaskReady).length;
-  const reestimateCount=allTasks.filter(
-    taskNeedsReestimate
-  ).length;
+  const completedCount=
+    allTasks.filter(taskPoolTaskCompleted).length;
+  const readyCount=
+    allTasks.filter(task=>
+      isTaskReady(task)
+      &&!taskPoolTaskCompleted(task)
+    ).length;
   const shownCount=items.length;
 
   taskPoolCount.textContent=
-    filter==="all"&&directionFilter==="all"
-      ? `${allCount} всего · ${readyCount} готовы · ${reestimateCount} на переоценку`
-      : `${shownCount} показано · ${allCount} всего · ${readyCount} готовы · ${reestimateCount} на переоценку`;
+    (
+      filter==="all"
+      &&directionFilter==="all"
+      &&!hideCompleted
+    )
+      ?`${allCount} всего · ${readyCount} готовы`
+      :`${shownCount} показано · ${allCount} всего`
+        +(
+          completedCount
+            ?` · ${completedCount} выполнены`
+            :""
+        );
 
   if(!items.length){
     taskPoolBody.innerHTML='<tr><td class="task-empty" colspan="20">Нет задач для выбранного фильтра.</td></tr>';
@@ -8172,31 +7523,11 @@ function renderTaskPool(){
   taskPoolBody.innerHTML="";
   items.forEach(task=>{
     const ready=isTaskReady(task);
-
-    const participant=
-      selectedTaskIds.includes(task.id);
-
-    const returnedFromCurrentSprint=
-      participant
-      &&sprintReturnedTaskIds.includes(task.id);
-
-    const selected=
-      participant
-      &&!returnedFromCurrentSprint;
-
-    const plannedElsewhere=
-      task.plannedSprintId
-      &&task.plannedSprintId!==currentSprintId
-      &&!selected;
+    const selected=selectedTaskIds.includes(task.id);
+    const plannedElsewhere=task.plannedSprintId&&task.plannedSprintId!==currentSprintId&&!selected;
     const title=task.externalTaskUrl
       ? `<a class="task-link" href="${esc(task.externalTaskUrl)}" target="_blank" rel="noopener">${esc(task.title||task.id)}</a>`
       : esc(task.title||task.id);
-
-    const transferBadge=renderTaskTransferBadge(task);
-    const reestimateBadge=
-      renderTaskReestimateBadge(task);
-    const carryoverBadge=
-      taskCarryoverBadgeHtml(task);
 
     const estimates=roleDefs.map(role=>{
       const value=task.estimates[role.key];
@@ -8235,22 +7566,14 @@ function renderTaskPool(){
       </td>`;
     }).join("");
 
-    let statusHtml;
-    if(returnedFromCurrentSprint){
-      const previousActual=
-        Number(
-          task.carryover?.totalActual
-          ??taskEffectiveActualTotal(task.id)
-        );
+    const returnedFromCompletedSprint=
+      selected
+      &&sprintLifecycleIsCompleted()
+      &&sprintReturnedTaskIds.includes(task.id);
 
-      statusHtml=
-        '<span class="task-status incomplete">Перенесена в пул</span>'
-        +(
-          Number.isFinite(previousActual)
-          &&previousActual>0
-            ?`<div class="task-warning carryover">В исходном спринте учтено ${esc(fmt(previousActual,2))} ч.д.</div>`
-            :""
-        );
+    let statusHtml;
+    if(returnedFromCompletedSprint){
+      statusHtml='<span class="task-status incomplete">Возвращена в пул</span>';
     }else if(selected){
       statusHtml=sprintLifecycleIsCompleted()
         ?'<span class="task-status done">В завершённом спринте</span>'
@@ -8259,20 +7582,6 @@ function renderTaskPool(){
       statusHtml=task.planningStatus==="completed"
         ?`<span class="task-status done">Выполнена · ${esc(task.plannedSprintName||"завершённый спринт")}</span>`
         :`<span class="task-status planned">${esc(task.plannedSprintName||"Запланирована")}</span>`;
-    }else if(taskNeedsReestimate(task)){
-      const roles=taskReestimateEntries(task)
-        .map(([role])=>({
-          backend:"Backend",
-          frontend:"Frontend"
-        })[role]||role)
-        .filter(Boolean)
-        .join(", ");
-
-      statusHtml=
-        '<span class="task-status reestimate">На переоценку</span>'
-        +`<div class="task-warning reestimate">Повторно оцените${
-          roles?`: ${esc(roles)}`:" задачу"
-        }</div>`;
     }else if(ready){
       statusHtml='<span class="task-status ready">Оценена</span>';
     }else{
@@ -8282,12 +7591,8 @@ function renderTaskPool(){
 
     const actionButtons=[];
 
-    if(returnedFromCurrentSprint){
-      actionButtons.push(
-        sprintLifecycleIsCompleted()
-          ?'<button class="secondary" disabled>Доступна для нового спринта</button>'
-          :`<button data-add-task="${task.id}">Вернуть в спринт</button>`
-      );
+    if(returnedFromCompletedSprint){
+      actionButtons.push('<button class="secondary" disabled>Спринт завершён</button>');
     }else if(selected){
       actionButtons.push(
         sprintLifecycleIsCompleted()
@@ -8373,12 +7678,7 @@ function renderTaskPool(){
 
     const tr=document.createElement("tr");
     tr.innerHTML=`<td class="task-title-cell" data-label="Задача">
-        <div class="task-title-line">
-          <div class="task-title">${title}</div>
-          ${reestimateBadge}
-          ${carryoverBadge}
-          ${transferBadge}
-        </div>
+        <div class="task-title">${title}</div>
         <div class="task-meta">${taskMeta}</div>
         ${teamPokerTaskLinksHtml(task)}
         ${gitLabEstimateHtml}
@@ -9011,7 +8311,7 @@ function gitLabAssigneesHtml(metadata,hasUrl){
 }
 
 function currentSprintGitLabTasks(){
-  return activeSprintTaskIds()
+  return selectedTaskIds
     .map(taskId=>{
       const task=taskPool[taskId]
         ||sprintTaskSnapshots[taskId]
@@ -9081,7 +8381,7 @@ async function applyGitLabIssueCompletion(
 
     if(
       !taskId
-      ||!activeSprintTaskSet().has(taskId)
+      ||!selectedTaskIds.includes(taskId)
       ||!["closed","opened"].includes(
         issueState
       )
@@ -9124,13 +8424,10 @@ async function applyGitLabIssueCompletion(
     };
   }
 
-  const activeTaskSet=
-    activeSprintTaskSet();
-
   completedTaskIds=[
     ...completedSet
   ].filter(taskId=>
-    activeTaskSet.has(taskId)
+    selectedTaskIds.includes(taskId)
   );
 
   recalculateRolePlanFact();
@@ -10140,23 +9437,6 @@ function renderSprintTasks(){
 
   const completedSet=new Set(completedTaskIds);
   const baselineIds=baselineTaskSet();
-  const activeIds=activeSprintTaskSet();
-  const activeItems=allTasks.filter(
-    item=>activeIds.has(item.id)
-  );
-  const returnedItems=allTasks.filter(
-    item=>sprintReturnedTaskIds.includes(item.id)
-  );
-  const totalActualAcrossParticipants=
-    allTasks.reduce(
-      (sum,item)=>
-        sum+taskEffectiveActualTotal(
-          item.id,
-          item.task,
-          completedSet.has(item.id)
-        ),
-      0
-    );
   const readyToProdCount=allTasks.filter(
     item=>item.readyToProd
   ).length;
@@ -10167,14 +9447,10 @@ function renderSprintTasks(){
     ).length;
 
   sprintTaskSummary.innerHTML=`
-    <span class="sprint-summary-pill"><b>${activeItems.length}</b> задач в текущем составе</span>
-    <span class="sprint-summary-pill"><b>${allTasks.length}</b> всего участвовало</span>
+    <span class="sprint-summary-pill"><b>${allTasks.length}</b> задач в составе</span>
     <span class="sprint-summary-pill"><b>${allTasks.filter(item=>completedSet.has(item.id)).length}</b> выполнено</span>
-    <span class="sprint-summary-pill"><b>${fmt(activeItems.reduce((sum,item)=>sum+taskTotalEstimate(item.task),0),1)}</b> ч.д. текущий план</span>
-    <span class="sprint-summary-pill"><b>${fmt(totalActualAcrossParticipants,1)}</b> ч.д. факт с учётом перенесённых</span>
-    ${returnedItems.length
-      ?`<span class="sprint-summary-pill carryover"><b>${returnedItems.length}</b> перенесено дальше</span>`
-      :""}
+    <span class="sprint-summary-pill"><b>${fmt(allTasks.reduce((sum,item)=>sum+taskTotalEstimate(item.task),0),1)}</b> ч.д. текущий состав</span>
+    <span class="sprint-summary-pill"><b>${fmt(allTasks.filter(item=>completedSet.has(item.id)).reduce((sum,item)=>sum+taskTotalEstimate(item.task),0),1)}</b> ч.д. выполнено</span>
     ${readyToProdCount
       ?`<span class="sprint-summary-pill"><b>✓ ${readyToProdCount}</b> Ready to PROD / Approved</span>`
       :""}
@@ -10233,11 +9509,6 @@ function renderSprintTasks(){
       ?`<a class="task-link" href="${esc(normalized.externalTaskUrl)}" target="_blank" rel="noopener">${esc(normalized.title||id)}</a>`
       :esc(normalized.title||id);
 
-    const carryoverBadge=
-      taskCarryoverBadgeHtml(
-        poolTask||normalized
-      );
-
     let completionHtml;
 
     if(sprintLifecycleStatus===SPRINT_STATUS_PLANNING){
@@ -10283,18 +9554,12 @@ function renderSprintTasks(){
 
     const actions=sprintLifecycleIsCompleted()
       ?'<span class="muted">Только просмотр</span>'
-      :(
-        returnedToPool
-          ?`<div class="small-actions">
-              <button data-restore-task="${id}">Вернуть в спринт</button>
-            </div>`
-          :`<div class="small-actions">
-              ${estimateChanged
-                ?`<button class="secondary" data-update-snapshot="${id}">Обновить оценку</button>`
-                :""}
-              <button class="secondary" data-remove-task="${id}">Вернуть в пул</button>
-            </div>`
-      );
+      :`<div class="small-actions">
+          ${estimateChanged
+            ?`<button class="secondary" data-update-snapshot="${id}">Обновить оценку</button>`
+            :""}
+          <button class="secondary" data-remove-task="${id}">Убрать</button>
+        </div>`;
 
     const tr=document.createElement("tr");
 
@@ -10310,7 +9575,6 @@ function renderSprintTasks(){
 
     tr.innerHTML=`<td class="task-title-cell">
         <div class="task-title">${title}</div>
-        ${carryoverBadge}
         ${teamPokerTaskLinksHtml(
           normalized,
           poolTask
@@ -10433,16 +9697,6 @@ function renderSprintTasks(){
     });
 
   document
-    .querySelectorAll(
-      "#sprintTasksBody [data-restore-task]"
-    )
-    .forEach(button=>{
-      button.onclick=()=>addTaskToSprint(
-        button.dataset.restoreTask
-      );
-    });
-
-  document
     .querySelectorAll("[data-accept-task-actual]")
     .forEach(button=>{
       button.onclick=()=>acceptTaskActualPreview(
@@ -10485,7 +9739,7 @@ function render(){
     ||combinedGitLabActionInProgress
     ||gitLabSyncInProgress
     ||actualPreviewInProgress
-    ||!activeSprintTaskIds().length;
+    ||!selectedTaskIds.length;
 
   if(sprintLifecycleIsCompleted()){
     setSprintGitLabSyncStatus(
@@ -10533,27 +9787,9 @@ function render(){
 
   document.getElementById("totalPeople").textContent=fmt(totalPeople,1);
   document.getElementById("totalCapacity").textContent=fmt(totalCapacity)+" ч.д.";
-  const activeTaskIdsNow=
-    activeSprintTaskIds();
-
-  const activeTaskSetNow=
-    new Set(activeTaskIdsNow);
-
-  document.getElementById("bottleneck").textContent=
-    activeTaskIdsNow.length
-      ?(bottleneck||"—")
-      :"—";
-
-  document.getElementById("maxTasks").textContent=
-    fmt(activeTaskIdsNow.length,0);
-
-  document.getElementById("devTasksMax").textContent=
-    fmt(
-      completedTaskIds.filter(
-        id=>activeTaskSetNow.has(id)
-      ).length,
-      0
-    );
+  document.getElementById("bottleneck").textContent=selectedTaskIds.length?(bottleneck||"—"):"—";
+  document.getElementById("maxTasks").textContent=fmt(selectedTaskIds.length,0);
+  document.getElementById("devTasksMax").textContent=fmt(completedTaskIds.filter(id=>selectedTaskIds.includes(id)).length,0);
 
   renderTaskPool();
   renderSprintTasks();
@@ -10703,10 +9939,7 @@ function renderRoleCeilings(caps,bottleneck){
     const planned=Number(role.planned)||0;
     const remaining=cap-planned;
     const load=cap>0?planned/cap:0;
-    const isBot=
-      activeSprintTaskIds().length
-      &&role.name===bottleneck
-      &&!isExcludedFromDelivery(role);
+    const isBot=selectedTaskIds.length&&role.name===bottleneck&&!isExcludedFromDelivery(role);
     const width=Math.max(0,Math.min(100,load*100));
 
     const div=document.createElement("div");
@@ -10744,57 +9977,22 @@ function renderFormula(caps){
 
 function renderInterpretation(bottleneck,highestLoad){
   const el=document.getElementById("interpretation");
-  const activeIds=activeSprintTaskIds();
-  const activeSet=new Set(activeIds);
-
-  if(!activeIds.length){
-    if(selectedTaskIds.length){
-      el.innerHTML=
-        "Все задачи текущего спринта возвращены в пул. "
-        +"Их уже принятые фактические трудозатраты остаются "
-        +"в показателях этого спринта.";
-    }else{
-      el.innerHTML=
-        "Добавьте готовые оценённые задачи из пула в текущий спринт. "
-        +"Плановая нагрузка по ролям будет рассчитана автоматически.";
-    }
+  if(!selectedTaskIds.length){
+    el.innerHTML="Добавьте готовые оценённые задачи из пула в текущий спринт. Плановая нагрузка по ролям будет рассчитана автоматически.";
     return;
   }
 
   const overloaded=roles.filter(role=>{
     const cap=capacity(role);
-    return !isExcludedFromDelivery(role)
-      &&cap>0
-      &&(Number(role.planned)||0)>cap;
+    return !isExcludedFromDelivery(role)&&cap>0&&(Number(role.planned)||0)>cap;
   });
 
-  const completedCount=
-    completedTaskIds.filter(
-      id=>activeSet.has(id)
-    ).length;
-
-  const completion=
-    activeIds.length
-      ?completedCount/activeIds.length*100
-      :0;
-
+  const completion=selectedTaskIds.length?completedTaskIds.filter(id=>selectedTaskIds.includes(id)).length/selectedTaskIds.length*100:0;
   const overloadText=overloaded.length
     ? `<p><span class="pill bad">Перегрузка</span> Превышена ёмкость: <b>${overloaded.map(r=>esc(r.name)).join(", ")}</b>.</p>`
     : `<p><span class="pill">План в пределах ёмкости</span> Все учитываемые роли помещаются в доступные человеко-дни.</p>`;
 
-  const returnedText=sprintReturnedTaskIds.length
-    ?` <b>${sprintReturnedTaskIds.length}</b> задач перенесено дальше; их факт сохранён в текущем спринте.`
-    :"";
-
-  el.innerHTML=
-    `<p>В текущем составе <b>${activeIds.length}</b> задач, `
-    +`выполнено <b>${completedCount}</b> `
-    +`(${fmt(completion,0)}%).${returnedText} `
-    +`Самая загруженная роль: <b>${esc(bottleneck||"—")}</b>`
-    +`${isFinite(highestLoad)?` · ${fmt(highestLoad*100,0)}%`:""}.</p>`
-    +overloadText
-    +`<p>План считается по текущему составу. Факт включает все задачи, `
-    +`которые участвовали в спринте, даже если затем были перенесены.</p>`;
+  el.innerHTML=`<p>В спринте <b>${selectedTaskIds.length}</b> задач, выполнено <b>${completedTaskIds.filter(id=>selectedTaskIds.includes(id)).length}</b> (${fmt(completion,0)}%). Самая загруженная роль: <b>${esc(bottleneck||"—")}</b>${isFinite(highestLoad)?` · ${fmt(highestLoad*100,0)}%`:""}.</p>${overloadText}<p>План фиксируется снимком оценок задач. Последующая переоценка в пуле не меняет сохранённый спринт, пока пользователь явно не обновит оценку задачи в составе спринта.</p>`;
 }
 
 function bindDynamicInputs(){
@@ -10819,125 +10017,6 @@ function bindDynamicInputs(){
       render();
     };
   });
-}
-
-async function clearCurrentSprintTasks(){
-  if(sprintLifecycleIsCompleted()){
-    alert("Завершённый спринт доступен только для просмотра.");
-    return;
-  }
-
-  const activeIds=activeSprintTaskIds();
-
-  if(!activeIds.length)return;
-
-  if(!sprintLifecycleIsActive()){
-    if(!confirm("Очистить состав текущего спринта?"))return;
-
-    pushSprintRecoverySnapshot(
-      "очистка планируемого спринта"
-    );
-
-    selectedTaskIds=[];
-    completedTaskIds=[];
-    sprintReturnedTaskIds=[];
-    sprintTaskSnapshots={};
-    sprintTaskActuals={};
-
-    recalculateRolePlanFact();
-    saveState();
-    render();
-    return;
-  }
-
-  const totalActual=activeIds.reduce(
-    (sum,taskId)=>
-      sum+taskEffectiveActualTotal(taskId),
-    0
-  );
-
-  if(
-    !confirm(
-      "Вернуть весь текущий состав в общий пул?\\n\\n"
-      +"Факт по этим задачам останется в текущем спринте"
-      +(
-        totalActual>0
-          ?`: ${fmt(totalActual,2)} ч.д.`
-          :"."
-      )
-    )
-  ){
-    return;
-  }
-
-  pushSprintRecoverySnapshot(
-    "возврат всего состава в пул с сохранением факта"
-  );
-
-  const returnedAt=
-    new Date().toISOString();
-
-  sprintReturnedTaskIds=[
-    ...new Set([
-      ...sprintReturnedTaskIds,
-      ...activeIds
-    ])
-  ];
-
-  completedTaskIds=
-    completedTaskIds.filter(
-      taskId=>!activeIds.includes(taskId)
-    );
-
-  const updatedTasks=[];
-
-  activeIds.forEach(taskId=>{
-    const task=normalizeTask(
-      taskPool[taskId]
-      ||currentTaskSnapshot(taskId)
-      ||{id:taskId}
-    );
-
-    task.plannedSprintId=null;
-    task.plannedSprintName=null;
-    task.plannedByUid=null;
-    task.plannedByName=null;
-    task.planningStatus="available";
-    task.carryover=
-      buildTaskCarryover(
-        taskId,
-        returnedAt
-      );
-
-    taskPool[taskId]=task;
-    updatedTasks.push(task);
-  });
-
-  recalculateRolePlanFact();
-  saveState();
-  render();
-
-  const results=await Promise.allSettled(
-    updatedTasks.map(task=>
-      saveTaskPoolItem(task)
-    )
-  );
-
-  const failed=results.filter(
-    result=>result.status==="rejected"
-  );
-
-  if(failed.length){
-    console.error(
-      "Не удалось обновить часть задач общего пула",
-      failed
-    );
-
-    alert(
-      `Факт сохранён, но ${failed.length} задач `
-      +"не удалось обновить в общем пуле."
-    );
-  }
 }
 
 function saveState(){
@@ -11112,6 +10191,7 @@ document.getElementById("reloadTaskPool").onclick=async()=>{
 };
 taskPoolFilter.onchange=renderTaskPool;
 taskDirectionFilter.onchange=renderTaskPool;
+taskPoolHideCompleted.onchange=renderTaskPool;
 document.getElementById("openManualTaskDialog").onclick=openManualTaskDialog;
 document.getElementById("closeManualTaskDialog").onclick=closeManualTaskDialog;
 document.getElementById("cancelManualTask").onclick=closeManualTaskDialog;
@@ -11142,9 +10222,26 @@ manualTaskEstimatePlus.onclick=()=>applyEstimateStep(
 manualTaskDialog.addEventListener("click",event=>{
   if(event.target===manualTaskDialog)closeManualTaskDialog();
 });
-document.getElementById(
-  "clearSprintTasks"
-).onclick=clearCurrentSprintTasks;
+document.getElementById("clearSprintTasks").onclick=()=>{
+  if(sprintLifecycleIsCompleted()){
+    alert("Завершённый спринт доступен только для просмотра.");
+    return;
+  }
+
+  const message=sprintLifecycleIsActive()
+    ?"Очистить текущий состав идущего спринта? Исходный план останется в baseline, а задачи вернутся в общий пул."
+    :"Очистить состав текущего спринта?";
+
+  if(selectedTaskIds.length&&!confirm(message))return;
+
+  selectedTaskIds=[];
+  completedTaskIds=[];
+  sprintTaskSnapshots={};
+  sprintTaskActuals={};
+  recalculateRolePlanFact();
+  saveState();
+  render();
+};
 document.getElementById("setMTask").onclick=()=>{const t={"Аналитик":1.5,"Дизайнер":1.5,"Backend":4,"Frontend":4,"QA":2.5,"DevOps":.5};roles.forEach(r=>r.task=t[r.name]??r.task??0);render()};
 document.getElementById("clearTask").onclick=()=>{roles.forEach(r=>r.task=0);render()};
 document.getElementById("copyFormula").onclick=async()=>{try{await navigator.clipboard.writeText(document.getElementById("formulaBox").textContent);alert("Расчёт скопирован.")}catch{alert("Не удалось скопировать автоматически. Выделите текст вручную.")}};
@@ -11157,62 +10254,21 @@ document.getElementById("downloadCsv").onclick=()=>{
     ["Состояние",sprintLifecycleLabel()],
     ["Начат",sprintStartedAt?formatLifecycleDate(sprintStartedAt):""],
     ["Завершён",sprintCompletedAt?formatLifecycleDate(sprintCompletedAt):""],
-    ["Задач в текущем составе",activeSprintTaskIds().length],
-    ["Всего участвовало задач",selectedTaskIds.length],
+    ["Задач в текущем составе",selectedTaskIds.length],
     ["Задач в исходном плане",baselineTaskIds().length],
-    ["Выполнено задач",completedTaskIds.filter(id=>activeSprintTaskSet().has(id)).length],
-    ["Перенесено дальше",sprintReturnedTaskIds.length],
+    ["Выполнено задач",completedTaskIds.filter(id=>selectedTaskIds.includes(id)).length],
+    ["Возвращено в пул",sprintReturnedTaskIds.length],
     [],
-    [
-      "Задачи",
-      ...roleDefs.map(r=>r.name+" план, ч.д."),
-      ...roleDefs.map(r=>r.name+" факт, ч.д."),
-      "Итого план, ч.д.",
-      "Итого факт, ч.д.",
-      "Выполнена",
-      "В текущем составе",
-      "В исходном плане",
-      "Перенесена дальше"
-    ]
+    ["Задачи",...roleDefs.map(r=>r.name+" ч.д."),"Итого ч.д.","Выполнена","В исходном плане","Возвращена в пул"]
   ];
 
-  const activeSetForCsv=
-    activeSprintTaskSet();
-
   selectedTaskIds.forEach(id=>{
-    const task=normalizeTask(
-      currentTaskSnapshot(id)
-    );
-
-    const actuals=
-      taskEffectiveActuals(
-        id,
-        task,
-        completedTaskIds.includes(id)
-      );
-
+    const task=normalizeTask(currentTaskSnapshot(id));
     rows.push([
       task.title||id,
-      ...roleDefs.map(r=>
-        isEstimateFilled(task.estimates[r.key])
-          ?task.estimates[r.key]
-          :""
-      ),
-      ...roleDefs.map(r=>
-        Object.prototype.hasOwnProperty.call(
-          actuals,
-          r.key
-        )
-          ?actuals[r.key]
-          :""
-      ),
+      ...roleDefs.map(r=>isEstimateFilled(task.estimates[r.key])?task.estimates[r.key]:""),
       taskTotalEstimate(task),
-      Object.values(actuals).reduce(
-        (sum,value)=>sum+(Number(value)||0),
-        0
-      ),
       completedTaskIds.includes(id)?"да":"нет",
-      activeSetForCsv.has(id)?"да":"нет",
       baselineTaskIds().includes(id)?"да":"нет",
       sprintReturnedTaskIds.includes(id)?"да":"нет"
     ]);

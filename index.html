@@ -2229,8 +2229,10 @@
       <div class="main-left"><div class="card card-plan">
 <h2>Загрузка спринта по ролям</h2>
 <p class="muted">
-          План и факт рассчитываются автоматически в человеко-днях по конкретным задачам текущего спринта.
-          Светлая линия показывает план, оранжевое заполнение — выполненный объём,
+          План и факт рассчитываются автоматически в человеко-днях по задачам спринта.
+          После завершения план и процент выполнения сохраняют все участвовавшие задачи,
+          включая невыполненные задачи, возвращённые в общий пул.
+          Светлая линия показывает план, оранжевое заполнение — фактический объём,
           нижняя зелёная полоса — количество выполненных задач роли из запланированных.
         </p>
         <div class="plan-grid-wrap">
@@ -4471,7 +4473,7 @@ function currentTaskSnapshot(taskId){
 }
 
 function selectedTaskObjects(){
-  return activeSprintTaskIds()
+  return sprintMetricTaskIds()
     .map(id=>currentTaskSnapshot(id))
     .filter(Boolean);
 }
@@ -4479,7 +4481,7 @@ function selectedTaskObjects(){
 function completedTaskObjects(){
   const done=new Set(completedTaskIds);
 
-  return activeSprintTaskIds()
+  return sprintMetricTaskIds()
     .filter(id=>done.has(id))
     .map(id=>currentTaskSnapshot(id))
     .filter(Boolean);
@@ -4493,7 +4495,7 @@ function roleTaskCompletion(
   );
 
   const plannedTaskIds=
-    activeSprintTaskIds().filter(taskId=>{
+    sprintMetricTaskIds().filter(taskId=>{
       const task=currentTaskSnapshot(
         taskId
       );
@@ -4950,6 +4952,29 @@ function activeSprintTaskIds(){
 
 function activeSprintTaskSet(){
   return new Set(activeSprintTaskIds());
+}
+
+/*
+  Для активного спринта показатели строятся по текущему составу.
+  После завершения — по всем задачам, которые участвовали в спринте.
+  Возвращённые в пул задачи остаются в знаменателе и считаются
+  невыполненными, поэтому итоговый процент не превращается в 100%.
+*/
+function sprintMetricTaskIds(){
+  const source=sprintLifecycleIsCompleted()
+    ?selectedTaskIds
+    :activeSprintTaskIds();
+
+  return [
+    ...new Set(
+      (Array.isArray(source)?source:[])
+        .filter(Boolean)
+    )
+  ];
+}
+
+function sprintMetricTaskSet(){
+  return new Set(sprintMetricTaskIds());
 }
 
 function activeSprintTaskIdsFromState(state){
@@ -5555,6 +5580,8 @@ function getCurrentInputState(){
 function getCurrentResultSnapshot(){
   recalculateRolePlanFact();
   const caps=roles.map(r=>capacity(r));
+  const metricTaskIds=sprintMetricTaskIds();
+  const metricTaskSet=new Set(metricTaskIds);
   let bottleneck=null;
   let highestLoad=-1;
 
@@ -5602,12 +5629,12 @@ function getCurrentResultSnapshot(){
     totalCapacity: caps.reduce((a,b)=>a+b,0),
     bottleneck,
     highestLoad: isFinite(highestLoad)?highestLoad:null,
-    taskCount: activeSprintTaskIds().length,
+    taskCount: metricTaskIds.length,
     participantTaskCount:
       selectedTaskIds.length,
     completedTaskCount:
       completedTaskIds.filter(
-        id=>activeSprintTaskSet().has(id)
+        id=>metricTaskSet.has(id)
       ).length,
     sprintLifecycleStatus,
     sprintStartedAt,
@@ -5616,10 +5643,10 @@ function getCurrentResultSnapshot(){
     baselineTotalEstimate:baselineTotalEstimate(),
     returnedTaskCount:sprintReturnedTaskIds.length,
     crossTaskLimit:
-      activeSprintTaskIds().length,
+      metricTaskIds.length,
     developmentTaskLimit:
       completedTaskIds.filter(
-        id=>activeSprintTaskSet().has(id)
+        id=>metricTaskSet.has(id)
       ).length,
     roleLimits,
     taskSnapshots: JSON.parse(JSON.stringify(sprintTaskSnapshots))
@@ -10673,24 +10700,24 @@ function render(){
 
   document.getElementById("totalPeople").textContent=fmt(totalPeople,1);
   document.getElementById("totalCapacity").textContent=fmt(totalCapacity)+" ч.д.";
-  const activeTaskIdsNow=
-    activeSprintTaskIds();
+  const metricTaskIdsNow=
+    sprintMetricTaskIds();
 
-  const activeTaskSetNow=
-    new Set(activeTaskIdsNow);
+  const metricTaskSetNow=
+    new Set(metricTaskIdsNow);
 
   document.getElementById("bottleneck").textContent=
-    activeTaskIdsNow.length
+    metricTaskIdsNow.length
       ?(bottleneck||"—")
       :"—";
 
   document.getElementById("maxTasks").textContent=
-    fmt(activeTaskIdsNow.length,0);
+    fmt(metricTaskIdsNow.length,0);
 
   document.getElementById("devTasksMax").textContent=
     fmt(
       completedTaskIds.filter(
-        id=>activeTaskSetNow.has(id)
+        id=>metricTaskSetNow.has(id)
       ).length,
       0
     );
@@ -10884,10 +10911,10 @@ function renderFormula(caps){
 
 function renderInterpretation(bottleneck,highestLoad){
   const el=document.getElementById("interpretation");
-  const activeIds=activeSprintTaskIds();
-  const activeSet=new Set(activeIds);
+  const metricIds=sprintMetricTaskIds();
+  const metricSet=new Set(metricIds);
 
-  if(!activeIds.length){
+  if(!metricIds.length){
     if(selectedTaskIds.length){
       el.innerHTML=
         "Все задачи текущего спринта возвращены в пул. "
@@ -10910,12 +10937,12 @@ function renderInterpretation(bottleneck,highestLoad){
 
   const completedCount=
     completedTaskIds.filter(
-      id=>activeSet.has(id)
+      id=>metricSet.has(id)
     ).length;
 
   const completion=
-    activeIds.length
-      ?completedCount/activeIds.length*100
+    metricIds.length
+      ?completedCount/metricIds.length*100
       :0;
 
   const overloadText=overloaded.length
@@ -10926,15 +10953,22 @@ function renderInterpretation(bottleneck,highestLoad){
     ?` <b>${sprintReturnedTaskIds.length}</b> задач перенесено дальше; их факт сохранён в текущем спринте.`
     :"";
 
+  const compositionLabel=sprintLifecycleIsCompleted()
+    ?"В спринте участвовало"
+    :"В текущем составе";
+
+  const calculationNote=sprintLifecycleIsCompleted()
+    ?"Итоговый план и процент выполнения считаются по всем задачам, участвовавшим в спринте. Возвращённые в пул задачи считаются невыполненными. Факт сохраняет все принятые трудозатраты."
+    :"План считается по текущему составу. Факт включает все задачи, которые участвовали в спринте, даже если затем были перенесены.";
+
   el.innerHTML=
-    `<p>В текущем составе <b>${activeIds.length}</b> задач, `
+    `<p>${compositionLabel} <b>${metricIds.length}</b> задач, `
     +`выполнено <b>${completedCount}</b> `
     +`(${fmt(completion,0)}%).${returnedText} `
     +`Самая загруженная роль: <b>${esc(bottleneck||"—")}</b>`
     +`${isFinite(highestLoad)?` · ${fmt(highestLoad*100,0)}%`:""}.</p>`
     +overloadText
-    +`<p>План считается по текущему составу. Факт включает все задачи, `
-    +`которые участвовали в спринте, даже если затем были перенесены.</p>`;
+    +`<p>${calculationNote}</p>`;
 }
 
 function bindDynamicInputs(){
@@ -11300,7 +11334,7 @@ document.getElementById("downloadCsv").onclick=()=>{
     ["Задач в текущем составе",activeSprintTaskIds().length],
     ["Всего участвовало задач",selectedTaskIds.length],
     ["Задач в исходном плане",baselineTaskIds().length],
-    ["Выполнено задач",completedTaskIds.filter(id=>activeSprintTaskSet().has(id)).length],
+    ["Выполнено задач",completedTaskIds.filter(id=>sprintMetricTaskSet().has(id)).length],
     ["Перенесено дальше",sprintReturnedTaskIds.length],
     [],
     [

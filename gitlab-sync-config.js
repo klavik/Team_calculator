@@ -1,27 +1,41 @@
 window.TEAM_CALCULATOR_GITLAB_SYNC = {
-  // Cloudflare Worker endpoint for creating Firestore GitLab jobs.
+  // v23.4.31:
+  // GitLab jobs создаются напрямую в Firestore.
+  // workers.dev больше не находится в критическом пути кнопок
+  // Team_calculator. Endpoint сохраняется для совместимости и
+  // определения типа job в клиенте.
+  queueMode: "firestore",
+
   endpoint:
     "https://team-poker-team-calculator-integration.slavanazin.workers.dev/gitlab-sync",
 
-  // Отправка и обновление GitLab estimate для ручных задач.
   estimateEndpoint:
     "https://team-poker-team-calculator-integration.slavanazin.workers.dev/gitlab-estimate",
 
-  // Расчёт предварительного факта по истории GitLab labels.
   actualPreviewEndpoint:
     "https://team-poker-team-calculator-integration.slavanazin.workers.dev/gitlab-actual-preview",
 
-  // Быстрое отключение нового модуля без отката файлов.
-  // false полностью возвращает прежний расчёт факта по выполненным задачам.
+  // Набор GitLab labels, которые Mac connector должен вернуть
+  // в метаданных задачи. Пользовательские статусы расчёта факта
+  // также автоматически добавляются к этому списку.
+  statusLabels: [
+    "In Progress",
+    "Ready to PREPROD",
+    "Ready to PROD",
+    "Approved",
+    "QA(DEV)",
+    "QA(PREPROD)",
+    "QA return"
+  ],
+
+  estimateLabel: "estimate::done",
+  estimateHoursPerDay: 8,
+
   actualCalculationEnabled: true,
 
-  // Точный адрес Team_poker. GitHub Pages чувствителен
-  // к регистру: каталог называется Team_poker.
-  teamPokerBaseUrl: "https://klavik.github.io/Team_poker/",
+  teamPokerBaseUrl:
+    "https://klavik.github.io/Team_poker/",
 
   enabled: true,
-
-  // Все обращения к GitLab — метаданные, estimate и расчёт факта —
-  // выполняются только после явного нажатия пользователем кнопки.
   manualOnly: true
 };

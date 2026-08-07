@@ -3624,26 +3624,71 @@ function gitLabEnqueueRequestId(){
   ].join("-");
 }
 
-function gitLabEnqueueErrorMessage(response){
-  const encoded=String(
-    response.headers.get("X-Error-Message")||""
-  ).trim();
-
-  if(encoded){
-    try{
-      return decodeURIComponent(encoded);
-    }catch{
-      return encoded;
-    }
-  }
-
-  return `HTTP ${response.status}`;
+function gitLabDirectQueueConfig(){
+  return window.TEAM_CALCULATOR_GITLAB_SYNC||{};
 }
 
-function gitLabEnqueueDelay(milliseconds){
-  return new Promise(resolve=>{
-    setTimeout(resolve,milliseconds);
-  });
+function gitLabConfiguredStatusLabels(){
+  const config=gitLabDirectQueueConfig();
+
+  const configured=Array.isArray(
+    config.statusLabels
+  )
+    ?config.statusLabels
+    :[];
+
+  const actualStatuses=
+    normalizeActualCalculationSettings(
+      actualCalculationSettings
+    ).mappings.flatMap(mapping=>
+      Array.isArray(mapping.statuses)
+        ?mapping.statuses
+        :[]
+    );
+
+  const defaults=[
+    "In Progress",
+    "Ready to PREPROD",
+    "Ready to PROD",
+    "Approved",
+    "QA(DEV)",
+    "QA(PREPROD)",
+    "QA return"
+  ];
+
+  return [
+    ...new Set(
+      [
+        ...configured,
+        ...actualStatuses,
+        ...defaults
+      ]
+        .map(value=>String(value||"").trim())
+        .filter(Boolean)
+    )
+  ].slice(0,30);
+}
+
+function gitLabConfiguredEstimateLabel(){
+  const config=gitLabDirectQueueConfig();
+
+  return String(
+    config.estimateLabel
+    ||"estimate::done"
+  ).trim()||"estimate::done";
+}
+
+function gitLabConfiguredEstimateHoursPerDay(){
+  const config=gitLabDirectQueueConfig();
+  const value=Number(
+    config.estimateHoursPerDay
+    ||config.hoursPerDay
+    ||8
+  );
+
+  return Number.isFinite(value)
+    ?Math.max(1,Math.min(24,value))
+    :8;
 }
 
 function gitLabEnqueueJobPrefix(endpoint){
@@ -3716,21 +3761,229 @@ async function gitLabExpectedJobId(
   return `${prefix}_${hex.slice(0,40)}`;
 }
 
-async function recoverQueuedGitLabJob({
-  jobId,
+function gitLabDirectJobRequester(){
+  return {
+    requestedByUid:String(
+      currentUser?.uid||""
+    ),
+    requestedByEmail:String(
+      currentUser?.email||""
+    ),
+    requestedByDisplayName:String(
+      currentProfile?.alias
+      ||currentUser?.displayName
+      ||currentUser?.email
+      ||""
+    ).trim()
+  };
+}
+
+function buildDirectGitLabJob({
+  endpoint,
+  payload,
   clientRequestId,
-  waitMs=8000
+  jobId
 }){
-  if(
-    !jobId
-    ||!clientRequestId
-    ||!firebaseDb
-    ||!currentUser
-  ){
-    return null;
+  const prefix=
+    gitLabEnqueueJobPrefix(endpoint);
+
+  const now=new Date().toISOString();
+  const requester=gitLabDirectJobRequester();
+  const workspaceId=String(
+    payload?.workspaceId
+    ||TEAM_CALCULATOR_WORKSPACE_ID
+  ).trim()||TEAM_CALCULATOR_WORKSPACE_ID;
+
+  const common={
+    schemaVersion:1,
+    status:"pending",
+    idempotencyKey:jobId,
+    clientRequestId,
+    workspaceId,
+    ...requester,
+    requestedAt:now,
+    updatedAt:now,
+    attempts:0,
+    processedCount:0,
+    succeededCount:0,
+    failedCount:0
+  };
+
+  if(prefix==="metadata"){
+    const tasks=(
+      Array.isArray(payload?.tasks)
+        ?payload.tasks
+        :[]
+    ).map(item=>({
+      taskId:String(item?.taskId||"").trim(),
+      title:String(
+        item?.title
+        ||item?.taskId
+        ||""
+      ).trim(),
+      externalTaskUrl:String(
+        item?.externalTaskUrl||""
+      ).trim().replace(/\/+$/,"")
+    })).filter(item=>
+      item.taskId
+      &&item.externalTaskUrl
+    );
+
+    if(!tasks.length){
+      throw new Error(
+        "Нет задач GitLab для постановки в очередь."
+      );
+    }
+
+    return {
+      ...common,
+      type:"sync_gitlab_issue_metadata",
+      sprintId:payload?.sprintId||null,
+      sprintName:payload?.sprintName||null,
+      sprintLifecycleStatus:String(
+        payload?.sprintLifecycleStatus
+        ||"planning"
+      ),
+      tasks,
+      statusLabels:
+        gitLabConfiguredStatusLabels()
+    };
   }
 
+  if(prefix==="estimate"){
+    return {
+      ...common,
+      type:"sync_gitlab_estimate",
+      taskId:String(payload?.taskId||"").trim(),
+      issueTitle:String(
+        payload?.title
+        ||payload?.taskId
+        ||""
+      ).trim(),
+      externalTaskUrl:String(
+        payload?.externalTaskUrl||""
+      ).trim().replace(/\/+$/,""),
+      estimatedRole:String(
+        payload?.estimatedRole||""
+      ).trim(),
+      finalEstimate:Number(
+        payload?.finalEstimate
+      ),
+      estimateVersion:Math.max(
+        1,
+        Number(payload?.estimateVersion)||1
+      ),
+      gitlabLabel:
+        gitLabConfiguredEstimateLabel(),
+      applyLabel:
+        payload?.applyLabel===true,
+      hoursPerDay:
+        gitLabConfiguredEstimateHoursPerDay(),
+      reason:String(
+        payload?.reason||"update"
+      ).trim()||"update"
+    };
+  }
+
+  if(prefix==="actual"){
+    const calendar={
+      ...(payload?.calendar||{})
+    };
+
+    const mappings=Array.isArray(payload?.mappings)
+      ?payload.mappings
+      :[];
+
+    const tasks=Array.isArray(payload?.tasks)
+      ?payload.tasks
+      :[];
+
+    return {
+      ...common,
+      type:"calculate_gitlab_actual_preview",
+      sprintId:String(
+        payload?.sprintId||""
+      ).trim(),
+      sprintName:String(
+        payload?.sprintName||""
+      ).trim(),
+      periodStart:String(
+        payload?.periodStart||""
+      ).trim(),
+      periodEnd:String(
+        payload?.periodEnd||""
+      ).trim(),
+      calendar,
+      mappings,
+      settingsSnapshot:{
+        calendar,
+        mappings
+      },
+      tasks
+    };
+  }
+
+  throw new Error(
+    "Неизвестный тип GitLab-задания."
+  );
+}
+
+function validateExistingDirectGitLabJob(
+  existing,
+  clientRequestId
+){
+  if(
+    String(existing?.requestedByUid||"")
+      !==String(currentUser?.uid||"")
+    ||String(existing?.clientRequestId||"")
+      !==clientRequestId
+  ){
+    throw new Error(
+      "clientRequestId конфликтует "
+      +"с существующим GitLab-заданием."
+    );
+  }
+}
+
+async function enqueueGitLabJob({
+  endpoint,
+  payload
+}){
+  if(
+    !currentUser
+    ||!firebaseDb
+  ){
+    throw new Error(
+      "Пользователь не авторизован."
+    );
+  }
+
+  const clientRequestId=String(
+    payload?.clientRequestId
+    ||gitLabEnqueueRequestId()
+  ).trim();
+
+  const jobId=
+    await gitLabExpectedJobId(
+      endpoint,
+      clientRequestId
+    );
+
+  if(!jobId){
+    throw new Error(
+      "Не удалось сформировать ID GitLab-задания."
+    );
+  }
+
+  const job=buildDirectGitLabJob({
+    endpoint,
+    payload,
+    clientRequestId,
+    jobId
+  });
+
   const {fsMod}=await loadFirebaseModules();
+
   const jobRef=fsMod.doc(
     firebaseDb,
     "workspaces",
@@ -3739,212 +3992,59 @@ async function recoverQueuedGitLabJob({
     jobId
   );
 
-  const deadline=Date.now()+waitMs;
-  let firstAttempt=true;
+  try{
+    const result=await fsMod.runTransaction(
+      firebaseDb,
+      async transaction=>{
+        const existingSnapshot=
+          await transaction.get(jobRef);
 
-  while(
-    firstAttempt
-    ||Date.now()<=deadline
-  ){
-    firstAttempt=false;
+        if(existingSnapshot.exists()){
+          const existing=
+            existingSnapshot.data()||{};
 
-    try{
-      const snapshot=
-        await fsMod.getDoc(jobRef);
+          validateExistingDirectGitLabJob(
+            existing,
+            clientRequestId
+          );
 
-      if(snapshot.exists()){
-        const job=snapshot.data()||{};
-
-        if(
-          String(job.clientRequestId||"")
-            ===clientRequestId
-          &&String(job.requestedByUid||"")
-            ===String(currentUser.uid||"")
-        ){
           return {
             jobId,
             clientRequestId,
-            httpStatus:null,
-            recoveredFromFirestore:true,
+            reused:true,
             jobStatus:String(
-              job.status||"pending"
+              existing.status||"pending"
             )
           };
         }
+
+        transaction.set(jobRef,job);
+
+        return {
+          jobId,
+          clientRequestId,
+          reused:false,
+          jobStatus:"pending"
+        };
       }
-    }catch(error){
-      console.warn(
-        "Не удалось проверить GitLab job после сетевой ошибки",
-        error
+    );
+
+    return result;
+  }catch(error){
+    const permissionDenied=[
+      "permission-denied",
+      "firestore/permission-denied"
+    ].includes(error?.code);
+
+    if(permissionDenied){
+      throw new Error(
+        "Firestore Rules не разрешают создать GitLab-задание. "
+        +"Опубликуйте firestore.rules версии v23.4.31."
       );
     }
 
-    if(Date.now()>deadline){
-      break;
-    }
-
-    await gitLabEnqueueDelay(750);
+    throw error;
   }
-
-  return null;
-}
-
-async function enqueueGitLabJob({
-  endpoint,
-  idToken,
-  payload,
-  timeoutMs=45000,
-  retryCount=1,
-  recoveryWaitMs=8000
-}){
-  const clientRequestId=String(
-    payload?.clientRequestId
-    ||gitLabEnqueueRequestId()
-  ).trim();
-
-  const requestPayload={
-    ...payload,
-    clientRequestId
-  };
-
-  /*
-    Worker v23.4.29+ формирует jobId детерминированно:
-      SHA-256(prefix|uid|clientRequestId)
-
-    Поэтому даже при потере HTTP-ответа Team_calculator может
-    проверить Firestore и продолжить работу с уже созданным job.
-  */
-  const expectedJobId=
-    await gitLabExpectedJobId(
-      endpoint,
-      clientRequestId
-    );
-
-  let lastError=null;
-
-  for(
-    let attempt=0;
-    attempt<=retryCount;
-    attempt+=1
-  ){
-    const controller=new AbortController();
-    const timeoutId=setTimeout(
-      ()=>controller.abort(),
-      timeoutMs
-    );
-
-    try{
-      const response=await fetch(
-        endpoint,
-        {
-          method:"POST",
-          headers:{
-            "Content-Type":"application/json",
-            "Authorization":`Bearer ${idToken}`
-          },
-          body:JSON.stringify(requestPayload),
-          signal:controller.signal
-        }
-      );
-
-      clearTimeout(timeoutId);
-
-      if(!response.ok){
-        const error=new Error(
-          gitLabEnqueueErrorMessage(response)
-        );
-        error.doNotRetry=true;
-        throw error;
-      }
-
-      const responseJobId=String(
-        response.headers.get("X-Job-Id")||""
-      ).trim();
-
-      const jobId=
-        responseJobId
-        ||expectedJobId;
-
-      if(!jobId){
-        const error=new Error(
-          "Не удалось определить ID GitLab-задания. "
-          +"Требуется Cloudflare Worker v23.4.29 или новее."
-        );
-        error.doNotRetry=true;
-        throw error;
-      }
-
-      // Тело ответа намеренно не читается.
-      try{
-        await response.body?.cancel();
-      }catch{
-        // Заголовки уже получены, дальнейшее чтение не требуется.
-      }
-
-      return {
-        jobId,
-        clientRequestId,
-        httpStatus:response.status,
-        recoveredFromFirestore:false
-      };
-    }catch(error){
-      clearTimeout(timeoutId);
-
-      const isTimeout=
-        error?.name==="AbortError";
-
-      const isNetworkFailure=
-        isTimeout
-        ||error instanceof TypeError;
-
-      /*
-        Самое важное для плохой сети:
-        fetch мог завершиться ошибкой уже после того, как Worker
-        успел создать job. Проверяем детерминированный документ
-        напрямую через Firestore, который у Team_calculator и так
-        используется для realtime-статуса задания.
-      */
-      if(
-        isNetworkFailure
-        &&expectedJobId
-      ){
-        const recovered=
-          await recoverQueuedGitLabJob({
-            jobId:expectedJobId,
-            clientRequestId,
-            waitMs:recoveryWaitMs
-          });
-
-        if(recovered){
-          return recovered;
-        }
-      }
-
-      const normalizedError=
-        isTimeout
-          ?new Error(
-            `Таймаут соединения с сервисом синхронизации (${Math.round(timeoutMs/1000)} с).`
-          )
-          :error;
-
-      lastError=normalizedError;
-
-      if(
-        error?.doNotRetry===true
-        ||attempt>=retryCount
-      ){
-        throw normalizedError;
-      }
-
-      // Повтор использует тот же clientRequestId, поэтому Worker
-      // не создаст второе задание.
-      await gitLabEnqueueDelay(750);
-    }
-  }
-
-  throw lastError||new Error(
-    "Не удалось поставить GitLab-задание в очередь."
-  );
 }
 
 function configuredActualPreviewEndpoint(){
@@ -4029,11 +4129,9 @@ async function requestSprintActualPreview(){
     actualPreviewInProgress=true;
     sprintActualStatus.style.color="";
     render();
-    sprintActualStatus.textContent="Создание задания расчёта…";
-    const token=await currentUser.getIdToken();
+    sprintActualStatus.textContent="Создание задания расчёта в Firestore…";
     const queued=await enqueueGitLabJob({
       endpoint,
-      idToken:token,
       payload:{
         workspaceId:TEAM_CALCULATOR_WORKSPACE_ID,
         sprintId:currentSprintId,
@@ -7397,12 +7495,8 @@ async function requestTaskGitLabEstimateSync({
       roleKey
     );
 
-  const idToken=
-    await currentUser.getIdToken();
-
   return enqueueGitLabJob({
     endpoint:config.endpoint,
-    idToken,
     payload:{
       workspaceId:
         TEAM_CALCULATOR_WORKSPACE_ID,
@@ -7456,7 +7550,7 @@ async function sendTaskGitLabEstimate(taskId){
 
   try{
     setSyncState(
-      "Постановка estimate в GitLab…",
+      "Создание задания estimate в Firestore…",
       "warn"
     );
 
@@ -9811,15 +9905,12 @@ async function requestSprintGitLabSync(
   gitLabSyncInProgress=true;
   syncSprintGitLabButton.disabled=true;
   setSprintGitLabSyncStatus(
-    "Постановка запроса GitLab…"
+    "Создание задания GitLab в Firestore…"
   );
 
   try{
-    const idToken=await currentUser.getIdToken();
-
     const queued=await enqueueGitLabJob({
       endpoint:config.endpoint,
-      idToken,
       payload:{
         workspaceId:TEAM_CALCULATOR_WORKSPACE_ID,
         sprintId:currentSprintId||null,

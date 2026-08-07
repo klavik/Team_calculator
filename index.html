@@ -3609,6 +3609,151 @@ function resetActualCalculationSettings(){
   setActualSettingsStatus("Правила по умолчанию загружены в форму. Нажмите «Сохранить правила».","warn");
 }
 
+function gitLabEnqueueRequestId(){
+  if(
+    globalThis.crypto
+    &&typeof globalThis.crypto.randomUUID==="function"
+  ){
+    return globalThis.crypto.randomUUID();
+  }
+
+  return [
+    Date.now().toString(36),
+    Math.random().toString(36).slice(2),
+    Math.random().toString(36).slice(2)
+  ].join("-");
+}
+
+function gitLabEnqueueErrorMessage(response){
+  const encoded=String(
+    response.headers.get("X-Error-Message")||""
+  ).trim();
+
+  if(encoded){
+    try{
+      return decodeURIComponent(encoded);
+    }catch{
+      return encoded;
+    }
+  }
+
+  return `HTTP ${response.status}`;
+}
+
+function gitLabEnqueueDelay(milliseconds){
+  return new Promise(resolve=>{
+    setTimeout(resolve,milliseconds);
+  });
+}
+
+async function enqueueGitLabJob({
+  endpoint,
+  idToken,
+  payload,
+  timeoutMs=15000,
+  retryCount=1
+}){
+  const clientRequestId=String(
+    payload?.clientRequestId
+    ||gitLabEnqueueRequestId()
+  ).trim();
+
+  const requestPayload={
+    ...payload,
+    clientRequestId
+  };
+
+  let lastError=null;
+
+  for(
+    let attempt=0;
+    attempt<=retryCount;
+    attempt+=1
+  ){
+    const controller=new AbortController();
+    const timeoutId=setTimeout(
+      ()=>controller.abort(),
+      timeoutMs
+    );
+
+    try{
+      const response=await fetch(
+        endpoint,
+        {
+          method:"POST",
+          headers:{
+            "Content-Type":"application/json",
+            "Authorization":`Bearer ${idToken}`
+          },
+          body:JSON.stringify(requestPayload),
+          signal:controller.signal
+        }
+      );
+
+      clearTimeout(timeoutId);
+
+      if(!response.ok){
+        const error=new Error(
+          gitLabEnqueueErrorMessage(response)
+        );
+        error.doNotRetry=true;
+        throw error;
+      }
+
+      const jobId=String(
+        response.headers.get("X-Job-Id")||""
+      ).trim();
+
+      if(!jobId){
+        const error=new Error(
+          "Сервис синхронизации не вернул X-Job-Id. "
+          +"Сначала опубликуйте Cloudflare Worker v23.4.29."
+        );
+        error.doNotRetry=true;
+        throw error;
+      }
+
+      // Тело ответа намеренно не читается. На нестабильной мобильной
+      // сети заголовки могут быть уже получены, а body зависнуть.
+      try{
+        await response.body?.cancel();
+      }catch{
+        // Отмена body не влияет на уже полученный jobId.
+      }
+
+      return {
+        jobId,
+        clientRequestId,
+        httpStatus:response.status
+      };
+    }catch(error){
+      clearTimeout(timeoutId);
+
+      const normalizedError=
+        error?.name==="AbortError"
+          ?new Error(
+            `Таймаут соединения с сервисом синхронизации (${Math.round(timeoutMs/1000)} с).`
+          )
+          :error;
+
+      lastError=normalizedError;
+
+      if(
+        error?.doNotRetry===true
+        ||attempt>=retryCount
+      ){
+        throw normalizedError;
+      }
+
+      await gitLabEnqueueDelay(500);
+    }
+  }
+
+  throw lastError||new Error(
+    "Не удалось поставить GitLab-задание в очередь."
+  );
+}
+
 function configuredActualPreviewEndpoint(){
   const config=window.TEAM_CALCULATOR_GITLAB_SYNC||{};
   const explicit=String(config.actualPreviewEndpoint||"").trim();
@@ -3693,10 +3838,10 @@ async function requestSprintActualPreview(){
     render();
     sprintActualStatus.textContent="Создание задания расчёта…";
     const token=await currentUser.getIdToken();
-    const response=await fetch(endpoint,{
-      method:"POST",
-      headers:{"Content-Type":"application/json","Authorization":`Bearer ${token}`},
-      body:JSON.stringify({
+    const queued=await enqueueGitLabJob({
+      endpoint,
+      idToken:token,
+      payload:{
         workspaceId:TEAM_CALCULATOR_WORKSPACE_ID,
         sprintId:currentSprintId,
         sprintName:sprintName.value||currentSprintId,
@@ -3712,13 +3857,9 @@ async function requestSprintActualPreview(){
         },
         mappings:settings.mappings,
         tasks
-      })
+      }
     });
-    const result=await response.json().catch(()=>({}));
-    if(!response.ok||result.ok!==true||!result.jobId){
-      throw new Error(result.error||`HTTP ${response.status}`);
-    }
-    subscribeActualPreviewJob(result.jobId);
+    subscribeActualPreviewJob(queued.jobId);
     return true;
   }catch(error){
     console.error(error);
@@ -7066,48 +7207,26 @@ async function requestTaskGitLabEstimateSync({
   const idToken=
     await currentUser.getIdToken();
 
-  const response=await fetch(
-    config.endpoint,
-    {
-      method:"POST",
-      headers:{
-        "Content-Type":"application/json",
-        "Authorization":`Bearer ${idToken}`
-      },
-      body:JSON.stringify({
-        workspaceId:
-          TEAM_CALCULATOR_WORKSPACE_ID,
-        taskId:normalized.id,
-        title:String(
-          normalized.title||normalized.id
-        ),
-        externalTaskUrl:String(
-          normalized.externalTaskUrl||""
-        ).trim(),
-        estimatedRole:roleKey,
-        finalEstimate,
-        estimateVersion,
-        reason,
-        applyLabel:Boolean(applyLabel)
-      })
+  return enqueueGitLabJob({
+    endpoint:config.endpoint,
+    idToken,
+    payload:{
+      workspaceId:
+        TEAM_CALCULATOR_WORKSPACE_ID,
+      taskId:normalized.id,
+      title:String(
+        normalized.title||normalized.id
+      ),
+      externalTaskUrl:String(
+        normalized.externalTaskUrl||""
+      ).trim(),
+      estimatedRole:roleKey,
+      finalEstimate,
+      estimateVersion,
+      reason,
+      applyLabel:Boolean(applyLabel)
     }
-  );
-
-  const result=await response
-    .json()
-    .catch(()=>({}));
-
-  if(
-    !response.ok
-    ||result.ok!==true
-    ||!result.jobId
-  ){
-    throw new Error(
-      result.error||`HTTP ${response.status}`
-    );
-  }
-
-  return result;
+  });
 }
 
 async function sendTaskGitLabEstimate(taskId){
@@ -9505,38 +9624,24 @@ async function requestSprintGitLabSync(
   try{
     const idToken=await currentUser.getIdToken();
 
-    const response=await fetch(
-      config.endpoint,
-      {
-        method:"POST",
-        headers:{
-          "Content-Type":"application/json",
-          "Authorization":`Bearer ${idToken}`
-        },
-        body:JSON.stringify({
-          workspaceId:TEAM_CALCULATOR_WORKSPACE_ID,
-          sprintId:currentSprintId||null,
-          sprintName:(sprintName.value||"").trim()||null,
-          sprintLifecycleStatus,
-          tasks
-        })
+    const queued=await enqueueGitLabJob({
+      endpoint:config.endpoint,
+      idToken,
+      payload:{
+        workspaceId:TEAM_CALCULATOR_WORKSPACE_ID,
+        sprintId:currentSprintId||null,
+        sprintName:(sprintName.value||"").trim()||null,
+        sprintLifecycleStatus,
+        tasks
       }
-    );
-
-    const result=await response.json().catch(()=>({}));
-
-    if(!response.ok||result.ok!==true||!result.jobId){
-      throw new Error(
-        result.error||`HTTP ${response.status}`
-      );
-    }
+    });
 
     setSprintGitLabSyncStatus(
       `Запрос создан: ${tasks.length} задач. Ожидается коннектор.`
     );
 
     await watchGitLabSyncJob(
-      result.jobId,
+      queued.jobId,
       {onTerminal}
     );
     return true;

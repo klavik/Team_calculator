@@ -3646,14 +3646,22 @@ function gitLabConfiguredStatusLabels(){
         :[]
     );
 
+  // Канонический набор статусов, который уже умеет отображать
+  // Team_calculator. Он должен совпадать с GitLab labels буквально,
+  // включая пробелы в QA (DEV) / QA (PREPROD).
   const defaults=[
+    "Backlog",
+    "Open",
     "In Progress",
-    "Ready to PREPROD",
-    "Ready to PROD",
+    "On Hold",
+    "Review",
     "Approved",
-    "QA(DEV)",
-    "QA(PREPROD)",
-    "QA return"
+    "QA (DEV)",
+    "Ready to PREPROD",
+    "QA (PREPROD)",
+    "Ready to PROD",
+    "QA return",
+    "GOA return"
   ];
 
   return [

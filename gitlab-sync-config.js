@@ -1,9 +1,6 @@
 window.TEAM_CALCULATOR_GITLAB_SYNC = {
-  // v23.4.31:
+  // v23.4.32:
   // GitLab jobs создаются напрямую в Firestore.
-  // workers.dev больше не находится в критическом пути кнопок
-  // Team_calculator. Endpoint сохраняется для совместимости и
-  // определения типа job в клиенте.
   queueMode: "firestore",
 
   endpoint:
@@ -15,17 +12,21 @@ window.TEAM_CALCULATOR_GITLAB_SYNC = {
   actualPreviewEndpoint:
     "https://team-poker-team-calculator-integration.slavanazin.workers.dev/gitlab-actual-preview",
 
-  // Набор GitLab labels, которые Mac connector должен вернуть
-  // в метаданных задачи. Пользовательские статусы расчёта факта
-  // также автоматически добавляются к этому списку.
+  // Полный канонический набор GitLab labels, отображаемых в колонке
+  // «Статус GitLab». Значения должны совпадать с labels буквально.
   statusLabels: [
+    "Backlog",
+    "Open",
     "In Progress",
-    "Ready to PREPROD",
-    "Ready to PROD",
+    "On Hold",
+    "Review",
     "Approved",
-    "QA(DEV)",
-    "QA(PREPROD)",
-    "QA return"
+    "QA (DEV)",
+    "Ready to PREPROD",
+    "QA (PREPROD)",
+    "Ready to PROD",
+    "QA return",
+    "GOA return"
   ],
 
   estimateLabel: "estimate::done",

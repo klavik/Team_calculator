@@ -1,5 +1,5 @@
 window.TEAM_CALCULATOR_GITLAB_SYNC = {
-  // v23.4.32:
+  // v23.4.33:
   // GitLab jobs создаются напрямую в Firestore.
   queueMode: "firestore",
 
@@ -12,8 +12,9 @@ window.TEAM_CALCULATOR_GITLAB_SYNC = {
   actualPreviewEndpoint:
     "https://team-poker-team-calculator-integration.slavanazin.workers.dev/gitlab-actual-preview",
 
-  // Полный канонический набор GitLab labels, отображаемых в колонке
-  // «Статус GitLab». Значения должны совпадать с labels буквально.
+  // Канонический набор GitLab labels для колонки «Статус GitLab».
+  // Team_calculator автоматически добавляет для Ready to PREPROD /
+  // Ready to PROD варианты с ☺ / ☹ (включая emoji variation selector).
   statusLabels: [
     "Backlog",
     "Open",

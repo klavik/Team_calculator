@@ -4,7 +4,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Team_calculator — планирование спринта</title>
+  <title>Team_calculator v23.4.33 — планирование спринта</title>
   <link
     rel="icon"
     type="image/svg+xml"
@@ -47,6 +47,19 @@
       align-items:center;
       gap:10px;
       min-width:0;
+    }
+    .app-version-badge{
+      display:inline-flex;
+      align-items:center;
+      padding:3px 7px;
+      border:1px solid #d9deea;
+      border-radius:999px;
+      background:#f2f4f8;
+      color:var(--muted);
+      font-size:11px;
+      font-weight:800;
+      line-height:1.2;
+      white-space:nowrap;
     }
     .app-logo{
       display:block;
@@ -1933,6 +1946,9 @@
         alt=""
         aria-hidden="true" />
       <h1>Team_calculator</h1>
+      <span
+        class="app-version-badge"
+        title="Версия Team_calculator">v23.4.33</span>
     </div>
     <div
       class="header-sprint-context empty"
@@ -3628,6 +3644,75 @@ function gitLabDirectQueueConfig(){
   return window.TEAM_CALCULATOR_GITLAB_SYNC||{};
 }
 
+function gitLabCanonicalStatusLabel(value){
+  return String(value||"")
+    .trim()
+    .replace(
+      /\s+(?:☺(?:\uFE0F)?|☹(?:\uFE0F)?)\s*$/u,
+      ""
+    )
+    .trim();
+}
+
+function gitLabStatusLabelVariants(value){
+  const original=String(value||"").trim();
+  if(!original)return [];
+
+  const canonical=
+    gitLabCanonicalStatusLabel(original);
+
+  const variants=[
+    original,
+    canonical
+  ];
+
+  // В GitLab у Ready-статусов используются декоративные
+  // варианты с ☺ / ☹. Коннектор сравнивает labels буквально,
+  // поэтому нужные варианты отправляются в job явно.
+  if(
+    /^Ready to (?:PREPROD|PROD)$/i.test(
+      canonical
+    )
+  ){
+    variants.push(
+      `${canonical} ☺`,
+      `${canonical} ☺️`,
+      `${canonical} ☹`,
+      `${canonical} ☹️`
+    );
+  }
+
+  return [
+    ...new Set(
+      variants.filter(Boolean)
+    )
+  ];
+}
+
+function expandGitLabActualMappings(
+  mappings
+){
+  return (
+    Array.isArray(mappings)
+      ?mappings
+      :[]
+  ).map(mapping=>({
+    ...mapping,
+    statuses:[
+      ...new Set(
+        (
+          Array.isArray(mapping?.statuses)
+            ?mapping.statuses
+            :[]
+        ).flatMap(
+          status=>
+            gitLabStatusLabelVariants(status)
+        )
+      )
+    ]
+  }));
+}
+
 function gitLabConfiguredStatusLabels(){
   const config=gitLabDirectQueueConfig();
 
@@ -3646,9 +3731,9 @@ function gitLabConfiguredStatusLabels(){
         :[]
     );
 
-  // Канонический набор статусов, который уже умеет отображать
-  // Team_calculator. Он должен совпадать с GitLab labels буквально,
-  // включая пробелы в QA (DEV) / QA (PREPROD).
+  // Канонический набор статусов. Для Ready to PREPROD / PROD
+  // автоматически добавляются варианты с ☺ / ☹, потому что GitLab
+  // connector сопоставляет labels буквально.
   const defaults=[
     "Backlog",
     "Open",
@@ -3671,6 +3756,10 @@ function gitLabConfiguredStatusLabels(){
         ...actualStatuses,
         ...defaults
       ]
+        .flatMap(
+          value=>
+            gitLabStatusLabelVariants(value)
+        )
         .map(value=>String(value||"").trim())
         .filter(Boolean)
     )
@@ -3898,9 +3987,10 @@ function buildDirectGitLabJob({
       ...(payload?.calendar||{})
     };
 
-    const mappings=Array.isArray(payload?.mappings)
-      ?payload.mappings
-      :[];
+    const mappings=
+      expandGitLabActualMappings(
+        payload?.mappings
+      );
 
     const tasks=Array.isArray(payload?.tasks)
       ?payload.tasks

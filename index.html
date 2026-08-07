@@ -3646,12 +3646,156 @@ function gitLabEnqueueDelay(milliseconds){
   });
 }
 
+function gitLabEnqueueJobPrefix(endpoint){
+  let path="";
+
+  try{
+    path=new URL(
+      String(endpoint||""),
+      location.href
+    ).pathname.replace(/\/+$/,"");
+  }catch{
+    path=String(endpoint||"")
+      .split("?")[0]
+      .replace(/\/+$/,"");
+  }
+
+  if(path.endsWith("/gitlab-sync")){
+    return "metadata";
+  }
+
+  if(path.endsWith("/gitlab-estimate")){
+    return "estimate";
+  }
+
+  if(path.endsWith("/gitlab-actual-preview")){
+    return "actual";
+  }
+
+  return "";
+}
+
+async function gitLabExpectedJobId(
+  endpoint,
+  clientRequestId
+){
+  const prefix=
+    gitLabEnqueueJobPrefix(endpoint);
+
+  const userUid=String(
+    currentUser?.uid||""
+  ).trim();
+
+  if(
+    !prefix
+    ||!userUid
+    ||!clientRequestId
+    ||!globalThis.crypto?.subtle
+  ){
+    return "";
+  }
+
+  const bytes=new TextEncoder().encode(
+    `${prefix}|${userUid}|${clientRequestId}`
+  );
+
+  const digest=
+    await globalThis.crypto.subtle.digest(
+      "SHA-256",
+      bytes
+    );
+
+  const hex=Array.from(
+    new Uint8Array(digest)
+  )
+    .map(value=>
+      value.toString(16).padStart(2,"0")
+    )
+    .join("");
+
+  return `${prefix}_${hex.slice(0,40)}`;
+}
+
+async function recoverQueuedGitLabJob({
+  jobId,
+  clientRequestId,
+  waitMs=8000
+}){
+  if(
+    !jobId
+    ||!clientRequestId
+    ||!firebaseDb
+    ||!currentUser
+  ){
+    return null;
+  }
+
+  const {fsMod}=await loadFirebaseModules();
+  const jobRef=fsMod.doc(
+    firebaseDb,
+    "workspaces",
+    TEAM_CALCULATOR_WORKSPACE_ID,
+    "gitlab_jobs",
+    jobId
+  );
+
+  const deadline=Date.now()+waitMs;
+  let firstAttempt=true;
+
+  while(
+    firstAttempt
+    ||Date.now()<=deadline
+  ){
+    firstAttempt=false;
+
+    try{
+      const snapshot=
+        await fsMod.getDoc(jobRef);
+
+      if(snapshot.exists()){
+        const job=snapshot.data()||{};
+
+        if(
+          String(job.clientRequestId||"")
+            ===clientRequestId
+          &&String(job.requestedByUid||"")
+            ===String(currentUser.uid||"")
+        ){
+          return {
+            jobId,
+            clientRequestId,
+            httpStatus:null,
+            recoveredFromFirestore:true,
+            jobStatus:String(
+              job.status||"pending"
+            )
+          };
+        }
+      }
+    }catch(error){
+      console.warn(
+        "Не удалось проверить GitLab job после сетевой ошибки",
+        error
+      );
+    }
+
+    if(Date.now()>deadline){
+      break;
+    }
+
+    await gitLabEnqueueDelay(750);
+  }
+
+  return null;
+}
+
 async function enqueueGitLabJob({
   endpoint,
   idToken,
   payload,
-  timeoutMs=15000,
-  retryCount=1
+  timeoutMs=45000,
+  retryCount=1,
+  recoveryWaitMs=8000
 }){
   const clientRequestId=String(
     payload?.clientRequestId
@@ -3662,6 +3806,19 @@ async function enqueueGitLabJob({
     ...payload,
     clientRequestId
   };
+
+  /*
+    Worker v23.4.29+ формирует jobId детерминированно:
+      SHA-256(prefix|uid|clientRequestId)
+
+    Поэтому даже при потере HTTP-ответа Team_calculator может
+    проверить Firestore и продолжить работу с уже созданным job.
+  */
+  const expectedJobId=
+    await gitLabExpectedJobId(
+      endpoint,
+      clientRequestId
+    );
 
   let lastError=null;
 
@@ -3700,37 +3857,71 @@ async function enqueueGitLabJob({
         throw error;
       }
 
-      const jobId=String(
+      const responseJobId=String(
         response.headers.get("X-Job-Id")||""
       ).trim();
 
+      const jobId=
+        responseJobId
+        ||expectedJobId;
+
       if(!jobId){
         const error=new Error(
-          "Сервис синхронизации не вернул X-Job-Id. "
-          +"Сначала опубликуйте Cloudflare Worker v23.4.29."
+          "Не удалось определить ID GitLab-задания. "
+          +"Требуется Cloudflare Worker v23.4.29 или новее."
         );
         error.doNotRetry=true;
         throw error;
       }
 
-      // Тело ответа намеренно не читается. На нестабильной мобильной
-      // сети заголовки могут быть уже получены, а body зависнуть.
+      // Тело ответа намеренно не читается.
       try{
         await response.body?.cancel();
       }catch{
-        // Отмена body не влияет на уже полученный jobId.
+        // Заголовки уже получены, дальнейшее чтение не требуется.
       }
 
       return {
         jobId,
         clientRequestId,
-        httpStatus:response.status
+        httpStatus:response.status,
+        recoveredFromFirestore:false
       };
     }catch(error){
       clearTimeout(timeoutId);
 
+      const isTimeout=
+        error?.name==="AbortError";
+
+      const isNetworkFailure=
+        isTimeout
+        ||error instanceof TypeError;
+
+      /*
+        Самое важное для плохой сети:
+        fetch мог завершиться ошибкой уже после того, как Worker
+        успел создать job. Проверяем детерминированный документ
+        напрямую через Firestore, который у Team_calculator и так
+        используется для realtime-статуса задания.
+      */
+      if(
+        isNetworkFailure
+        &&expectedJobId
+      ){
+        const recovered=
+          await recoverQueuedGitLabJob({
+            jobId:expectedJobId,
+            clientRequestId,
+            waitMs:recoveryWaitMs
+          });
+
+        if(recovered){
+          return recovered;
+        }
+      }
+
       const normalizedError=
-        error?.name==="AbortError"
+        isTimeout
           ?new Error(
             `Таймаут соединения с сервисом синхронизации (${Math.round(timeoutMs/1000)} с).`
           )
@@ -3745,7 +3936,9 @@ async function enqueueGitLabJob({
         throw normalizedError;
       }
 
-      await gitLabEnqueueDelay(500);
+      // Повтор использует тот же clientRequestId, поэтому Worker
+      // не создаст второе задание.
+      await gitLabEnqueueDelay(750);
     }
   }
 

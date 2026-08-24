@@ -1,10 +1,10 @@
 <!DOCTYPE html>
-<!-- Team_calculator v23.4.36: взаимоисключающие фильтры пула и задачи других спринтов -->
+<!-- Team_calculator v23.4.37: взаимоисключающие фильтры пула и задачи других спринтов -->
 <html lang="ru">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Team_calculator v23.4.36 — планирование спринта</title>
+  <title>Team_calculator v23.4.37 — планирование спринта</title>
   <link
     rel="icon"
     type="image/svg+xml"
@@ -1143,6 +1143,16 @@
       border:1px solid #8f1d17;
       font-weight:950;
     }
+    .sprint-task-focus-highlight td{
+      background:#fff3df!important;
+      transition:background .2s ease;
+    }
+    .sprint-task-focus-highlight td:first-child{
+      box-shadow:inset 5px 0 0 var(--accent)!important;
+    }
+    .sprint-task-focus-highlight .task-title{
+      color:#9a4e00;
+    }
     .sprint-ready-prod-row td{
       background:#f0faf3;
     }
@@ -1958,7 +1968,7 @@
       <h1>Team_calculator</h1>
       <span
         class="app-version-badge"
-        title="Версия Team_calculator">v23.4.36</span>
+        title="Версия Team_calculator">v23.4.37</span>
     </div>
     <div
       class="header-sprint-context empty"
@@ -9089,6 +9099,18 @@ function renderTaskPool(){
       );
     }
 
+    if(participant){
+      actionButtons.unshift(
+        `<button
+          class="secondary"
+          type="button"
+          data-focus-sprint-task="${task.id}"
+          title="Перейти к этой задаче в разделе «Задачи текущего спринта»">
+            К задаче в спринте
+        </button>`
+      );
+    }
+
     if(task.source==="team_calculator"){
       actionButtons.unshift(
         `<button
@@ -9205,6 +9227,13 @@ function renderTaskPool(){
       );
     };
   });
+  document.querySelectorAll("[data-focus-sprint-task]").forEach(
+    button=>{
+      button.onclick=()=>focusTaskInCurrentSprint(
+        button.dataset.focusSprintTask
+      );
+    }
+  );
   document.querySelectorAll("[data-add-task]").forEach(btn=>btn.onclick=()=>addTaskToSprint(btn.dataset.addTask));
   document.querySelectorAll("[data-remove-task]").forEach(btn=>btn.onclick=()=>removeTaskFromSprint(btn.dataset.removeTask));
   document.querySelectorAll("[data-release-task]").forEach(btn=>btn.onclick=()=>releaseTaskToPool(btn.dataset.releaseTask));
@@ -10844,6 +10873,80 @@ function sprintTaskMatchesFilters(item){
   return true;
 }
 
+function focusTaskInCurrentSprint(taskId){
+  const normalizedTaskId=String(
+    taskId||""
+  ).trim();
+
+  if(!normalizedTaskId)return;
+
+  if(
+    !selectedTaskIds.includes(
+      normalizedTaskId
+    )
+  ){
+    alert(
+      "Эта задача не входит в текущий открытый спринт."
+    );
+    return;
+  }
+
+  /*
+    Задача могла быть скрыта фильтрами раздела
+    «Задачи текущего спринта». Для перехода показываем
+    полный состав, а затем ищем нужную строку.
+  */
+  sprintTaskDirectionFilter.value="all";
+  sprintTaskStatusFilter.value="all";
+  sprintTaskAssigneeFilter.value="all";
+  sprintTaskIterationFilter.value="all";
+
+  renderSprintTasks();
+
+  window.requestAnimationFrame(()=>{
+    const row=sprintTasksBody.querySelector(
+      `[data-sprint-task-id="${
+        CSS.escape(normalizedTaskId)
+      }"]`
+    );
+
+    if(!row){
+      alert(
+        "Задача входит в спринт, но строку не удалось отобразить."
+      );
+      return;
+    }
+
+    sprintTasksBody
+      .querySelectorAll(
+        ".sprint-task-focus-highlight"
+      )
+      .forEach(item=>
+        item.classList.remove(
+          "sprint-task-focus-highlight"
+        )
+      );
+
+    row.classList.add(
+      "sprint-task-focus-highlight"
+    );
+
+    row.scrollIntoView({
+      behavior:"smooth",
+      block:"center",
+      inline:"nearest"
+    });
+
+    window.setTimeout(()=>{
+      if(row.isConnected){
+        row.classList.remove(
+          "sprint-task-focus-highlight"
+        );
+      }
+    },5000);
+  });
+}
+
 function renderSprintTasks(){
   const roleDefs=roles.map(role=>({
     key:roleKeyFromName(role.name),
@@ -11072,6 +11175,7 @@ function renderSprintTasks(){
       );
 
     const tr=document.createElement("tr");
+    tr.dataset.sprintTaskId=id;
 
     if(readyToProd){
       tr.classList.add("sprint-ready-prod-row");

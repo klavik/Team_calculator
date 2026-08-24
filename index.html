@@ -1,10 +1,10 @@
 <!DOCTYPE html>
-<!-- Team_calculator v23.4.39: взаимоисключающие фильтры пула и задачи других спринтов -->
+<!-- Team_calculator v23.4.40: взаимоисключающие фильтры пула и задачи других спринтов -->
 <html lang="ru">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Team_calculator v23.4.39 — планирование спринта</title>
+  <title>Team_calculator v23.4.40 — планирование спринта</title>
   <link
     rel="icon"
     type="image/svg+xml"
@@ -1993,7 +1993,7 @@
       <h1>Team_calculator</h1>
       <span
         class="app-version-badge"
-        title="Версия Team_calculator">v23.4.39</span>
+        title="Версия Team_calculator">v23.4.40</span>
     </div>
     <div
       class="header-sprint-context empty"
@@ -6049,7 +6049,23 @@ async function completeSprintLifecycle(){
       sprintCompletedAt
       ||new Date().toISOString();
 
-    allReturnedTaskIds.forEach(taskId=>{
+    /*
+      allReturnedTaskIds — это история участия в спринте.
+      В v23.4.38 возвращённую задачу стало можно удалить из общего пула.
+      Такая задача должна остаться в истории спринта, но НЕ должна
+      создаваться заново при завершении.
+
+      batch.set(..., {merge:true}) по отсутствующему taskPool-документу
+      фактически является CREATE. Неполный документ блокируется
+      Firestore Rules и раньше приводил к:
+      "Missing or insufficient permissions".
+    */
+    const returnedTaskIdsStillInPool=
+      allReturnedTaskIds.filter(
+        taskId=>Boolean(taskPool[taskId])
+      );
+
+    returnedTaskIdsStillInPool.forEach(taskId=>{
       const carryover=
         buildTaskCarryover(
           taskId,
@@ -6079,9 +6095,7 @@ async function completeSprintLifecycle(){
 
     await batch.commit();
 
-    allReturnedTaskIds.forEach(taskId=>{
-      if(!taskPool[taskId])return;
-
+    returnedTaskIdsStillInPool.forEach(taskId=>{
       taskPool[taskId].plannedSprintId=null;
       taskPool[taskId].plannedSprintName=null;
       taskPool[taskId].plannedByUid=null;
@@ -6108,7 +6122,15 @@ async function completeSprintLifecycle(){
     );
 
     clearTimeout(sprintAutoSaveTimer);
-    await saveCurrentStateNow();
+
+    const currentStateSaved=
+      await saveCurrentStateNow();
+
+    if(!currentStateSaved){
+      throw new Error(
+        "Спринт сохранён, но не удалось обновить текущее состояние приложения."
+      );
+    }
 
     setSyncState("Спринт завершён");
     render();

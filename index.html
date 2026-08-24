@@ -1,10 +1,10 @@
 <!DOCTYPE html>
-<!-- Team_calculator v23.4.37: взаимоисключающие фильтры пула и задачи других спринтов -->
+<!-- Team_calculator v23.4.38: взаимоисключающие фильтры пула и задачи других спринтов -->
 <html lang="ru">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Team_calculator v23.4.37 — планирование спринта</title>
+  <title>Team_calculator v23.4.38 — планирование спринта</title>
   <link
     rel="icon"
     type="image/svg+xml"
@@ -1968,7 +1968,7 @@
       <h1>Team_calculator</h1>
       <span
         class="app-version-badge"
-        title="Версия Team_calculator">v23.4.37</span>
+        title="Версия Team_calculator">v23.4.38</span>
     </div>
     <div
       class="header-sprint-context empty"
@@ -8290,15 +8290,43 @@ async function renameTaskInPool(taskId){
 async function deleteTaskFromPool(taskId){
   const task=taskPool[taskId];
   if(!task)return;
-  if(selectedTaskIds.includes(taskId)){
+
+  const returnedFromCurrentSprint=
+    selectedTaskIds.includes(taskId)
+    &&sprintReturnedTaskIds.includes(taskId);
+
+  if(
+    selectedTaskIds.includes(taskId)
+    &&!returnedFromCurrentSprint
+  ){
     alert("Сначала уберите задачу из текущего спринта.");
     return;
   }
-  if(task.plannedSprintId){
+
+  /*
+    Возвращённая из текущего спринта задача уже не входит
+    в его текущий состав. Даже если plannedSprintId ещё не успел
+    очиститься после неудачной синхронизации, её можно удалить
+    из общего пула: snapshot и факт участия остаются в спринте.
+  */
+  if(
+    task.plannedSprintId
+    &&!returnedFromCurrentSprint
+  ){
     alert("Задача связана с сохранённым спринтом. Сначала верните её в пул.");
     return;
   }
-  if(!confirm(`Удалить задачу «${task.title||taskId}» из пула?`))return;
+
+  const historyNote=returnedFromCurrentSprint
+    ?"\n\nИстория участия и учтённый факт в текущем спринте будут сохранены."
+    :"";
+
+  if(
+    !confirm(
+      `Удалить задачу «${task.title||taskId}» из пула?`
+      +historyNote
+    )
+  )return;
 
   try{
     const {fsMod}=await loadFirebaseModules();
@@ -8621,24 +8649,20 @@ function taskPoolStatusLabel(task){
   const participant=
     selectedTaskIds.includes(task.id);
 
-  const returned=
-    participant
-    &&sprintReturnedTaskIds.includes(task.id);
-
   const selected=
-    participant&&!returned;
+    participant
+    &&!sprintReturnedTaskIds.includes(task.id);
 
   const plannedElsewhere=
     task.plannedSprintId
     &&task.plannedSprintId!==currentSprintId
     &&!selected;
 
-  if(returned){
-    return sprintLifecycleIsCompleted()
-      ?"Перенесена в следующий спринт"
-      :"Возвращена в пул · факт сохранён";
-  }
-
+  /*
+    Возвращённая задача уже считается задачей общего пула.
+    История предыдущего участия показывается carryover-бейджем,
+    а основной статус снова отражает её актуальную готовность.
+  */
   if(selected){
     return sprintLifecycleIsCompleted()
       ?"В завершённом спринте"
@@ -9013,30 +9037,7 @@ function renderTaskPool(){
     }).join("");
 
     let statusHtml;
-    if(returnedFromCurrentSprint){
-      const previousActual=
-        Number(
-          task.carryover?.totalActual
-          ??taskEffectiveActualTotal(task.id)
-        );
-
-      const poolReleasePending=
-        task.plannedSprintId===currentSprintId;
-
-      statusHtml=
-        '<span class="task-status incomplete">Перенесена в пул</span>'
-        +(
-          Number.isFinite(previousActual)
-          &&previousActual>0
-            ?`<div class="task-warning carryover">В исходном спринте учтено ${esc(fmt(previousActual,2))} ч.д.</div>`
-            :""
-        )
-        +(
-          poolReleasePending
-            ?'<div class="task-warning">Общий пул ещё не обновлён</div>'
-            :""
-        );
-    }else if(selected){
+    if(selected){
       statusHtml=sprintLifecycleIsCompleted()
         ?'<span class="task-status done">В завершённом спринте</span>'
         :'<span class="task-status planned">В текущем спринте</span>';
@@ -9068,16 +9069,23 @@ function renderTaskPool(){
     const actionButtons=[];
 
     if(returnedFromCurrentSprint){
-      if(task.plannedSprintId===currentSprintId){
-        actionButtons.push(
-          `<button class="secondary" data-release-task="${task.id}">Повторить возврат в пул</button>`
-        );
-      }
+      const addDisabled=
+        !ready
+        ||sprintLifecycleIsCompleted();
 
       actionButtons.push(
-        sprintLifecycleIsCompleted()
-          ?'<button class="secondary" disabled>Доступна для нового спринта</button>'
-          :`<button data-add-task="${task.id}">Вернуть в спринт</button>`
+        `<button
+          ${addDisabled?"disabled":""}
+          data-add-task="${task.id}">
+            ${sprintLifecycleIsCompleted()
+              ?"Спринт завершён"
+              :"В спринт"}
+        </button>`,
+        `<button
+          class="danger-inline"
+          data-delete-task="${task.id}">
+            Удалить
+        </button>`
       );
     }else if(selected){
       actionButtons.push(
@@ -9099,7 +9107,7 @@ function renderTaskPool(){
       );
     }
 
-    if(participant){
+    if(selected){
       actionButtons.unshift(
         `<button
           class="secondary"
@@ -10880,13 +10888,18 @@ function focusTaskInCurrentSprint(taskId){
 
   if(!normalizedTaskId)return;
 
-  if(
-    !selectedTaskIds.includes(
-      normalizedTaskId
-    )
-  ){
+  const taskIsVisibleSprintMember=
+    sprintLifecycleIsCompleted()
+      ?selectedTaskIds.includes(
+          normalizedTaskId
+        )
+      :activeSprintTaskIds().includes(
+          normalizedTaskId
+        );
+
+  if(!taskIsVisibleSprintMember){
     alert(
-      "Эта задача не входит в текущий открытый спринт."
+      "Эта задача не входит в текущий состав открытого спринта."
     );
     return;
   }
@@ -10967,7 +10980,7 @@ function renderSprintTasks(){
     <th class="sprint-actions-column"></th>
   </tr>`;
 
-  const allTasks=selectedTaskIds
+  const participantTasks=selectedTaskIds
     .map(id=>{
       const task=currentTaskSnapshot(id);
       if(!task)return null;
@@ -11010,6 +11023,21 @@ function renderSprintTasks(){
     })
     .filter(Boolean);
 
+  /*
+    selectedTaskIds остаётся историей всех участников спринта.
+    В рабочем списке показываем только текущий состав.
+    После завершения спринта снова показываем всех участников,
+    чтобы история завершённого спринта оставалась доступна.
+  */
+  const allTasks=sprintLifecycleIsCompleted()
+    ?participantTasks
+    :participantTasks.filter(
+        item=>
+          !sprintReturnedTaskIds.includes(
+            item.id
+          )
+      );
+
   renderSprintTaskFilterOptions(allTasks);
 
   const tasks=allTasks
@@ -11019,14 +11047,14 @@ function renderSprintTasks(){
   const completedSet=new Set(completedTaskIds);
   const baselineIds=baselineTaskSet();
   const activeIds=activeSprintTaskSet();
-  const activeItems=allTasks.filter(
+  const activeItems=participantTasks.filter(
     item=>activeIds.has(item.id)
   );
-  const returnedItems=allTasks.filter(
+  const returnedItems=participantTasks.filter(
     item=>sprintReturnedTaskIds.includes(item.id)
   );
   const totalActualAcrossParticipants=
-    allTasks.reduce(
+    participantTasks.reduce(
       (sum,item)=>
         sum+taskEffectiveActualTotal(
           item.id,
@@ -11046,8 +11074,8 @@ function renderSprintTasks(){
 
   sprintTaskSummary.innerHTML=`
     <span class="sprint-summary-pill"><b>${activeItems.length}</b> задач в текущем составе</span>
-    <span class="sprint-summary-pill"><b>${allTasks.length}</b> всего участвовало</span>
-    <span class="sprint-summary-pill"><b>${allTasks.filter(item=>completedSet.has(item.id)).length}</b> выполнено</span>
+    <span class="sprint-summary-pill"><b>${participantTasks.length}</b> всего участвовало</span>
+    <span class="sprint-summary-pill"><b>${participantTasks.filter(item=>completedSet.has(item.id)).length}</b> выполнено</span>
     <span class="sprint-summary-pill"><b>${fmt(activeItems.reduce((sum,item)=>sum+taskTotalEstimate(item.task),0),1)}</b> ч.д. текущий план</span>
     <span class="sprint-summary-pill"><b>${fmt(totalActualAcrossParticipants,1)}</b> ч.д. факт с учётом перенесённых</span>
     ${returnedItems.length
@@ -11072,7 +11100,7 @@ function renderSprintTasks(){
 
   if(!allTasks.length){
     sprintTasksBody.innerHTML=
-      '<tr><td class="task-empty" colspan="30">В спринт пока не добавлено ни одной задачи.</td></tr>';
+      '<tr><td class="task-empty" colspan="30">В текущем составе спринта нет задач.</td></tr>';
     return;
   }
 

@@ -1,10 +1,10 @@
 <!DOCTYPE html>
-<!-- Team_calculator v23.4.35: взаимоисключающие фильтры пула и задачи других спринтов -->
+<!-- Team_calculator v23.4.36: взаимоисключающие фильтры пула и задачи других спринтов -->
 <html lang="ru">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Team_calculator v23.4.35 — планирование спринта</title>
+  <title>Team_calculator v23.4.36 — планирование спринта</title>
   <link
     rel="icon"
     type="image/svg+xml"
@@ -1958,7 +1958,7 @@
       <h1>Team_calculator</h1>
       <span
         class="app-version-badge"
-        title="Версия Team_calculator">v23.4.35</span>
+        title="Версия Team_calculator">v23.4.36</span>
     </div>
     <div
       class="header-sprint-context empty"
@@ -6210,6 +6210,21 @@ function taskIdFromUrl(){
   }
 }
 
+function taskRouteBrowseOnly(){
+  /*
+    Ссылка из Team_poker вида ?task=tp_xxx нужна только для
+    навигации по общему пулу. Если сохранённый спринт не открыт,
+    такой переход не должен превращать текущий черновик
+    (в том числе старое значение "Sprint 1") в новый сохранённый
+    спринт через background autosave / visibilitychange.
+  */
+  return Boolean(
+    taskIdFromUrl()
+    &&!currentSprintId
+    &&!sprintIdFromUrl()
+  );
+}
+
 function prepareTaskRoute(){
   const taskId=taskIdFromUrl();
 
@@ -6899,6 +6914,7 @@ function scheduleSprintAutoSave(){
     ||!firebaseDb
     ||!(sprintName.value||"").trim()
     ||sprintLifecycleIsCompleted()
+    ||taskRouteBrowseOnly()
   ){
     return;
   }
@@ -6917,6 +6933,7 @@ async function runSprintAutoSave(){
     ||!firebaseDb
     ||!(sprintName.value||"").trim()
     ||sprintLifecycleIsCompleted()
+    ||taskRouteBrowseOnly()
   ){
     return;
   }
@@ -7133,9 +7150,13 @@ function renderSavedSprints(){
           ?"только просмотр"
           :"автосохранение включено"
       )
-      :((sprintName.value||"").trim()
-        ?"создание и автосохранение"
-        :"черновик");
+      :(
+        taskRouteBrowseOnly()
+          ?"просмотр задачи"
+          :((sprintName.value||"").trim()
+            ?"создание и автосохранение"
+            :"черновик")
+      );
 
     statusEl.className="pill save-status";
   }
@@ -11822,6 +11843,7 @@ document.addEventListener("visibilitychange",()=>{
   if(
     (sprintName.value||"").trim()
     &&!sprintLifecycleIsCompleted()
+    &&!taskRouteBrowseOnly()
   ){
     runSprintAutoSave();
   }

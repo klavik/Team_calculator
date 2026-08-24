@@ -1,10 +1,10 @@
 <!DOCTYPE html>
-<!-- Team_calculator v23.4.34: взаимоисключающие фильтры пула и задачи других спринтов -->
+<!-- Team_calculator v23.4.35: взаимоисключающие фильтры пула и задачи других спринтов -->
 <html lang="ru">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Team_calculator v23.4.34 — планирование спринта</title>
+  <title>Team_calculator v23.4.35 — планирование спринта</title>
   <link
     rel="icon"
     type="image/svg+xml"
@@ -553,15 +553,13 @@
     }
 
     .task-route-highlight td{
-      background:#fff8ed!important;
-      animation:task-route-highlight-pulse 1.1s ease-in-out 2;
+      background:#fff3df!important;
     }
     .task-route-highlight td:first-child{
-      box-shadow:inset 4px 0 0 var(--accent);
+      box-shadow:inset 5px 0 0 var(--accent);
     }
-    @keyframes task-route-highlight-pulse{
-      0%,100%{background:#fff8ed}
-      50%{background:#ffe5bd}
+    .task-route-highlight .task-title{
+      color:#9a4e00;
     }
 
     .accepted-actual-note{
@@ -1960,7 +1958,7 @@
       <h1>Team_calculator</h1>
       <span
         class="app-version-badge"
-        title="Версия Team_calculator">v23.4.34</span>
+        title="Версия Team_calculator">v23.4.35</span>
     </div>
     <div
       class="header-sprint-context empty"
@@ -2572,6 +2570,7 @@ const TEAM_CALCULATOR_WORKSPACE_ID =
 const SPRINT_URL_PARAMETER="sprint";
 const TASK_URL_PARAMETER="task";
 let pendingTaskRouteId=null;
+let taskRouteFocusCompleted=false;
 let selectedTaskIds=[];
 let completedTaskIds=[];
 let sprintTaskSnapshots={};
@@ -6214,17 +6213,19 @@ function taskIdFromUrl(){
 function prepareTaskRoute(){
   const taskId=taskIdFromUrl();
 
-  pendingTaskRouteId=
-    taskId&&taskPool[taskId]
-      ?taskId
-      :null;
+  pendingTaskRouteId=taskId||null;
+  taskRouteFocusCompleted=false;
 
   if(!pendingTaskRouteId){
-    return Boolean(!taskId);
+    return true;
   }
 
-  // Прямая ссылка должна показать задачу независимо
-  // от сохранённых пользователем фильтров пула.
+  /*
+    В момент входа taskPool ещё может быть пуст:
+    realtime-подписка Firestore запускается позже.
+    Поэтому запоминаем targetTaskId сразу и ждём,
+    пока нужная строка реально появится в таблице.
+  */
   taskPoolFilter.value="all";
   taskDirectionFilter.value="all";
 
@@ -6236,7 +6237,12 @@ function focusPendingTaskRoute(){
     pendingTaskRouteId||""
   ).trim();
 
-  if(!taskId)return;
+  if(
+    !taskId
+    ||taskRouteFocusCompleted
+  ){
+    return;
+  }
 
   window.requestAnimationFrame(()=>{
     const row=taskPoolBody.querySelector(
@@ -6245,6 +6251,11 @@ function focusPendingTaskRoute(){
       }"]`
     );
 
+    /*
+      Если realtime taskPool ещё не загрузился,
+      targetTaskId сохраняется. Следующий render()
+      после onSnapshot повторит попытку.
+    */
     if(!row)return;
 
     row.classList.add(
@@ -6257,13 +6268,7 @@ function focusPendingTaskRoute(){
       inline:"nearest"
     });
 
-    pendingTaskRouteId=null;
-
-    window.setTimeout(()=>{
-      row.classList.remove(
-        "task-route-highlight"
-      );
-    },4500);
+    taskRouteFocusCompleted=true;
   });
 }
 
@@ -12266,14 +12271,8 @@ async function loadUserWorkspace(){
     const requestedTaskId=
       taskIdFromUrl();
 
-    if(
-      requestedTaskId
-      &&!prepareTaskRoute()
-    ){
-      routeWarning=
-        routeWarning
-          ?`${routeWarning} Задача из URL не найдена или недоступна.`
-          :"Задача из URL не найдена или недоступна.";
+    if(requestedTaskId){
+      prepareTaskRoute();
     }
 
     recalculateRolePlanFact();

@@ -1,10 +1,10 @@
 <!DOCTYPE html>
-<!-- Team_calculator v23.4.38: взаимоисключающие фильтры пула и задачи других спринтов -->
+<!-- Team_calculator v23.4.39: взаимоисключающие фильтры пула и задачи других спринтов -->
 <html lang="ru">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Team_calculator v23.4.38 — планирование спринта</title>
+  <title>Team_calculator v23.4.39 — планирование спринта</title>
   <link
     rel="icon"
     type="image/svg+xml"
@@ -498,6 +498,31 @@
     .task-pool-card,.sprint-tasks-card{margin-bottom:0}
     .task-toolbar{display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap;margin:12px 0}
     .task-toolbar-left,.task-toolbar-right{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+    .task-pool-hide-completed{
+      display:inline-flex;
+      align-items:center;
+      gap:6px;
+      margin-left:6px;
+      padding:6px 9px;
+      border:1px solid var(--border);
+      border-radius:10px;
+      background:#fafbfe;
+      color:var(--text);
+      font-size:12px;
+      font-weight:700;
+      cursor:pointer;
+      user-select:none;
+    }
+    .task-pool-hide-completed input{
+      width:auto;
+      margin:0;
+      accent-color:var(--accent);
+      cursor:pointer;
+    }
+    .task-pool-hide-completed:has(input:disabled){
+      opacity:.55;
+      cursor:default;
+    }
     .task-table-wrap{max-width:100%;overflow-x:auto;border:1px solid var(--border);border-radius:14px}
     .task-table{width:100%;min-width:980px;border-collapse:collapse;background:#fff}
     .task-table th{position:sticky;top:0;z-index:1;background:#fafbfe;color:var(--muted);font-size:12px;white-space:nowrap}
@@ -1968,7 +1993,7 @@
       <h1>Team_calculator</h1>
       <span
         class="app-version-badge"
-        title="Версия Team_calculator">v23.4.38</span>
+        title="Версия Team_calculator">v23.4.39</span>
     </div>
     <div
       class="header-sprint-context empty"
@@ -2168,6 +2193,16 @@
               <option value="qa">QA</option>
               <option value="devops">DevOps</option>
             </select>
+
+            <label
+              class="task-pool-hide-completed"
+              title="Скрывает выполненные задачи. При выборе статуса «Выполненные» фильтр временно не применяется.">
+              <input
+                id="taskPoolHideCompleted"
+                type="checkbox"
+                checked>
+              <span>Не показывать выполненные</span>
+            </label>
           </div>
           <div class="task-toolbar-right">
             <button id="openManualTaskDialog">Добавить задачу</button>
@@ -2648,6 +2683,7 @@ taskImportJson=document.getElementById("taskImportJson"),
 taskImportStatus=document.getElementById("taskImportStatus"),
 taskPoolFilter=document.getElementById("taskPoolFilter"),
 taskDirectionFilter=document.getElementById("taskDirectionFilter"),
+taskPoolHideCompleted=document.getElementById("taskPoolHideCompleted"),
 taskPoolHead=document.getElementById("taskPoolHead"),
 taskPoolBody=document.getElementById("taskPoolBody"),
 taskPoolCount=document.getElementById("taskPoolCount"),
@@ -8871,6 +8907,19 @@ function renderTaskPool(){
 
   const filter=taskPoolFilter.value||"all";
   const directionFilter=taskDirectionFilter.value||"all";
+  const hideCompleted=Boolean(
+    taskPoolHideCompleted?.checked
+  );
+
+  /*
+    Если пользователь явно выбрал статус «Выполненные»,
+    чекбокс не должен делать этот список пустым.
+  */
+  if(taskPoolHideCompleted){
+    taskPoolHideCompleted.disabled=
+      filter==="completed";
+  }
+
   let items=Object.values(taskPool).map(normalizeTask);
 
   const activeTaskSet=activeSprintTaskSet();
@@ -8878,6 +8927,22 @@ function renderTaskPool(){
   items=items.filter(task=>{
     const ready=isTaskReady(task);
     const completed=isTaskCompleted(task);
+
+    const directRouteTarget=
+      Boolean(
+        pendingTaskRouteId
+        &&String(task.id)
+          ===String(pendingTaskRouteId)
+      );
+
+    if(
+      hideCompleted
+      &&filter!=="completed"
+      &&completed
+      &&!directRouteTarget
+    ){
+      return false;
+    }
     const plannedInCurrentSprint=
       activeTaskSet.has(task.id);
     const plannedInOtherSprint=Boolean(
@@ -8961,7 +9026,9 @@ function renderTaskPool(){
     +`${reestimateCount} на переоценку`;
 
   taskPoolCount.textContent=
-    filter==="all"&&directionFilter==="all"
+    filter==="all"
+    &&directionFilter==="all"
+    &&!hideCompleted
       ? poolSummary
       : `${shownCount} показано · ${poolSummary}`;
 
@@ -12027,6 +12094,7 @@ document.getElementById("reloadTaskPool").onclick=async()=>{
 };
 taskPoolFilter.onchange=renderTaskPool;
 taskDirectionFilter.onchange=renderTaskPool;
+taskPoolHideCompleted.onchange=renderTaskPool;
 document.getElementById("openManualTaskDialog").onclick=openManualTaskDialog;
 document.getElementById("closeManualTaskDialog").onclick=closeManualTaskDialog;
 document.getElementById("cancelManualTask").onclick=closeManualTaskDialog;

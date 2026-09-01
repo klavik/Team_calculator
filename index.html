@@ -1,10 +1,10 @@
 <!DOCTYPE html>
-<!-- Team_calculator v23.4.41: взаимоисключающие фильтры пула и задачи других спринтов -->
+<!-- Team_calculator v23.4.42: взаимоисключающие фильтры пула и задачи других спринтов -->
 <html lang="ru">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Team_calculator v23.4.41 — планирование спринта</title>
+  <title>Team_calculator v23.4.42 — планирование спринта</title>
   <link
     rel="icon"
     type="image/svg+xml"
@@ -1996,7 +1996,7 @@
       <h1>Team_calculator</h1>
       <span
         class="app-version-badge"
-        title="Версия Team_calculator">v23.4.41</span>
+        title="Версия Team_calculator">v23.4.42</span>
     </div>
     <div
       class="header-sprint-context empty"
@@ -9505,7 +9505,8 @@ function renderSprintGitLabIterationControl(){
 
     const option=document.createElement("option");
     option.value=String(normalized.id);
-    option.textContent=normalized.title;
+    option.textContent=
+      gitLabIterationDisplayLabel(normalized);
     sprintGitLabIterationSelect.appendChild(option);
   });
 

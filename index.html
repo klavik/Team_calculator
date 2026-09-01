@@ -1,10 +1,10 @@
 <!DOCTYPE html>
-<!-- Team_calculator v23.4.40: взаимоисключающие фильтры пула и задачи других спринтов -->
+<!-- Team_calculator v23.4.41: взаимоисключающие фильтры пула и задачи других спринтов -->
 <html lang="ru">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Team_calculator v23.4.40 — планирование спринта</title>
+  <title>Team_calculator v23.4.41 — планирование спринта</title>
   <link
     rel="icon"
     type="image/svg+xml"
@@ -184,6 +184,9 @@
     .card-save .save-layout{grid-template-columns:1fr!important}
     .card-save .save-actions{justify-content:flex-start!important}
     .card-save .save-actions button{white-space:nowrap}
+    .sprint-gitlab-iteration-control{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+    .sprint-gitlab-iteration-control select{flex:1 1 280px;min-width:220px}
+    .sprint-gitlab-iteration-status{margin-top:5px;font-size:12px}
     .card-save #restorePreviousState{border-color:#b8c2d8}
     .card-save #restorePreviousState:not(:disabled){
       background:#eef5ff;
@@ -1993,7 +1996,7 @@
       <h1>Team_calculator</h1>
       <span
         class="app-version-badge"
-        title="Версия Team_calculator">v23.4.40</span>
+        title="Версия Team_calculator">v23.4.41</span>
     </div>
     <div
       class="header-sprint-context empty"
@@ -2098,6 +2101,22 @@
 <div>
 <label for="sprintName">Название спринта / набора</label>
 <input id="sprintName" placeholder="Например: Sprint 2026-Q3-01" type="text" value="Sprint 1"/>
+</div>
+
+<div>
+  <label for="sprintGitLabIteration">GitLab Iteration</label>
+  <div class="sprint-gitlab-iteration-control">
+    <select id="sprintGitLabIteration">
+      <option value="">— не выбрана —</option>
+    </select>
+    <button
+      id="refreshSprintGitLabIterations"
+      class="secondary"
+      type="button">Обновить список</button>
+  </div>
+  <div
+    id="sprintGitLabIterationStatus"
+    class="muted sprint-gitlab-iteration-status"></div>
 </div>
 
 <div class="sprint-lifecycle-panel">
@@ -2608,6 +2627,10 @@ const defaultRoles=[
 ];
 let roles=JSON.parse(JSON.stringify(defaultRoles));
 let currentSprintId=null;
+let sprintGitLabIteration=null;
+let sprintGitLabIterationCatalog=[];
+let sprintGitLabIterationCatalogLoading=false;
+let unsubscribeSprintGitLabIterationJob=null;
 let savedSprintSets={};
 let taskPool={};
 const TEAM_CALCULATOR_WORKSPACE_ID =
@@ -2670,6 +2693,9 @@ buffer=document.getElementById("buffer"),
 devIssuesPerCrossTask=document.getElementById("devIssuesPerCrossTask"),
 excludePrepRoles=document.getElementById("excludePrepRoles"),
 sprintName=document.getElementById("sprintName"),
+sprintGitLabIterationSelect=document.getElementById("sprintGitLabIteration"),
+refreshSprintGitLabIterationsButton=document.getElementById("refreshSprintGitLabIterations"),
+sprintGitLabIterationStatus=document.getElementById("sprintGitLabIterationStatus"),
 headerSprintContext=document.getElementById("headerSprintContext"),
 headerSprintCaption=document.getElementById("headerSprintCaption"),
 headerSprintName=document.getElementById("headerSprintName"),
@@ -4002,7 +4028,28 @@ function buildDirectGitLabJob({
       ),
       tasks,
       statusLabels:
-        gitLabConfiguredStatusLabels()
+        gitLabConfiguredStatusLabels(),
+      ...(
+        payload?.iterationCatalogRequest===true
+          ?{iterationCatalogRequest:true}
+          :{}
+      ),
+      ...(
+        payload?.iterationMutation
+          ?{
+              iterationMutation:{
+                mode:String(
+                  payload.iterationMutation.mode||""
+                ).trim(),
+                iterationId:
+                  payload.iterationMutation.iterationId??null,
+                iterationTitle:String(
+                  payload.iterationMutation.iterationTitle||""
+                ).trim()||null
+              }
+            }
+          :{}
+      )
     };
   }
 
@@ -6169,6 +6216,9 @@ function getCurrentInputState(){
     devIssuesPerCrossTask: devIssuesPerCrossTask.value,
     excludePrepRoles: excludePrepRoles.value,
     sprintName: sprintName.value,
+    sprintGitLabIteration: sprintGitLabIteration
+      ?JSON.parse(JSON.stringify(sprintGitLabIteration))
+      :null,
     currentSprintId: currentSprintId,
     sprintLifecycleStatus: sprintLifecycleStatus,
     sprintStartedAt: sprintStartedAt,
@@ -6620,6 +6670,9 @@ function applyInputState(state){
   if(state.devIssuesPerCrossTask!==undefined)devIssuesPerCrossTask.value=state.devIssuesPerCrossTask;
   if(state.excludePrepRoles!==undefined)excludePrepRoles.value=state.excludePrepRoles;
   if(state.sprintName!==undefined)sprintName.value=state.sprintName;
+  sprintGitLabIteration=normalizeSprintGitLabIteration(
+    state.sprintGitLabIteration
+  );
   currentSprintId=state.currentSprintId||null;
   sprintLifecycleStatus=normalizeSprintLifecycleStatus(
     state.sprintLifecycleStatus
@@ -7155,6 +7208,8 @@ function startNewSprintSet(
 
   currentSprintId=null;
   sprintName.value="";
+  sprintGitLabIteration=null;
+  sprintGitLabIterationCatalog=[];
   resetSprintLifecycle();
   selectedTaskIds=[];
   completedTaskIds=[];
@@ -7182,6 +7237,8 @@ function copyCurrentSprintSettings(){
   const sourceName=(sprintName.value||"Спринт").trim();
   currentSprintId=null;
   sprintName.value=`${sourceName} — копия`;
+  sprintGitLabIteration=null;
+  sprintGitLabIterationCatalog=[];
   savedSprintSelect.value="";
   resetSprintLifecycle();
 
@@ -7296,6 +7353,7 @@ function renderSavedSprints(){
     const state=JSON.parse(JSON.stringify(item.input||{}));
     state.sprintName=(item.name||"Набор")+" — копия";
     state.currentSprintId=null;
+    state.sprintGitLabIteration=null;
     state.sprintLifecycleStatus=SPRINT_STATUS_PLANNING;
     state.sprintStartedAt=null;
     state.sprintCompletedAt=null;
@@ -8406,6 +8464,19 @@ async function addTaskToSprint(taskId){
   const task=taskPool[taskId];
   if(!task)return;
 
+  if(
+    taskHasGitLabLink(task)
+    &&!normalizeSprintGitLabIteration(
+      sprintGitLabIteration
+    )
+  ){
+    alert(
+      "Для GitLab-задачи сначала выберите GitLab Iteration текущего спринта."
+    );
+    sprintGitLabIterationSelect.focus();
+    return;
+  }
+
   const wasReturned=
     selectedTaskIds.includes(taskId)
     &&sprintReturnedTaskIds.includes(taskId);
@@ -8488,6 +8559,11 @@ async function addTaskToSprint(taskId){
       );
     }
   }
+
+  await syncTaskGitLabIterationAfterPlanning(
+    normalized,
+    "set"
+  );
 }
 
 async function removeTaskFromSprint(taskId){
@@ -8573,11 +8649,22 @@ async function removeTaskFromSprint(taskId){
       );
     }
 
+    await syncTaskGitLabIterationAfterPlanning(
+      task,
+      "clear"
+    );
+
     return;
   }
 
   pushSprintRecoverySnapshot(
     "удаление задачи из планируемого спринта"
+  );
+
+  const taskForGitLabIteration=normalizeTask(
+    taskPool[taskId]
+    ||currentTaskSnapshot(taskId)
+    ||{id:taskId}
   );
 
   selectedTaskIds=
@@ -8617,6 +8704,11 @@ async function removeTaskFromSprint(taskId){
       console.error(error);
     }
   }
+
+  await syncTaskGitLabIterationAfterPlanning(
+    taskForGitLabIteration,
+    "clear"
+  );
 
   render();
 }
@@ -8691,6 +8783,10 @@ async function releaseTaskToPool(taskId){
 
   try{
     await saveTaskPlanningFields(task);
+    await syncTaskGitLabIterationAfterPlanning(
+      task,
+      "clear"
+    );
     render();
   }catch(e){
     console.error(e);
@@ -9353,6 +9449,322 @@ function renderTaskPool(){
   focusPendingTaskRoute();
 }
 
+
+function normalizeSprintGitLabIteration(value){
+  if(!value||typeof value!=="object")return null;
+
+  const id=Number(value.id);
+  const title=String(value.title||"").trim();
+
+  if(!Number.isFinite(id)||id<=0||!title){
+    return null;
+  }
+
+  return {
+    id:Math.trunc(id),
+    title,
+    state:String(value.state||"").trim(),
+    startDate:String(value.startDate||"").trim(),
+    dueDate:String(value.dueDate||"").trim(),
+    webUrl:String(value.webUrl||"").trim()
+  };
+}
+
+function setSprintGitLabIterationStatus(text,type=""){
+  sprintGitLabIterationStatus.textContent=text||"";
+  sprintGitLabIterationStatus.style.color=
+    type==="bad"
+      ?"var(--bad)"
+      :(type==="ok"?"var(--good)":"");
+}
+
+function renderSprintGitLabIterationControl(){
+  const selected=normalizeSprintGitLabIteration(
+    sprintGitLabIteration
+  );
+
+  const catalog=[...sprintGitLabIterationCatalog];
+
+  if(
+    selected
+    &&!catalog.some(item=>Number(item.id)===Number(selected.id))
+  ){
+    catalog.unshift(selected);
+  }
+
+  sprintGitLabIterationSelect.innerHTML="";
+
+  const emptyOption=document.createElement("option");
+  emptyOption.value="";
+  emptyOption.textContent="— не выбрана —";
+  sprintGitLabIterationSelect.appendChild(emptyOption);
+
+  catalog.forEach(item=>{
+    const normalized=normalizeSprintGitLabIteration(item);
+    if(!normalized)return;
+
+    const option=document.createElement("option");
+    option.value=String(normalized.id);
+    option.textContent=normalized.title;
+    sprintGitLabIterationSelect.appendChild(option);
+  });
+
+  sprintGitLabIterationSelect.value=
+    selected?String(selected.id):"";
+
+  const readOnly=sprintLifecycleIsCompleted();
+  sprintGitLabIterationSelect.disabled=readOnly;
+  refreshSprintGitLabIterationsButton.disabled=
+    readOnly||sprintGitLabIterationCatalogLoading;
+}
+
+function stopSprintGitLabIterationJobRealtime(){
+  if(typeof unsubscribeSprintGitLabIterationJob==="function"){
+    unsubscribeSprintGitLabIterationJob();
+  }
+  unsubscribeSprintGitLabIterationJob=null;
+}
+
+function gitLabIterationCatalogTasks(){
+  const seenProjects=new Set();
+  const tasks=[];
+
+  Object.values(taskPool).forEach(rawTask=>{
+    const task=normalizeTask(rawTask);
+    const externalTaskUrl=String(
+      task.externalTaskUrl||""
+    ).trim();
+
+    if(!externalTaskUrl||tasks.length>=100)return;
+
+    let projectKey=externalTaskUrl;
+    try{
+      const url=new URL(externalTaskUrl);
+      const match=url.pathname.match(
+        /^\/(.+)\/-\/issues\/\d+(?:\/.*)?$/
+      );
+      if(match){
+        projectKey=`${url.origin}/${match[1]}`.toLowerCase();
+      }
+    }catch{}
+
+    if(seenProjects.has(projectKey))return;
+    seenProjects.add(projectKey);
+
+    tasks.push({
+      taskId:task.id,
+      title:String(task.title||task.id),
+      externalTaskUrl
+    });
+  });
+
+  return tasks;
+}
+
+async function watchSprintGitLabIterationCatalogJob(jobId){
+  stopSprintGitLabIterationJobRealtime();
+
+  const {fsMod}=await loadFirebaseModules();
+  const jobRef=fsMod.doc(
+    firebaseDb,
+    "workspaces",
+    TEAM_CALCULATOR_WORKSPACE_ID,
+    "gitlab_jobs",
+    jobId
+  );
+
+  unsubscribeSprintGitLabIterationJob=fsMod.onSnapshot(
+    jobRef,
+    snapshot=>{
+      if(!snapshot.exists())return;
+
+      const job=snapshot.data()||{};
+      const status=String(job.status||"pending");
+
+      if(status==="pending"){
+        setSprintGitLabIterationStatus(
+          "Запрос поставлен в очередь. Ожидается MacBook и VPN."
+        );
+        return;
+      }
+
+      if(status==="processing"){
+        setSprintGitLabIterationStatus(
+          "Получение списка Iteration из GitLab…"
+        );
+        return;
+      }
+
+      sprintGitLabIterationCatalogLoading=false;
+
+      if(status==="succeeded"){
+        sprintGitLabIterationCatalog=(
+          Array.isArray(job.iterations)?job.iterations:[]
+        )
+          .map(normalizeSprintGitLabIteration)
+          .filter(Boolean);
+
+        setSprintGitLabIterationStatus(
+          `Получено Iteration: ${sprintGitLabIterationCatalog.length}.`,
+          "ok"
+        );
+      }else{
+        setSprintGitLabIterationStatus(
+          `Не удалось получить Iteration: ${job.error||"задание не выполнено"}`,
+          "bad"
+        );
+      }
+
+      renderSprintGitLabIterationControl();
+      setTimeout(stopSprintGitLabIterationJobRealtime,2500);
+    },
+    error=>{
+      console.error(error);
+      sprintGitLabIterationCatalogLoading=false;
+      setSprintGitLabIterationStatus(
+        `Не удалось прочитать статус задания: ${error.message}`,
+        "bad"
+      );
+      renderSprintGitLabIterationControl();
+    }
+  );
+}
+
+async function refreshSprintGitLabIterations(){
+  const config=configuredTeamCalculatorGitLabSync();
+
+  if(!config){
+    setSprintGitLabIterationStatus(
+      "Не настроен gitlab-sync-config.js.",
+      "bad"
+    );
+    return;
+  }
+
+  if(!currentUser||!firebaseDb||sprintLifecycleIsCompleted()){
+    return;
+  }
+
+  const tasks=gitLabIterationCatalogTasks();
+  if(!tasks.length){
+    setSprintGitLabIterationStatus(
+      "В общем пуле нет задач со ссылкой на GitLab.",
+      "bad"
+    );
+    return;
+  }
+
+  sprintGitLabIterationCatalogLoading=true;
+  renderSprintGitLabIterationControl();
+  setSprintGitLabIterationStatus(
+    "Создание запроса списка Iteration…"
+  );
+
+  try{
+    const queued=await enqueueGitLabJob({
+      endpoint:config.endpoint,
+      payload:{
+        workspaceId:TEAM_CALCULATOR_WORKSPACE_ID,
+        sprintId:currentSprintId||null,
+        sprintName:(sprintName.value||"").trim()||null,
+        sprintLifecycleStatus,
+        tasks,
+        iterationCatalogRequest:true
+      }
+    });
+
+    await watchSprintGitLabIterationCatalogJob(
+      queued.jobId
+    );
+  }catch(error){
+    console.error(error);
+    sprintGitLabIterationCatalogLoading=false;
+    setSprintGitLabIterationStatus(
+      `Ошибка постановки запроса: ${error.message}`,
+      "bad"
+    );
+    renderSprintGitLabIterationControl();
+  }
+}
+
+function taskHasGitLabLink(task){
+  return Boolean(
+    String(task?.externalTaskUrl||"").trim()
+  );
+}
+
+async function enqueueTaskGitLabIterationMutation(
+  task,
+  mode
+){
+  if(!taskHasGitLabLink(task))return null;
+
+  const config=configuredTeamCalculatorGitLabSync();
+  if(!config){
+    throw new Error(
+      "Не настроен gitlab-sync-config.js."
+    );
+  }
+
+  const normalized=normalizeTask(task);
+  const selected=normalizeSprintGitLabIteration(
+    sprintGitLabIteration
+  );
+
+  if(mode==="set"&&!selected){
+    throw new Error(
+      "Для GitLab-задачи сначала выберите GitLab Iteration текущего спринта."
+    );
+  }
+
+  return enqueueGitLabJob({
+    endpoint:config.endpoint,
+    payload:{
+      workspaceId:TEAM_CALCULATOR_WORKSPACE_ID,
+      sprintId:currentSprintId||null,
+      sprintName:(sprintName.value||"").trim()||null,
+      sprintLifecycleStatus,
+      tasks:[{
+        taskId:normalized.id,
+        title:String(normalized.title||normalized.id),
+        externalTaskUrl:String(
+          normalized.externalTaskUrl||""
+        ).trim()
+      }],
+      iterationMutation:
+        mode==="set"
+          ?{
+              mode:"set",
+              iterationId:selected.id,
+              iterationTitle:selected.title
+            }
+          :{
+              mode:"clear"
+            }
+    }
+  });
+}
+
+async function syncTaskGitLabIterationAfterPlanning(
+  task,
+  mode
+){
+  if(!taskHasGitLabLink(task))return;
+
+  try{
+    await enqueueTaskGitLabIterationMutation(
+      task,
+      mode
+    );
+  }catch(error){
+    console.error(error);
+    alert(
+      mode==="set"
+        ?`Задача добавлена в спринт, но не удалось назначить Iteration в GitLab: ${error.message}`
+        :`Задача возвращена в пул, но не удалось очистить Iteration в GitLab: ${error.message}`
+    );
+  }
+}
 
 function configuredTeamCalculatorGitLabSync(){
   const config=window.TEAM_CALCULATOR_GITLAB_SYNC||{};
@@ -11460,6 +11872,7 @@ function render(){
   normalizeRoles();
   recalculateRolePlanFact();
   updateActiveSprintHeader();
+  renderSprintGitLabIterationControl();
 
   const combinedWillCalculate=
     actualCalculationFeatureEnabled()
@@ -11964,6 +12377,20 @@ function loadState(){
 periodName.onchange=()=>{if(periodName.value==="sprint")workdays.value=10;if(periodName.value==="quarter")workdays.value=60;saveState();render()};
 [workdays,utilization,buffer,devIssuesPerCrossTask,excludePrepRoles].forEach(el=>el.addEventListener("input",()=>{if(periodName.value!=="custom"&&((periodName.value==="sprint"&&workdays.value!=10)||(periodName.value==="quarter"&&workdays.value!=60)))periodName.value="custom";saveState();render()}));
 document.getElementById("saveSprint").onclick=()=>saveSprintSet(false,{silent:false,source:"manual"});
+refreshSprintGitLabIterationsButton.onclick=refreshSprintGitLabIterations;
+sprintGitLabIterationSelect.onchange=()=>{
+  const selectedId=Number(sprintGitLabIterationSelect.value);
+  sprintGitLabIteration=
+    sprintGitLabIterationCatalog
+      .map(normalizeSprintGitLabIteration)
+      .find(item=>item&&Number(item.id)===selectedId)
+    ||(
+      normalizeSprintGitLabIteration(sprintGitLabIteration)?.id===selectedId
+        ?normalizeSprintGitLabIteration(sprintGitLabIteration)
+        :null
+    );
+  saveState();
+};
 sprintLifecycleAction.onclick=handleSprintLifecycleAction;
 combinedSprintGitLabActionButton.onclick=
   runCombinedSprintGitLabAction;

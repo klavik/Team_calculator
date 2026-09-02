@@ -1,10 +1,10 @@
 <!DOCTYPE html>
-<!-- Team_calculator v23.4.45: взаимоисключающие фильтры пула и задачи других спринтов -->
+<!-- Team_calculator v23.4.46: взаимоисключающие фильтры пула и задачи других спринтов -->
 <html lang="ru">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Team_calculator v23.4.45 — планирование спринта</title>
+  <title>Team_calculator v23.4.46 — планирование спринта</title>
   <link
     rel="icon"
     type="image/svg+xml"
@@ -2253,7 +2253,7 @@
       <h1>Team_calculator</h1>
       <span
         class="app-version-badge"
-        title="Версия Team_calculator">v23.4.45</span>
+        title="Версия Team_calculator">v23.4.46</span>
     </div>
     <div
       class="header-sprint-context empty"
@@ -5256,6 +5256,18 @@ function normalizeTask(task){
   normalized.taskTypeRole=
     String(normalized.taskTypeRole||"").trim()||null;
   return normalized;
+}
+
+function taskGitLabLink(task){
+  const metadataUrl=String(
+    task?.gitlab?.webUrl||""
+  ).trim();
+
+  const externalUrl=String(
+    task?.externalTaskUrl||""
+  ).trim();
+
+  return metadataUrl||externalUrl;
 }
 
 function isEstimateFilled(value){
@@ -9492,8 +9504,9 @@ function renderTaskPool(){
       task.plannedSprintId
       &&task.plannedSprintId!==currentSprintId
       &&!selected;
-    const title=task.externalTaskUrl
-      ? `<a class="task-link" href="${esc(task.externalTaskUrl)}" target="_blank" rel="noopener">${esc(task.title||task.id)}</a>`
+    const taskLink=taskGitLabLink(task);
+    const title=taskLink
+      ? `<a class="task-link" href="${esc(taskLink)}" target="_blank" rel="noopener">${esc(task.title||task.id)}</a>`
       : esc(task.title||task.id);
 
     const transferBadge=renderTaskTransferBadge(task);
@@ -12597,8 +12610,11 @@ function renderSprintTasks(){
         normalizeTask(poolTask).estimates
       )!==JSON.stringify(normalized.estimates);
 
-    const title=normalized.externalTaskUrl
-      ?`<a class="task-link" href="${esc(normalized.externalTaskUrl)}" target="_blank" rel="noopener">${esc(normalized.title||id)}</a>`
+    const taskLink=taskGitLabLink(
+      poolTask||normalized
+    );
+    const title=taskLink
+      ?`<a class="task-link" href="${esc(taskLink)}" target="_blank" rel="noopener">${esc(normalized.title||id)}</a>`
       :esc(normalized.title||id);
 
     const carryoverBadge=

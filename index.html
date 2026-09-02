@@ -1,10 +1,10 @@
 <!DOCTYPE html>
-<!-- Team_calculator v23.4.46: взаимоисключающие фильтры пула и задачи других спринтов -->
+<!-- Team_calculator v23.4.47: взаимоисключающие фильтры пула и задачи других спринтов -->
 <html lang="ru">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Team_calculator v23.4.46 — планирование спринта</title>
+  <title>Team_calculator v23.4.47 — планирование спринта</title>
   <link
     rel="icon"
     type="image/svg+xml"
@@ -2253,7 +2253,7 @@
       <h1>Team_calculator</h1>
       <span
         class="app-version-badge"
-        title="Версия Team_calculator">v23.4.46</span>
+        title="Версия Team_calculator">v23.4.47</span>
     </div>
     <div
       class="header-sprint-context empty"
@@ -13835,6 +13835,9 @@ async function loadUserWorkspace(){
       if(state.devIssuesPerCrossTask!==undefined)devIssuesPerCrossTask.value=state.devIssuesPerCrossTask;
       if(state.excludePrepRoles!==undefined)excludePrepRoles.value=state.excludePrepRoles;
       if(state.sprintName!==undefined)sprintName.value=state.sprintName;
+      sprintGitLabIteration=normalizeSprintGitLabIteration(
+        state.sprintGitLabIteration
+      );
       currentSprintId=state.currentSprintId||null;
       sprintLifecycleStatus=normalizeSprintLifecycleStatus(
         state.sprintLifecycleStatus
@@ -13861,6 +13864,7 @@ async function loadUserWorkspace(){
       roles=JSON.parse(JSON.stringify(defaultRoles));
       currentSprintId=null;
       sprintName.value="";
+      sprintGitLabIteration=null;
       resetSprintLifecycle();
       taskPoolSort={key:"title",direction:"asc"};
       selectedTaskIds=[];
@@ -13909,6 +13913,21 @@ async function loadUserWorkspace(){
       currentSprintId
       &&savedSprintSets[currentSprintId]
     ){
+      /*
+        В старом users/{uid}/app/main поле sprintGitLabIteration
+        могло отсутствовать, хотя оно уже сохранено в самом спринте.
+        В таком случае восстанавливаем только Iteration из sprint.input,
+        не меняя остальные поля текущего состояния.
+      */
+      if(!sprintGitLabIteration){
+        sprintGitLabIteration=
+          normalizeSprintGitLabIteration(
+            savedSprintSets[
+              currentSprintId
+            ]?.input?.sprintGitLabIteration
+          );
+      }
+
       // Старые ссылки без параметра продолжают работать,
       // но после входа получают адрес текущего сохранённого спринта.
       setSprintUrl(

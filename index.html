@@ -1,10 +1,10 @@
 <!DOCTYPE html>
-<!-- Team_calculator v23.4.43: взаимоисключающие фильтры пула и задачи других спринтов -->
+<!-- Team_calculator v23.4.44: взаимоисключающие фильтры пула и задачи других спринтов -->
 <html lang="ru">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Team_calculator v23.4.43 — планирование спринта</title>
+  <title>Team_calculator v23.4.44 — планирование спринта</title>
   <link
     rel="icon"
     type="image/svg+xml"
@@ -2091,6 +2091,7 @@
       justify-content:center;
       min-width:2px;
       height:100%;
+      padding:0 5px;
       border-right:1px solid rgba(255,255,255,.75);
       color:#2f3948;
       font-size:10px;
@@ -2098,6 +2099,34 @@
       line-height:1;
       white-space:nowrap;
       overflow:hidden;
+      text-overflow:ellipsis;
+      cursor:default;
+    }
+    .sprint-analytics-segment-label{
+      display:block;
+      min-width:0;
+      overflow:hidden;
+      text-overflow:ellipsis;
+      white-space:nowrap;
+    }
+    .sprint-analytics-tooltip{
+      position:fixed;
+      z-index:99999;
+      display:none;
+      max-width:340px;
+      padding:9px 11px;
+      border-radius:9px;
+      background:#202838;
+      color:#fff;
+      box-shadow:0 8px 24px rgba(20,31,51,.24);
+      font-size:11px;
+      font-weight:750;
+      line-height:1.45;
+      white-space:pre-line;
+      pointer-events:none;
+    }
+    .sprint-analytics-tooltip.is-visible{
+      display:block;
     }
     .sprint-analytics-segment:last-child{border-right:0}
     .sprint-analytics-count{
@@ -2216,7 +2245,7 @@
       <h1>Team_calculator</h1>
       <span
         class="app-version-badge"
-        title="Версия Team_calculator">v23.4.43</span>
+        title="Версия Team_calculator">v23.4.44</span>
     </div>
     <div
       class="header-sprint-context empty"
@@ -2565,6 +2594,11 @@
         <div
           class="sprint-analytics-body"
           id="sprintAnalyticsBody"></div>
+
+        <div
+          class="sprint-analytics-tooltip"
+          id="sprintAnalyticsTooltip"
+          role="tooltip"></div>
 
         <div class="sprint-analytics-note">
           Одна задача может учитываться в нескольких группах,
@@ -11915,6 +11949,94 @@ function sprintAnalyticsStatusTotals(items){
     );
 }
 
+function bindSprintAnalyticsTooltips(){
+  const tooltip=document.getElementById(
+    "sprintAnalyticsTooltip"
+  );
+
+  if(!tooltip||!sprintAnalyticsBody){
+    return;
+  }
+
+  const hideTooltip=()=>{
+    tooltip.classList.remove(
+      "is-visible"
+    );
+  };
+
+  const moveTooltip=event=>{
+    if(
+      !tooltip.classList.contains(
+        "is-visible"
+      )
+    ){
+      return;
+    }
+
+    const gap=12;
+    const rect=
+      tooltip.getBoundingClientRect();
+
+    let left=event.clientX+gap;
+    let top=event.clientY+gap;
+
+    if(
+      left+rect.width
+      >window.innerWidth-gap
+    ){
+      left=
+        event.clientX
+        -rect.width
+        -gap;
+    }
+
+    if(
+      top+rect.height
+      >window.innerHeight-gap
+    ){
+      top=
+        event.clientY
+        -rect.height
+        -gap;
+    }
+
+    tooltip.style.left=
+      `${Math.max(gap,left)}px`;
+    tooltip.style.top=
+      `${Math.max(gap,top)}px`;
+  };
+
+  sprintAnalyticsBody
+    .querySelectorAll(
+      ".sprint-analytics-segment"
+    )
+    .forEach(segment=>{
+      segment.onmouseenter=event=>{
+        const text=String(
+          segment.dataset.analyticsTooltip
+          ||""
+        ).trim();
+
+        if(!text)return;
+
+        tooltip.textContent=text;
+        tooltip.classList.add(
+          "is-visible"
+        );
+        moveTooltip(event);
+      };
+
+      segment.onmousemove=
+        moveTooltip;
+
+      segment.onmouseleave=
+        hideTooltip;
+
+      segment.onblur=
+        hideTooltip;
+    });
+}
+
 function renderSprintAnalytics(){
   if(
     !sprintAnalyticsGrouping
@@ -11993,20 +12115,32 @@ function renderSprintAnalytics(){
             ?status.count/group.total*100
             :0;
 
-          const text=pct>=10
-            ?String(status.count)
-            :"";
+          const text=
+            pct>=18
+              ?`${status.label} · ${status.count}`
+              :(pct>=8
+                ?String(status.count)
+                :"");
+
+          const tooltipText=
+            `${grouping==="labels"?"GitLab тег":"Роль"}: ${group.label}`
+            +`\nСтатус: ${status.label}`
+            +`\nЗадач: ${status.count}`
+            +` · ${pct.toFixed(1)}%`;
 
           return `<div
             class="sprint-analytics-segment ${esc(status.cssClass)}"
             style="width:${pct.toFixed(4)}%"
+            data-analytics-tooltip="${esc(tooltipText)}"
             title="${esc(
-              `${group.label} · ${status.label}: ${status.count}`
+              `${group.label} · ${status.label}: ${status.count} · ${pct.toFixed(1)}%`
             )}"
             aria-label="${esc(
-              `${status.label}: ${status.count}`
+              `${group.label}; ${status.label}: ${status.count}; ${pct.toFixed(1)}%`
             )}">
-              ${esc(text)}
+              <span class="sprint-analytics-segment-label">
+                ${esc(text)}
+              </span>
           </div>`;
         })
         .join("");
@@ -12027,6 +12161,8 @@ function renderSprintAnalytics(){
         </div>
       </div>`;
     }).join("");
+
+  bindSprintAnalyticsTooltips();
 }
 
 function focusTaskInCurrentSprint(taskId){

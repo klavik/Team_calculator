@@ -1,10 +1,10 @@
 <!DOCTYPE html>
-<!-- Team_calculator v23.4.44: взаимоисключающие фильтры пула и задачи других спринтов -->
+<!-- Team_calculator v23.4.45: взаимоисключающие фильтры пула и задачи других спринтов -->
 <html lang="ru">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Team_calculator v23.4.44 — планирование спринта</title>
+  <title>Team_calculator v23.4.45 — планирование спринта</title>
   <link
     rel="icon"
     type="image/svg+xml"
@@ -2008,6 +2008,14 @@
       width:auto;
       min-width:190px;
     }
+    .sprint-analytics-label-family{
+      display:inline-flex;
+      align-items:center;
+      gap:8px;
+    }
+    .sprint-analytics-label-family[hidden]{
+      display:none!important;
+    }
     .sprint-analytics-summary{
       display:flex;
       align-items:center;
@@ -2245,7 +2253,7 @@
       <h1>Team_calculator</h1>
       <span
         class="app-version-badge"
-        title="Версия Team_calculator">v23.4.44</span>
+        title="Версия Team_calculator">v23.4.45</span>
     </div>
     <div
       class="header-sprint-context empty"
@@ -2578,8 +2586,20 @@
             <label for="sprintAnalyticsGrouping">Группировка</label>
             <select id="sprintAnalyticsGrouping">
               <option value="roles">По ролям</option>
-              <option value="labels">По GitLab тегам</option>
+              <option value="labels">По GitLab лейблам</option>
             </select>
+
+            <span
+              id="sprintAnalyticsLabelFamilyWrap"
+              class="sprint-analytics-label-family"
+              hidden>
+              <label for="sprintAnalyticsLabelFamily">Лейбл</label>
+              <select
+                id="sprintAnalyticsLabelFamily"
+                title="Для лейблов вида «Тип::Значение» можно выбрать группу «Тип::*»">
+                <option value="all">Все лейблы</option>
+              </select>
+            </span>
           </div>
         </div>
 
@@ -2602,7 +2622,7 @@
 
         <div class="sprint-analytics-note">
           Одна задача может учитываться в нескольких группах,
-          если у неё указано несколько ролей или GitLab тегов.
+          если у неё указано несколько ролей или GitLab лейблов.
         </div>
       </div>
     </section>
@@ -3039,6 +3059,8 @@ sprintTaskIterationFilter=document.getElementById("sprintTaskIterationFilter"),
 resetSprintTaskFiltersButton=document.getElementById("resetSprintTaskFilters"),
 sprintTaskVisibleCount=document.getElementById("sprintTaskVisibleCount"),
 sprintAnalyticsGrouping=document.getElementById("sprintAnalyticsGrouping"),
+sprintAnalyticsLabelFamilyWrap=document.getElementById("sprintAnalyticsLabelFamilyWrap"),
+sprintAnalyticsLabelFamily=document.getElementById("sprintAnalyticsLabelFamily"),
 sprintAnalyticsSummary=document.getElementById("sprintAnalyticsSummary"),
 sprintAnalyticsLegend=document.getElementById("sprintAnalyticsLegend"),
 sprintAnalyticsBody=document.getElementById("sprintAnalyticsBody"),
@@ -11802,7 +11824,7 @@ function sprintAnalyticsRoleGroups(item){
   }];
 }
 
-function sprintAnalyticsLabelGroups(item){
+function sprintAnalyticsNonStatusLabels(item){
   const metadata=item?.metadata;
   const labels=Array.isArray(
     metadata?.labels
@@ -11823,7 +11845,7 @@ function sprintAnalyticsLabelGroups(item){
       )
   );
 
-  const tags=[
+  return [
     ...new Set(
       labels.filter(label=>
         !statusLabels.has(
@@ -11832,32 +11854,171 @@ function sprintAnalyticsLabelGroups(item){
       )
     )
   ];
+}
 
-  if(tags.length){
-    return tags.map(label=>({
-      key:`label:${label}`,
-      label
+function sprintAnalyticsLabelParts(label){
+  const normalized=String(
+    label||""
+  ).trim();
+
+  const separatorIndex=
+    normalized.indexOf("::");
+
+  if(separatorIndex<=0){
+    return {
+      family:"",
+      value:normalized
+    };
+  }
+
+  return {
+    family:normalized
+      .slice(0,separatorIndex)
+      .trim(),
+    value:normalized
+      .slice(separatorIndex+2)
+      .trim()
+  };
+}
+
+function sprintAnalyticsLabelFamilies(items){
+  const families=new Set();
+
+  items.forEach(item=>{
+    sprintAnalyticsNonStatusLabels(item)
+      .forEach(label=>{
+        const parts=
+          sprintAnalyticsLabelParts(label);
+
+        if(
+          parts.family
+          &&parts.value
+        ){
+          families.add(parts.family);
+        }
+      });
+  });
+
+  return [...families]
+    .sort((left,right)=>
+      String(left).localeCompare(
+        String(right),
+        "ru"
+      )
+    );
+}
+
+function renderSprintAnalyticsLabelFamilyOptions(
+  items,
+  grouping
+){
+  if(
+    !sprintAnalyticsLabelFamily
+    ||!sprintAnalyticsLabelFamilyWrap
+  ){
+    return "all";
+  }
+
+  const labelMode=
+    grouping==="labels";
+
+  sprintAnalyticsLabelFamilyWrap.hidden=
+    !labelMode;
+
+  if(!labelMode){
+    return "all";
+  }
+
+  const families=
+    sprintAnalyticsLabelFamilies(items);
+
+  const previous=String(
+    sprintAnalyticsLabelFamily.value
+    ||"all"
+  ).trim();
+
+  sprintAnalyticsLabelFamily.innerHTML=
+    '<option value="all">Все лейблы</option>'
+    +families.map(family=>
+      `<option value="${esc(family)}">
+        ${esc(family)}::*
+      </option>`
+    ).join("");
+
+  sprintAnalyticsLabelFamily.value=
+    previous==="all"
+    ||families.includes(previous)
+      ?previous
+      :"all";
+
+  return sprintAnalyticsLabelFamily.value;
+}
+
+function sprintAnalyticsLabelGroups(
+  item,
+  labelFamily="all"
+){
+  const labels=
+    sprintAnalyticsNonStatusLabels(item);
+
+  if(labelFamily==="all"){
+    if(labels.length){
+      return labels.map(label=>({
+        key:`label:${label}`,
+        label
+      }));
+    }
+
+    return [{
+      key:"__without_labels__",
+      label:"Без лейблов"
+    }];
+  }
+
+  const values=[
+    ...new Set(
+      labels
+        .map(label=>
+          sprintAnalyticsLabelParts(label)
+        )
+        .filter(parts=>
+          parts.family===labelFamily
+          &&parts.value
+        )
+        .map(parts=>parts.value)
+    )
+  ];
+
+  if(values.length){
+    return values.map(value=>({
+      key:`label-family:${labelFamily}:${value}`,
+      label:value
     }));
   }
 
   return [{
-    key:"__without_labels__",
-    label:"Без тегов"
+    key:`__without_label_family__:${labelFamily}`,
+    label:`Без ${labelFamily}`
   }];
 }
 
 function sprintAnalyticsGroupsForItem(
   item,
-  grouping
+  grouping,
+  labelFamily="all"
 ){
   return grouping==="labels"
-    ?sprintAnalyticsLabelGroups(item)
+    ?sprintAnalyticsLabelGroups(
+        item,
+        labelFamily
+      )
     :sprintAnalyticsRoleGroups(item);
 }
 
 function sprintAnalyticsGroupRows(
   items,
-  grouping
+  grouping,
+  labelFamily="all"
 ){
   const groups=new Map();
 
@@ -11868,7 +12029,8 @@ function sprintAnalyticsGroupRows(
     const itemGroups=
       sprintAnalyticsGroupsForItem(
         item,
-        grouping
+        grouping,
+        labelFamily
       );
 
     itemGroups.forEach(group=>{
@@ -12054,6 +12216,12 @@ function renderSprintAnalytics(){
     sprintAnalyticsGrouping.value
     ||"roles";
 
+  const labelFamily=
+    renderSprintAnalyticsLabelFamilyOptions(
+      items,
+      grouping
+    );
+
   const statusTotals=
     sprintAnalyticsStatusTotals(items);
 
@@ -12093,7 +12261,8 @@ function renderSprintAnalytics(){
   const groups=
     sprintAnalyticsGroupRows(
       items,
-      grouping
+      grouping,
+      labelFamily
     );
 
   sprintAnalyticsBody.innerHTML=
@@ -12122,8 +12291,17 @@ function renderSprintAnalytics(){
                 ?String(status.count)
                 :"");
 
+          const tooltipGroupLabel=
+            grouping==="labels"
+              ?(
+                labelFamily==="all"
+                  ?`GitLab лейбл: ${group.label}`
+                  :`${labelFamily}: ${group.label}`
+              )
+              :`Роль: ${group.label}`;
+
           const tooltipText=
-            `${grouping==="labels"?"GitLab тег":"Роль"}: ${group.label}`
+            tooltipGroupLabel
             +`\nСтатус: ${status.label}`
             +`\nЗадач: ${status.count}`
             +` · ${pct.toFixed(1)}%`;
@@ -13207,6 +13385,9 @@ resetSprintTaskFiltersButton.onclick=()=>{
 };
 
 sprintAnalyticsGrouping.onchange=
+  renderSprintAnalytics;
+
+sprintAnalyticsLabelFamily.onchange=
   renderSprintAnalytics;
 
 document.getElementById("saveAsSprint").onclick=copyCurrentSprintSettings;

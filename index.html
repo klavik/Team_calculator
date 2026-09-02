@@ -1,10 +1,10 @@
 <!DOCTYPE html>
-<!-- Team_calculator v23.4.42: взаимоисключающие фильтры пула и задачи других спринтов -->
+<!-- Team_calculator v23.4.43: взаимоисключающие фильтры пула и задачи других спринтов -->
 <html lang="ru">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Team_calculator v23.4.42 — планирование спринта</title>
+  <title>Team_calculator v23.4.43 — планирование спринта</title>
   <link
     rel="icon"
     type="image/svg+xml"
@@ -1980,6 +1980,226 @@
       white-space:nowrap;
     }
 
+
+    /* Current sprint analytics */
+    .section-sprint-analytics{width:100%}
+    .sprint-analytics-card{overflow:hidden}
+    .sprint-analytics-header{
+      display:flex;
+      align-items:flex-start;
+      justify-content:space-between;
+      gap:16px;
+      flex-wrap:wrap;
+    }
+    .sprint-analytics-header h2{margin-bottom:4px}
+    .sprint-analytics-control{
+      display:flex;
+      align-items:center;
+      gap:8px;
+      flex-wrap:wrap;
+    }
+    .sprint-analytics-control label{
+      margin:0;
+      font-size:12px;
+      font-weight:800;
+      color:var(--muted);
+    }
+    .sprint-analytics-control select{
+      width:auto;
+      min-width:190px;
+    }
+    .sprint-analytics-summary{
+      display:flex;
+      align-items:center;
+      gap:7px;
+      flex-wrap:wrap;
+      margin-top:14px;
+    }
+    .sprint-analytics-total{
+      display:inline-flex;
+      align-items:center;
+      gap:5px;
+      padding:6px 9px;
+      border-radius:999px;
+      border:1px solid var(--border);
+      background:#fafbfe;
+      color:var(--text);
+      font-size:12px;
+      font-weight:850;
+    }
+    .sprint-analytics-total strong{
+      font-size:13px;
+      font-weight:950;
+    }
+    .sprint-analytics-legend{
+      display:flex;
+      align-items:center;
+      gap:6px;
+      flex-wrap:wrap;
+      margin-top:10px;
+    }
+    .sprint-analytics-legend-item{
+      display:inline-flex;
+      align-items:center;
+      gap:5px;
+      min-width:0;
+      padding:4px 7px;
+      border:1px solid var(--border);
+      border-radius:999px;
+      background:#fff;
+      color:var(--text);
+      font-size:11px;
+      font-weight:750;
+    }
+    .sprint-analytics-legend-dot{
+      width:8px;
+      height:8px;
+      flex:0 0 8px;
+      border-radius:50%;
+      background:#8b95a7;
+    }
+    .sprint-analytics-body{
+      display:flex;
+      flex-direction:column;
+      gap:10px;
+      margin-top:16px;
+    }
+    .sprint-analytics-row{
+      display:grid;
+      grid-template-columns:minmax(150px,240px) minmax(240px,1fr) 56px;
+      gap:12px;
+      align-items:center;
+    }
+    .sprint-analytics-group{
+      min-width:0;
+      font-size:12px;
+      font-weight:850;
+      overflow-wrap:anywhere;
+    }
+    .sprint-analytics-bar{
+      display:flex;
+      min-width:0;
+      height:30px;
+      overflow:hidden;
+      border:1px solid #dfe4ec;
+      border-radius:9px;
+      background:#f5f7fa;
+    }
+    .sprint-analytics-segment{
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      min-width:2px;
+      height:100%;
+      border-right:1px solid rgba(255,255,255,.75);
+      color:#2f3948;
+      font-size:10px;
+      font-weight:950;
+      line-height:1;
+      white-space:nowrap;
+      overflow:hidden;
+    }
+    .sprint-analytics-segment:last-child{border-right:0}
+    .sprint-analytics-count{
+      text-align:right;
+      color:var(--muted);
+      font-size:12px;
+      font-weight:850;
+      white-space:nowrap;
+    }
+    .sprint-analytics-note{
+      margin-top:12px;
+      color:var(--muted);
+      font-size:11px;
+      line-height:1.45;
+    }
+    .sprint-analytics-empty{
+      padding:20px;
+      border:1px dashed var(--border);
+      border-radius:12px;
+      color:var(--muted);
+      font-size:12px;
+      text-align:center;
+      background:#fafbfe;
+    }
+
+    /* Same visual palette as existing GitLab status pills */
+    .sprint-analytics-segment.status-backlog,
+    .sprint-analytics-legend-dot.status-backlog{background:#eceff3}
+    .sprint-analytics-segment.status-open,
+    .sprint-analytics-legend-dot.status-open{background:#c7d9fb}
+    .sprint-analytics-segment.status-in-progress,
+    .sprint-analytics-legend-dot.status-in-progress{background:#d9ccfb}
+    .sprint-analytics-segment.status-on-hold,
+    .sprint-analytics-legend-dot.status-on-hold{background:#f3d29b}
+    .sprint-analytics-segment.status-review,
+    .sprint-analytics-legend-dot.status-review{background:#dfc5f2}
+    .sprint-analytics-segment.status-approved,
+    .sprint-analytics-legend-dot.status-approved{background:#b8ded8}
+    .sprint-analytics-segment.status-qa-dev,
+    .sprint-analytics-legend-dot.status-qa-dev{background:#b9dff0}
+    .sprint-analytics-segment.status-ready-preprod,
+    .sprint-analytics-legend-dot.status-ready-preprod{background:#b9daf3}
+    .sprint-analytics-segment.status-qa-preprod,
+    .sprint-analytics-legend-dot.status-qa-preprod{background:#c8cff3}
+    .sprint-analytics-segment.status-qa-return,
+    .sprint-analytics-legend-dot.status-qa-return{background:#f0bdb9}
+    .sprint-analytics-segment.status-goa-return,
+    .sprint-analytics-legend-dot.status-goa-return{background:#efbfd0}
+    .sprint-analytics-segment.ready-prod,
+    .sprint-analytics-legend-dot.ready-prod{
+      background:#137333;
+      color:#fff;
+    }
+    .sprint-analytics-segment.status-conflict,
+    .sprint-analytics-legend-dot.status-conflict{
+      background:#b3261e;
+      color:#fff;
+    }
+    .sprint-analytics-segment.analytics-status-error,
+    .sprint-analytics-legend-dot.analytics-status-error{
+      background:#d14343;
+      color:#fff;
+    }
+    .sprint-analytics-segment.analytics-status-unsynced,
+    .sprint-analytics-legend-dot.analytics-status-unsynced{
+      background:#dfe4ec;
+    }
+    .sprint-analytics-segment.analytics-status-no-url,
+    .sprint-analytics-legend-dot.analytics-status-no-url{
+      background:#c9ced8;
+    }
+    .sprint-analytics-segment.analytics-status-missing,
+    .sprint-analytics-legend-dot.analytics-status-missing{
+      background:#fff0d6;
+    }
+    .sprint-analytics-segment.status-other,
+    .sprint-analytics-legend-dot.status-other{
+      background:#d8dde6;
+    }
+
+    @media(max-width:760px){
+      .sprint-analytics-row{
+        grid-template-columns:1fr 50px;
+      }
+      .sprint-analytics-group{
+        grid-column:1/-1;
+      }
+      .sprint-analytics-bar{
+        grid-column:1;
+      }
+      .sprint-analytics-count{
+        grid-column:2;
+      }
+      .sprint-analytics-control{
+        width:100%;
+      }
+      .sprint-analytics-control select{
+        flex:1 1 auto;
+        min-width:0;
+      }
+    }
+
 </style>
 </head>
 <body>
@@ -1996,7 +2216,7 @@
       <h1>Team_calculator</h1>
       <span
         class="app-version-badge"
-        title="Версия Team_calculator">v23.4.42</span>
+        title="Версия Team_calculator">v23.4.43</span>
     </div>
     <div
       class="header-sprint-context empty"
@@ -2311,6 +2531,44 @@
         </div>
         <div class="button-row">
           <button class="secondary" id="clearSprintTasks">Очистить состав спринта</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="section-sprint-analytics">
+      <div class="card sprint-analytics-card">
+        <div class="sprint-analytics-header">
+          <div>
+            <h2>Аналитика текущего спринта</h2>
+            <p class="muted">
+              Визуальное распределение задач текущего состава по GitLab-статусам.
+            </p>
+          </div>
+
+          <div class="sprint-analytics-control">
+            <label for="sprintAnalyticsGrouping">Группировка</label>
+            <select id="sprintAnalyticsGrouping">
+              <option value="roles">По ролям</option>
+              <option value="labels">По GitLab тегам</option>
+            </select>
+          </div>
+        </div>
+
+        <div
+          class="sprint-analytics-summary"
+          id="sprintAnalyticsSummary"></div>
+
+        <div
+          class="sprint-analytics-legend"
+          id="sprintAnalyticsLegend"></div>
+
+        <div
+          class="sprint-analytics-body"
+          id="sprintAnalyticsBody"></div>
+
+        <div class="sprint-analytics-note">
+          Одна задача может учитываться в нескольких группах,
+          если у неё указано несколько ролей или GitLab тегов.
         </div>
       </div>
     </section>
@@ -2746,6 +3004,10 @@ sprintTaskAssigneeFilter=document.getElementById("sprintTaskAssigneeFilter"),
 sprintTaskIterationFilter=document.getElementById("sprintTaskIterationFilter"),
 resetSprintTaskFiltersButton=document.getElementById("resetSprintTaskFilters"),
 sprintTaskVisibleCount=document.getElementById("sprintTaskVisibleCount"),
+sprintAnalyticsGrouping=document.getElementById("sprintAnalyticsGrouping"),
+sprintAnalyticsSummary=document.getElementById("sprintAnalyticsSummary"),
+sprintAnalyticsLegend=document.getElementById("sprintAnalyticsLegend"),
+sprintAnalyticsBody=document.getElementById("sprintAnalyticsBody"),
 authScreen=document.getElementById("authScreen"),
 authStatus=document.getElementById("authStatus"),
 loginEmail=document.getElementById("loginEmail"),
@@ -11383,6 +11645,390 @@ function sprintTaskMatchesFilters(item){
   return true;
 }
 
+function sprintAnalyticsTaskItems(){
+  return sprintMetricTaskIds()
+    .map(taskId=>{
+      const task=currentTaskSnapshot(taskId);
+      if(!task)return null;
+
+      const normalized=normalizeTask(task);
+      const poolTask=taskPool[taskId];
+      const metadata=
+        gitLabMetadataForSprintTask(
+          taskId,
+          normalized
+        );
+
+      const hasGitLabUrl=Boolean(
+        String(
+          normalized.externalTaskUrl
+          ||poolTask?.externalTaskUrl
+          ||""
+        ).trim()
+      );
+
+      return {
+        id:taskId,
+        task:normalized,
+        metadata,
+        hasGitLabUrl
+      };
+    })
+    .filter(Boolean);
+}
+
+function sprintAnalyticsStatus(item){
+  const metadata=item?.metadata;
+  const hasGitLabUrl=Boolean(
+    item?.hasGitLabUrl
+  );
+
+  if(!hasGitLabUrl){
+    return {
+      key:"__no_url__",
+      label:"Нет ссылки GitLab",
+      cssClass:"analytics-status-no-url"
+    };
+  }
+
+  if(!metadata){
+    return {
+      key:"__unsynced__",
+      label:"Не синхронизировано",
+      cssClass:"analytics-status-unsynced"
+    };
+  }
+
+  if(
+    String(metadata.statusState||"")
+      .trim()
+      ==="conflict"
+  ){
+    return {
+      key:"__conflict__",
+      label:"Конфликт статусов",
+      cssClass:"status-conflict"
+    };
+  }
+
+  const syncError=String(
+    metadata.syncError||""
+  ).trim();
+
+  if(syncError){
+    return {
+      key:"__error__",
+      label:"Ошибка синхронизации",
+      cssClass:"analytics-status-error"
+    };
+  }
+
+  const labels=
+    gitLabMatchedStatusLabels(metadata);
+
+  if(labels.length){
+    const label=labels[0];
+
+    return {
+      key:`status:${label}`,
+      label,
+      cssClass:gitLabStatusClass(label)
+    };
+  }
+
+  return {
+    key:"__missing__",
+    label:"Статус не указан",
+    cssClass:"analytics-status-missing"
+  };
+}
+
+function sprintAnalyticsRoleGroups(item){
+  const estimates=
+    item?.task?.estimates||{};
+
+  const matched=roles
+    .map(role=>({
+      key:roleKeyFromName(role.name),
+      label:role.name
+    }))
+    .filter(role=>
+      Number(
+        estimates[role.key]||0
+      )>0
+    );
+
+  if(matched.length){
+    return matched;
+  }
+
+  return [{
+    key:"__without_role__",
+    label:"Без роли"
+  }];
+}
+
+function sprintAnalyticsLabelGroups(item){
+  const metadata=item?.metadata;
+  const labels=Array.isArray(
+    metadata?.labels
+  )
+    ?metadata.labels
+        .map(label=>
+          String(label||"").trim()
+        )
+        .filter(Boolean)
+    :[];
+
+  const statusLabels=new Set(
+    gitLabMatchedStatusLabels(metadata)
+      .map(label=>
+        String(label||"")
+          .trim()
+          .toLocaleLowerCase("ru")
+      )
+  );
+
+  const tags=[
+    ...new Set(
+      labels.filter(label=>
+        !statusLabels.has(
+          label.toLocaleLowerCase("ru")
+        )
+      )
+    )
+  ];
+
+  if(tags.length){
+    return tags.map(label=>({
+      key:`label:${label}`,
+      label
+    }));
+  }
+
+  return [{
+    key:"__without_labels__",
+    label:"Без тегов"
+  }];
+}
+
+function sprintAnalyticsGroupsForItem(
+  item,
+  grouping
+){
+  return grouping==="labels"
+    ?sprintAnalyticsLabelGroups(item)
+    :sprintAnalyticsRoleGroups(item);
+}
+
+function sprintAnalyticsGroupRows(
+  items,
+  grouping
+){
+  const groups=new Map();
+
+  items.forEach(item=>{
+    const status=
+      sprintAnalyticsStatus(item);
+
+    const itemGroups=
+      sprintAnalyticsGroupsForItem(
+        item,
+        grouping
+      );
+
+    itemGroups.forEach(group=>{
+      if(!groups.has(group.key)){
+        groups.set(
+          group.key,
+          {
+            key:group.key,
+            label:group.label,
+            taskIds:new Set(),
+            statuses:new Map()
+          }
+        );
+      }
+
+      const target=groups.get(group.key);
+      target.taskIds.add(item.id);
+
+      if(!target.statuses.has(status.key)){
+        target.statuses.set(
+          status.key,
+          {
+            ...status,
+            count:0
+          }
+        );
+      }
+
+      target.statuses.get(
+        status.key
+      ).count+=1;
+    });
+  });
+
+  return [...groups.values()]
+    .map(group=>({
+      ...group,
+      total:group.taskIds.size
+    }))
+    .sort((left,right)=>
+      right.total-left.total
+      ||String(left.label)
+        .localeCompare(
+          String(right.label),
+          "ru"
+        )
+    );
+}
+
+function sprintAnalyticsStatusTotals(items){
+  const totals=new Map();
+
+  items.forEach(item=>{
+    const status=
+      sprintAnalyticsStatus(item);
+
+    if(!totals.has(status.key)){
+      totals.set(
+        status.key,
+        {
+          ...status,
+          count:0
+        }
+      );
+    }
+
+    totals.get(status.key).count+=1;
+  });
+
+  return [...totals.values()]
+    .sort((left,right)=>
+      right.count-left.count
+      ||String(left.label)
+        .localeCompare(
+          String(right.label),
+          "ru"
+        )
+    );
+}
+
+function renderSprintAnalytics(){
+  if(
+    !sprintAnalyticsGrouping
+    ||!sprintAnalyticsSummary
+    ||!sprintAnalyticsLegend
+    ||!sprintAnalyticsBody
+  ){
+    return;
+  }
+
+  const items=
+    sprintAnalyticsTaskItems();
+
+  const grouping=
+    sprintAnalyticsGrouping.value
+    ||"roles";
+
+  const statusTotals=
+    sprintAnalyticsStatusTotals(items);
+
+  sprintAnalyticsSummary.innerHTML=
+    `<span class="sprint-analytics-total">
+      Всего задач:
+      <strong>${items.length}</strong>
+    </span>`
+    +statusTotals.map(status=>
+      `<span
+        class="sprint-analytics-total"
+        title="${esc(status.label)}">
+          ${esc(status.label)}:
+          <strong>${status.count}</strong>
+      </span>`
+    ).join("");
+
+  sprintAnalyticsLegend.innerHTML=
+    statusTotals.map(status=>
+      `<span
+        class="sprint-analytics-legend-item">
+          <span
+            class="sprint-analytics-legend-dot ${esc(status.cssClass)}">
+          </span>
+          <span>${esc(status.label)}</span>
+      </span>`
+    ).join("");
+
+  if(!items.length){
+    sprintAnalyticsBody.innerHTML=
+      '<div class="sprint-analytics-empty">'
+      +'В текущем спринте пока нет задач.'
+      +'</div>';
+    return;
+  }
+
+  const groups=
+    sprintAnalyticsGroupRows(
+      items,
+      grouping
+    );
+
+  sprintAnalyticsBody.innerHTML=
+    groups.map(group=>{
+      const statuses=[
+        ...group.statuses.values()
+      ].sort((left,right)=>
+        right.count-left.count
+        ||String(left.label)
+          .localeCompare(
+            String(right.label),
+            "ru"
+          )
+      );
+
+      const segments=statuses
+        .map(status=>{
+          const pct=group.total>0
+            ?status.count/group.total*100
+            :0;
+
+          const text=pct>=10
+            ?String(status.count)
+            :"";
+
+          return `<div
+            class="sprint-analytics-segment ${esc(status.cssClass)}"
+            style="width:${pct.toFixed(4)}%"
+            title="${esc(
+              `${group.label} · ${status.label}: ${status.count}`
+            )}"
+            aria-label="${esc(
+              `${status.label}: ${status.count}`
+            )}">
+              ${esc(text)}
+          </div>`;
+        })
+        .join("");
+
+      return `<div class="sprint-analytics-row">
+        <div
+          class="sprint-analytics-group"
+          title="${esc(group.label)}">
+            ${esc(group.label)}
+        </div>
+
+        <div class="sprint-analytics-bar">
+          ${segments}
+        </div>
+
+        <div class="sprint-analytics-count">
+          ${group.total}
+        </div>
+      </div>`;
+    }).join("");
+}
+
 function focusTaskInCurrentSprint(taskId){
   const normalizedTaskId=String(
     taskId||""
@@ -11967,6 +12613,7 @@ function render(){
 
   renderTaskPool();
   renderSprintTasks();
+  renderSprintAnalytics();
   renderRoleCeilings(caps,bottleneck);
   renderPlanningTable(caps);
   renderPlanningHistory();
@@ -12422,6 +13069,9 @@ resetSprintTaskFiltersButton.onclick=()=>{
   sprintTaskIterationFilter.value="all";
   renderSprintTasks();
 };
+
+sprintAnalyticsGrouping.onchange=
+  renderSprintAnalytics;
 
 document.getElementById("saveAsSprint").onclick=copyCurrentSprintSettings;
 restorePreviousStateButton.onclick=restorePreviousSprintState;

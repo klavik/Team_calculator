@@ -1,10 +1,10 @@
 <!DOCTYPE html>
-<!-- Team_calculator v23.4.48: взаимоисключающие фильтры пула и задачи других спринтов -->
+<!-- Team_calculator v23.4.50: взаимоисключающие фильтры пула и задачи других спринтов -->
 <html lang="ru">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Team_calculator v23.4.48 — планирование спринта</title>
+  <title>Team_calculator v23.4.50 — планирование спринта</title>
   <link
     rel="icon"
     type="image/svg+xml"
@@ -2262,7 +2262,7 @@
       <h1>Team_calculator</h1>
       <span
         class="app-version-badge"
-        title="Версия Team_calculator">v23.4.48</span>
+        title="Версия Team_calculator">v23.4.50</span>
     </div>
     <div
       class="header-sprint-context empty"
@@ -2491,6 +2491,17 @@
           </div>
           <div class="task-toolbar-right">
             <button id="openManualTaskDialog">Добавить задачу</button>
+            <button
+              class="secondary"
+              id="syncTaskPoolGitLab"
+              type="button">
+                Актуализировать GitLab-статусы пула
+            </button>
+            <span
+              class="muted"
+              id="taskPoolGitLabSyncStatus">
+                GitLab-статусы пула ещё не обновлялись.
+            </span>
             <span class="muted" id="taskPoolCount">0 задач</span>
             <button class="secondary" id="reloadTaskPool">Переподключить синхронизацию</button>
           </div>
@@ -3000,6 +3011,9 @@ let unsubscribeTaskPool=null;
 let unsubscribeGitLabJob=null;
 let gitLabSyncInProgress=false;
 let combinedGitLabActionInProgress=false;
+
+let unsubscribeTaskPoolGitLabJob=null;
+let taskPoolGitLabSyncInProgress=false;
 const manualGitLabEstimateRequests=new Set();
 
 let sprintTaskSort={
@@ -3035,6 +3049,8 @@ taskPoolHead=document.getElementById("taskPoolHead"),
 taskPoolBody=document.getElementById("taskPoolBody"),
 taskPoolCount=document.getElementById("taskPoolCount"),
 taskPoolRealtimeStatus=document.getElementById("taskPoolRealtimeStatus"),
+syncTaskPoolGitLabButton=document.getElementById("syncTaskPoolGitLab"),
+taskPoolGitLabSyncStatus=document.getElementById("taskPoolGitLabSyncStatus"),
 sprintTasksHead=document.getElementById("sprintTasksHead"),
 sprintTasksBody=document.getElementById("sprintTasksBody"),
 sprintTaskSummary=document.getElementById("sprintTaskSummary"),
@@ -5418,11 +5434,20 @@ function renderTaskReestimateBadge(task){
   </span>`;
 }
 
+function isGitLabIssueClosed(task){
+  const normalized=normalizeTask(task);
+
+  return String(
+    normalized.gitlab?.issueState||""
+  ).trim().toLowerCase()==="closed";
+}
+
 function isTaskCompleted(task){
   const normalized=normalizeTask(task);
 
   return normalized.planningStatus==="completed"
-    || completedTaskIds.includes(normalized.id);
+    || completedTaskIds.includes(normalized.id)
+    || isGitLabIssueClosed(normalized);
 }
 
 function isTaskReady(task){
@@ -9162,10 +9187,19 @@ function taskPoolStatusLabel(task){
       :"В текущем спринте";
   }
   if(plannedElsewhere){
-    return task.planningStatus==="completed"
+    return isTaskCompleted(task)
       ?`Выполнена · ${task.plannedSprintName||"завершённый спринт"}`
       :(task.plannedSprintName||"Запланирована");
   }
+
+  if(isGitLabIssueClosed(task)){
+    return "Выполнена · GitLab закрыта";
+  }
+
+  if(isTaskCompleted(task)){
+    return "Выполнена";
+  }
+
   return isTaskReady(task)?"Оценена":"Нет оценки";
 }
 
@@ -9472,7 +9506,9 @@ function renderTaskPool(){
     isTaskCompleted
   ).length;
   const reestimateCount=allTasks.filter(
-    taskNeedsReestimate
+    task=>
+      taskNeedsReestimate(task)
+      &&!isTaskCompleted(task)
   ).length;
   const shownCount=items.length;
   const poolSummary=
@@ -9570,6 +9606,13 @@ function renderTaskPool(){
       statusHtml=task.planningStatus==="completed"
         ?`<span class="task-status done">Выполнена · ${esc(task.plannedSprintName||"завершённый спринт")}</span>`
         :`<span class="task-status planned">${esc(task.plannedSprintName||"Запланирована")}</span>`;
+    }else if(isGitLabIssueClosed(task)){
+      statusHtml=
+        '<span class="task-status done">Выполнена</span>'
+        +'<div class="task-warning">Issue закрыта в GitLab</div>';
+    }else if(isTaskCompleted(task)){
+      statusHtml=
+        '<span class="task-status done">Выполнена</span>';
     }else if(taskNeedsReestimate(task)){
       const roles=taskReestimateEntries(task)
         .map(([role])=>({
@@ -9594,17 +9637,23 @@ function renderTaskPool(){
     const actionButtons=[];
 
     if(returnedFromCurrentSprint){
+      const completed=
+        isTaskCompleted(task);
+
       const addDisabled=
         !ready
+        ||completed
         ||sprintLifecycleIsCompleted();
 
       actionButtons.push(
         `<button
           ${addDisabled?"disabled":""}
           data-add-task="${task.id}">
-            ${sprintLifecycleIsCompleted()
-              ?"Спринт завершён"
-              :"В спринт"}
+            ${completed
+              ?"Выполнена"
+              :(sprintLifecycleIsCompleted()
+                ?"Спринт завершён"
+                :"В спринт")}
         </button>`,
         `<button
           class="danger-inline"
@@ -9625,9 +9674,24 @@ function renderTaskPool(){
           :`<button class="secondary" data-release-task="${task.id}">Вернуть в пул</button>`
       );
     }else{
-      const addDisabled=!ready||sprintLifecycleIsCompleted();
+      const completed=
+        isTaskCompleted(task);
+
+      const addDisabled=
+        !ready
+        ||completed
+        ||sprintLifecycleIsCompleted();
+
       actionButtons.push(
-        `<button ${addDisabled?"disabled":""} data-add-task="${task.id}">${sprintLifecycleIsCompleted()?"Спринт завершён":"В спринт"}</button>`,
+        `<button
+          ${addDisabled?"disabled":""}
+          data-add-task="${task.id}">
+            ${completed
+              ?"Выполнена"
+              :(sprintLifecycleIsCompleted()
+                ?"Спринт завершён"
+                :"В спринт")}
+        </button>`,
         `<button class="danger-inline" data-delete-task="${task.id}">Удалить</button>`
       );
     }
@@ -10679,6 +10743,618 @@ function gitLabAssigneesHtml(metadata,hasUrl){
     }).join("")}
     ${syncedAt?`<span class="gitlab-sync-meta">Обновлено ${esc(syncedAt)}</span>`:""}
   </div>`;
+}
+
+function taskPoolGitLabTasks(){
+  return Object.values(taskPool)
+    .map(normalizeTask)
+    .map(task=>{
+      const externalTaskUrl=
+        taskGitLabLink(task);
+
+      if(!task.id||!externalTaskUrl){
+        return null;
+      }
+
+      return {
+        taskId:String(task.id),
+        title:String(
+          task.title||task.id
+        ),
+        externalTaskUrl
+      };
+    })
+    .filter(Boolean);
+}
+
+function savedSprintCompletionTimestamp(item){
+  return (
+    item?.input?.sprintCompletedAt
+    ||item?.result?.sprintCompletedAt
+    ||null
+  );
+}
+
+function savedSprintReturnedTaskSet(item){
+  return new Set(
+    Array.isArray(
+      item?.input?.sprintReturnedTaskIds
+    )
+      ?item.input.sprintReturnedTaskIds
+      :[]
+  );
+}
+
+function savedSprintTaskSnapshot(
+  item,
+  taskId
+){
+  return (
+    item?.result?.taskSnapshots?.[taskId]
+    ||item?.input?.sprintTaskSnapshots?.[taskId]
+    ||null
+  );
+}
+
+function postSprintCompletionByRole(
+  item,
+  completedTaskIds
+){
+  const result={};
+  const roleLimits=
+    Array.isArray(item?.result?.roleLimits)
+      ?item.result.roleLimits
+      :[];
+
+  roleLimits.forEach(roleLimit=>{
+    const roleName=String(
+      roleLimit?.role||""
+    ).trim();
+
+    if(!roleName)return;
+
+    const roleKey=
+      roleKeyFromName(roleName);
+
+    let count=0;
+
+    completedTaskIds.forEach(taskId=>{
+      const snapshot=
+        savedSprintTaskSnapshot(
+          item,
+          taskId
+        );
+
+      if(!snapshot)return;
+
+      const estimate=
+        normalizeTask(snapshot)
+          .estimates?.[roleKey];
+
+      if(
+        isEstimateFilled(estimate)
+        &&Number(estimate)>0
+      ){
+        count+=1;
+      }
+    });
+
+    result[roleName]=count;
+  });
+
+  return result;
+}
+
+function postSprintCompletionState(
+  item
+){
+  const value=
+    item?.result?.postSprintCompletion;
+
+  const tasks=
+    value?.tasks
+    &&typeof value.tasks==="object"
+      ?JSON.parse(
+          JSON.stringify(value.tasks)
+        )
+      :{};
+
+  return {
+    schemaVersion:1,
+    tasks
+  };
+}
+
+function postSprintCompletionSummary(
+  item
+){
+  const state=
+    postSprintCompletionState(item);
+
+  const ids=Object.keys(
+    state.tasks
+  );
+
+  return {
+    ...state,
+    completedTaskIds:ids,
+    completedTaskCount:ids.length,
+    byRole:
+      postSprintCompletionByRole(
+        item,
+        ids
+      )
+  };
+}
+
+function taskClosedAfterSourceSprint(
+  task,
+  result
+){
+  if(
+    String(result?.issueState||"")
+      .trim()
+      .toLowerCase()
+      !=="closed"
+  ){
+    return null;
+  }
+
+  const carryover=
+    taskCarryoverInfo(task);
+
+  if(!carryover?.fromSprintId){
+    return null;
+  }
+
+  const sourceSprint=
+    savedSprintSets[
+      carryover.fromSprintId
+    ];
+
+  if(
+    !sourceSprint
+    ||normalizeSprintLifecycleStatus(
+      sourceSprint?.input?.sprintLifecycleStatus
+    )!==SPRINT_STATUS_COMPLETED
+    ||!savedSprintReturnedTaskSet(
+      sourceSprint
+    ).has(task.id)
+  ){
+    return null;
+  }
+
+  const closedAt=
+    result?.closedAt
+    ||task?.gitlab?.closedAt
+    ||null;
+
+  const closedMs=
+    gitLabTimestampMilliseconds(
+      closedAt
+    );
+
+  const completedAt=
+    savedSprintCompletionTimestamp(
+      sourceSprint
+    );
+
+  const completedMs=
+    gitLabTimestampMilliseconds(
+      completedAt
+    );
+
+  if(
+    !closedMs
+    ||!completedMs
+    ||closedMs<=completedMs
+  ){
+    return null;
+  }
+
+  /*
+    Если задача уже была добавлена в следующий спринт,
+    относим её к исходному спринту только когда GitLab
+    закрыл её до фактического повторного добавления.
+  */
+  const addedMs=
+    gitLabTimestampMilliseconds(
+      carryover.addedAt
+    );
+
+  if(
+    carryover.pending===false
+    &&(
+      !addedMs
+      ||closedMs>=addedMs
+    )
+  ){
+    return null;
+  }
+
+  return {
+    sourceSprintId:
+      carryover.fromSprintId,
+    sourceSprint,
+    closedAt:
+      new Date(closedMs).toISOString()
+  };
+}
+
+async function reconcilePostSprintCompletions(
+  job
+){
+  const results=Array.isArray(
+    job?.results
+  )
+    ?job.results
+    :[];
+
+  const affected=new Map();
+  const detectedAt=
+    new Date().toISOString();
+
+  results.forEach(result=>{
+    if(!result?.ok)return;
+
+    const taskId=String(
+      result.taskId||""
+    ).trim();
+
+    const task=taskPool[taskId];
+
+    if(!task)return;
+
+    const match=
+      taskClosedAfterSourceSprint(
+        task,
+        result
+      );
+
+    if(!match)return;
+
+    if(!affected.has(match.sourceSprintId)){
+      affected.set(
+        match.sourceSprintId,
+        postSprintCompletionState(
+          match.sourceSprint
+        )
+      );
+    }
+
+    const state=
+      affected.get(
+        match.sourceSprintId
+      );
+
+    const snapshot=
+      savedSprintTaskSnapshot(
+        match.sourceSprint,
+        taskId
+      );
+
+    state.tasks[taskId]={
+      taskId,
+      title:String(
+        snapshot?.title
+        ||task.title
+        ||taskId
+      ),
+      closedAt:match.closedAt,
+      detectedAt
+    };
+  });
+
+  if(!affected.size){
+    return {
+      sprintCount:0,
+      taskCount:0
+    };
+  }
+
+  const {fsMod}=
+    await loadFirebaseModules();
+
+  let taskCount=0;
+
+  for(
+    const [sprintId,state]
+    of affected.entries()
+  ){
+    const item=
+      savedSprintSets[sprintId];
+
+    if(!item)continue;
+
+    const nextItem=
+      JSON.parse(
+        JSON.stringify(item)
+      );
+
+    nextItem.result={
+      ...(nextItem.result||{}),
+      postSprintCompletion:{
+        ...state
+      }
+    };
+
+    const summary=
+      postSprintCompletionSummary(
+        nextItem
+      );
+
+    nextItem.result.postSprintCompletion={
+      ...summary,
+      updatedAt:detectedAt
+    };
+
+    taskCount+=
+      summary.completedTaskCount;
+
+    await fsMod.updateDoc(
+      fsMod.doc(
+        firebaseDb,
+        "users",
+        currentUser.uid,
+        "sprints",
+        sprintId
+      ),
+      {
+        "result.postSprintCompletion":
+          nextItem.result
+            .postSprintCompletion
+      }
+    );
+
+    savedSprintSets[sprintId]=
+      nextItem;
+  }
+
+  renderPlanningHistory();
+
+  return {
+    sprintCount:affected.size,
+    taskCount
+  };
+}
+
+function stopTaskPoolGitLabJobRealtime(){
+  if(
+    typeof unsubscribeTaskPoolGitLabJob
+      ==="function"
+  ){
+    unsubscribeTaskPoolGitLabJob();
+  }
+
+  unsubscribeTaskPoolGitLabJob=null;
+}
+
+function setTaskPoolGitLabSyncStatus(
+  text,
+  type=""
+){
+  if(!taskPoolGitLabSyncStatus){
+    return;
+  }
+
+  taskPoolGitLabSyncStatus.textContent=
+    text;
+
+  taskPoolGitLabSyncStatus.style.color=
+    type==="bad"
+      ?"var(--bad)"
+      :(type==="ok"
+        ?"var(--good)"
+        :"");
+}
+
+async function watchTaskPoolGitLabSyncJob(
+  jobId
+){
+  stopTaskPoolGitLabJobRealtime();
+
+  const {fsMod}=
+    await loadFirebaseModules();
+
+  const jobRef=fsMod.doc(
+    firebaseDb,
+    "workspaces",
+    TEAM_CALCULATOR_WORKSPACE_ID,
+    "gitlab_jobs",
+    jobId
+  );
+
+  let terminalHandled=false;
+
+  unsubscribeTaskPoolGitLabJob=
+    fsMod.onSnapshot(
+      jobRef,
+      snapshot=>{
+        if(!snapshot.exists())return;
+
+        const job=snapshot.data()||{};
+        const status=String(
+          job.status||"pending"
+        );
+
+        const processed=
+          Number(
+            job.processedCount||0
+          );
+
+        const succeeded=
+          Number(
+            job.succeededCount||0
+          );
+
+        const failed=
+          Number(
+            job.failedCount||0
+          );
+
+        if(status==="pending"){
+          setTaskPoolGitLabSyncStatus(
+            "Запрос поставлен в очередь. Ожидается MacBook и VPN."
+          );
+          return;
+        }
+
+        if(status==="processing"){
+          setTaskPoolGitLabSyncStatus(
+            processed
+              ?`GitLab пула: обработано ${processed} задач…`
+              :"Коннектор обновляет GitLab-статусы пула…"
+          );
+          return;
+        }
+
+        if(terminalHandled)return;
+        terminalHandled=true;
+
+        taskPoolGitLabSyncInProgress=
+          false;
+
+        Promise.resolve(
+          ["succeeded","partial"].includes(
+            status
+          )
+            ?reconcilePostSprintCompletions(
+                job
+              )
+            :{
+                sprintCount:0,
+                taskCount:0
+              }
+        ).then(postSprintResult=>{
+          const suffix=
+            postSprintResult.taskCount
+              ?` · дозавершено после спринта: ${postSprintResult.taskCount}`
+              :"";
+
+          if(status==="succeeded"){
+            setTaskPoolGitLabSyncStatus(
+              `GitLab-статусы пула обновлены: ${succeeded} задач${suffix}.`,
+              "ok"
+            );
+          }else if(status==="partial"){
+            setTaskPoolGitLabSyncStatus(
+              `GitLab-статусы пула обновлены частично: успешно ${succeeded}, ошибок ${failed}${suffix}.`,
+              "bad"
+            );
+          }else{
+            setTaskPoolGitLabSyncStatus(
+              `Ошибка GitLab: ${job.error||"задание не выполнено"}`,
+              "bad"
+            );
+          }
+
+          render();
+        }).catch(error=>{
+          console.error(error);
+          setTaskPoolGitLabSyncStatus(
+            `GitLab обновлён, но не удалось обновить постспринтовую статистику: ${error.message}`,
+            "bad"
+          );
+          render();
+        });
+
+        setTimeout(
+          stopTaskPoolGitLabJobRealtime,
+          2500
+        );
+      },
+      error=>{
+        console.error(error);
+
+        taskPoolGitLabSyncInProgress=
+          false;
+
+        setTaskPoolGitLabSyncStatus(
+          `Не удалось прочитать статус задания: ${error.message}`,
+          "bad"
+        );
+
+        render();
+      }
+    );
+}
+
+async function requestTaskPoolGitLabSync(){
+  const config=
+    configuredTeamCalculatorGitLabSync();
+
+  if(!config){
+    setTaskPoolGitLabSyncStatus(
+      "Не настроен gitlab-sync-config.js.",
+      "bad"
+    );
+    return false;
+  }
+
+  if(
+    !currentUser
+    ||!firebaseDb
+    ||taskPoolGitLabSyncInProgress
+  ){
+    return false;
+  }
+
+  const tasks=
+    taskPoolGitLabTasks();
+
+  if(!tasks.length){
+    setTaskPoolGitLabSyncStatus(
+      "В общем пуле нет задач со ссылкой на GitLab.",
+      "bad"
+    );
+    return false;
+  }
+
+  taskPoolGitLabSyncInProgress=true;
+  render();
+
+  setTaskPoolGitLabSyncStatus(
+    "Создание задания GitLab в Firestore…"
+  );
+
+  try{
+    const queued=
+      await enqueueGitLabJob({
+        endpoint:config.endpoint,
+        payload:{
+          workspaceId:
+            TEAM_CALCULATOR_WORKSPACE_ID,
+          sprintId:null,
+          sprintName:null,
+          sprintLifecycleStatus:
+            "task_pool",
+          tasks
+        }
+      });
+
+    setTaskPoolGitLabSyncStatus(
+      `Запрос создан: ${tasks.length} задач. Ожидается коннектор.`
+    );
+
+    await watchTaskPoolGitLabSyncJob(
+      queued.jobId
+    );
+
+    return true;
+  }catch(error){
+    console.error(error);
+
+    taskPoolGitLabSyncInProgress=
+      false;
+
+    setTaskPoolGitLabSyncStatus(
+      `Ошибка постановки запроса: ${error.message}`,
+      "bad"
+    );
+
+    render();
+    return false;
+  }
 }
 
 function currentSprintGitLabTasks(){
@@ -12882,6 +13558,12 @@ function render(){
     ||actualPreviewInProgress
     ||!activeSprintTaskIds().length;
 
+  if(syncTaskPoolGitLabButton){
+    syncTaskPoolGitLabButton.disabled=
+      taskPoolGitLabSyncInProgress
+      ||!taskPoolGitLabTasks().length;
+  }
+
   if(sprintLifecycleIsCompleted()){
     setSprintGitLabSyncStatus(
       "GitLab-данные зафиксированы при завершении спринта."
@@ -13059,11 +13741,25 @@ function renderPlanningHistory(){
     });
   });
 
-  planningHistoryHead.innerHTML=`<tr><th>Спринт</th><th class="num">Задач</th><th class="num">Выполнено</th><th>Самая загруженная роль</th>${roleNames.map(r=>`<th class="num">${esc(r)}<br><span class="muted">ч.д.: план/факт/ёмкость<br>задач: план/выполнено</span></th>`).join("")}</tr>`;
+  planningHistoryHead.innerHTML=`<tr><th>Спринт</th><th class="num">Задач</th><th class="num">Выполнено в спринте</th><th class="num">Дозавершено после</th><th>Самая загруженная роль</th>${roleNames.map(r=>`<th class="num">${esc(r)}<br><span class="muted">ч.д.: план/факт/ёмкость<br>задач: план/выполнено/+после</span></th>`).join("")}</tr>`;
   planningHistoryBody.innerHTML="";
 
   items.forEach(item=>{
     const res=item.result||{};
+    const postSprint=
+      res.postSprintCompletion
+      &&typeof res.postSprintCompletion==="object"
+        ?res.postSprintCompletion
+        :{};
+    const postSprintByRole=
+      postSprint.byRole
+      &&typeof postSprint.byRole==="object"
+        ?postSprint.byRole
+        :{};
+    const postSprintCount=
+      Number(
+        postSprint.completedTaskCount||0
+      )||0;
     const limits=res.roleLimits||[];
     const byRole={};
     limits.forEach(r=>byRole[r.role]=r);
@@ -13092,11 +13788,21 @@ function renderPlanningHistory(){
           ?Number(r.completedTaskCount)
           :null;
 
+      const postSprintRoleCount=
+        Number(
+          postSprintByRole[role]||0
+        )||0;
+
       const taskCountText=
         plannedTaskCount===null
         ||completedTaskCount===null
           ?"— / —"
-          :`${plannedTaskCount} / ${completedTaskCount}`;
+          :`${plannedTaskCount} / ${completedTaskCount}`
+            +(
+              postSprintRoleCount
+                ?` / +${postSprintRoleCount}`
+                :" / +0"
+            );
 
       return `<td class="num ${cls}">
         <span class="history-role-days">
@@ -13114,6 +13820,11 @@ function renderPlanningHistory(){
     tr.innerHTML=`<td><b>${esc(item.name)}</b></td>
       <td class="num">${res.taskCount??res.crossTaskLimit??"—"}</td>
       <td class="num">${res.completedTaskCount??res.developmentTaskLimit??"—"}</td>
+      <td class="num">${
+        postSprintCount
+          ?`+${postSprintCount}`
+          :"0"
+      }</td>
       <td>${esc(res.bottleneck||"—")}</td>${cells}`;
     planningHistoryBody.appendChild(tr);
   });
@@ -13410,6 +14121,10 @@ sprintGitLabIterationSelect.onchange=()=>{
 sprintLifecycleAction.onclick=handleSprintLifecycleAction;
 combinedSprintGitLabActionButton.onclick=
   runCombinedSprintGitLabAction;
+
+syncTaskPoolGitLabButton.onclick=
+  requestTaskPoolGitLabSync;
+
 document.getElementById("saveActualCalculationSettings").onclick=saveActualCalculationSettings;
 document.getElementById("resetActualCalculationSettings").onclick=resetActualCalculationSettings;
 refreshActualAssigneesButton.onclick=()=>{

@@ -1,10 +1,10 @@
 <!DOCTYPE html>
-<!-- Team_calculator v23.4.54: выбор задач scope::analysis / scope::design / scope::devops из GitLab -->
+<!-- Team_calculator v23.4.57: выбор задач scope::analysis / scope::design / scope::devops из GitLab -->
 <html lang="ru">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Team_calculator v23.4.54 — планирование спринта</title>
+  <title>Team_calculator v23.4.57 — планирование спринта</title>
   <link
     rel="icon"
     type="image/svg+xml"
@@ -2393,7 +2393,7 @@
       <h1>Team_calculator</h1>
       <span
         class="app-version-badge"
-        title="Версия Team_calculator">v23.4.54</span>
+        title="Версия Team_calculator">v23.4.57</span>
     </div>
     <div
       class="header-sprint-context empty"
@@ -3034,6 +3034,7 @@
       <div class="gitlab-pool-discovery-intro">
         GitLab показывает открытые задачи с labels <b>scope::analysis</b>, <b>scope::design</b> или <b>scope::devops</b>, которых сейчас нет в общем пуле Team_calculator.
         Выберите одну или несколько задач и укажите оценку для каждой выбранной задачи.
+        При добавлении оценка автоматически отправится в GitLab, а на issue будет проставлен label <b>estimate::done</b>.
       </div>
       <div id="gitLabPoolDiscoveryProgress" class="gitlab-pool-discovery-progress"></div>
       <div id="gitLabPoolDiscoveryMessage" class="manual-task-message"></div>
@@ -3153,6 +3154,8 @@ let taskPoolGitLabSyncInProgress=false;
 const TASK_POOL_GITLAB_SYNC_BATCH_SIZE=100;
 const TEAM_CALCULATOR_GITLAB_DISCOVERY_MARKER=
   "__TC_TASK_POOL_GITLAB_DISCOVERY_V1__";
+const TEAM_CALCULATOR_GITLAB_DISCOVERY_ESTIMATE_LABEL=
+  "estimate::done";
 let gitLabPoolDiscoveryCandidates=[];
 let gitLabPoolDiscoveryInProgress=false;
 let gitLabPoolDiscoveryLoaded=false;
@@ -4572,8 +4575,10 @@ function buildDirectGitLabJob({
         1,
         Number(payload?.estimateVersion)||1
       ),
-      gitlabLabel:
-        gitLabConfiguredEstimateLabel(),
+      gitlabLabel:String(
+        payload?.gitlabLabel
+        ||gitLabConfiguredEstimateLabel()
+      ).trim()||gitLabConfiguredEstimateLabel(),
       applyLabel:
         payload?.applyLabel===true,
       hoursPerDay:
@@ -8307,7 +8312,8 @@ async function requestTaskGitLabEstimateSync({
   task,
   roleKey,
   reason="manual",
-  applyLabel=false
+  applyLabel=false,
+  gitlabLabel=null
 }){
   const config=
     configuredTeamCalculatorGitLabEstimateSync();
@@ -8362,7 +8368,12 @@ async function requestTaskGitLabEstimateSync({
       finalEstimate,
       estimateVersion,
       reason,
-      applyLabel:Boolean(applyLabel)
+      applyLabel:Boolean(applyLabel),
+      ...(
+        gitlabLabel
+          ?{gitlabLabel:String(gitlabLabel).trim()}
+          :{}
+      )
     }
   });
 }
@@ -8442,6 +8453,28 @@ function closeGitLabPoolDiscoveryRealtime(){
     unsubscribeGitLabPoolDiscoveryJob();
   }
   unsubscribeGitLabPoolDiscoveryJob=null;
+}
+
+function resetGitLabPoolDiscoveryDialogState(){
+  closeGitLabPoolDiscoveryRealtime();
+
+  gitLabPoolDiscoveryInProgress=false;
+  gitLabPoolDiscoveryLoaded=false;
+  gitLabPoolDiscoveryCandidates=[];
+
+  gitLabPoolDiscoveryProgress.textContent="";
+  gitLabPoolDiscoveryMessage.textContent="";
+  gitLabPoolDiscoveryMessage.style.color="";
+  gitLabPoolDiscoverySummary.textContent="";
+
+  gitLabPoolDiscoveryList.innerHTML=
+    '<div class="gitlab-pool-discovery-empty">Нажмите «Обновить список».</div>';
+
+  refreshGitLabPoolDiscoveryButton.disabled=false;
+
+  importGitLabPoolCandidateButton.disabled=true;
+  importGitLabPoolCandidateButton.textContent=
+    "Добавить выбранные";
 }
 
 function setManualTaskMode(mode){
@@ -9264,6 +9297,8 @@ async function importSelectedGitLabPoolCandidates(){
     `Добавление в общий пул: 0 из ${prepared.length}…`;
 
   let importedCount=0;
+  let estimateQueuedCount=0;
+  const estimateQueueErrors=[];
 
   try{
     for(const item of prepared){
@@ -9274,7 +9309,59 @@ async function importSelectedGitLabPoolCandidates(){
       importedCount+=1;
 
       gitLabPoolDiscoveryMessage.textContent=
-        `Добавление в общий пул: ${importedCount} из ${prepared.length}…`;
+        `Добавление в общий пул: ${importedCount} из ${prepared.length}. `
+        +`Отправка estimate в GitLab: ${estimateQueuedCount} из ${importedCount}…`;
+
+      try{
+        await requestTaskGitLabEstimateSync({
+          task:item.task,
+          roleKey:
+            manualTaskTypeRole(item.task),
+          reason:"gitlab_discovery_import",
+          applyLabel:true,
+          gitlabLabel:
+            TEAM_CALCULATOR_GITLAB_DISCOVERY_ESTIMATE_LABEL
+        });
+
+        estimateQueuedCount+=1;
+      }catch(estimateError){
+        console.error(
+          "GitLab estimate queue failed for imported task",
+          item.task.id,
+          estimateError
+        );
+
+        estimateQueueErrors.push({
+          taskId:item.task.id,
+          title:item.task.title,
+          error:
+            estimateError?.message
+            ||String(estimateError)
+        });
+      }
+
+      gitLabPoolDiscoveryMessage.textContent=
+        `Добавление в общий пул: ${importedCount} из ${prepared.length}. `
+        +`Estimate поставлен в GitLab-очередь: ${estimateQueuedCount} из ${importedCount}.`;
+    }
+
+    if(estimateQueueErrors.length){
+      setSyncState(
+        `Задачи добавлены. GitLab estimate: ${estimateQueuedCount}/${importedCount}`,
+        "warn"
+      );
+
+      alert(
+        `В общий пул добавлено: ${importedCount}.\n`
+        +`Estimate поставлен в GitLab-очередь: ${estimateQueuedCount}.\n`
+        +`Не удалось поставить в очередь: ${estimateQueueErrors.length}.\n\n`
+        +"Для задач с ошибкой можно повторить отправку кнопкой "
+        +"«Отправить estimate в GitLab» в общем пуле."
+      );
+    }else{
+      setSyncState(
+        `Задачи добавлены. GitLab estimate: ${estimateQueuedCount}/${importedCount}`
+      );
     }
 
     gitLabPoolDiscoveryMessage.style.color=
@@ -9292,7 +9379,8 @@ async function importSelectedGitLabPoolCandidates(){
 
     gitLabPoolDiscoveryMessage.textContent=
       `Добавлено ${importedCount} из ${prepared.length}. `
-      +`Не удалось продолжить: ${error.message}`;
+      +`Estimate поставлен в GitLab-очередь: ${estimateQueuedCount}. `
+      +`Не удалось продолжить добавление: ${error.message}`;
 
     /*
       Уже успешно сохранённые задачи сразу находятся в локальном taskPool,
@@ -9342,6 +9430,8 @@ function openManualTaskDialog(){
   manualTaskEstimate.value=formatTaskEstimateInput(1);
   manualTaskMessage.textContent="";
   createManualTaskButton.disabled=false;
+
+  resetGitLabPoolDiscoveryDialogState();
   setManualTaskMode("manual");
 
   if(typeof manualTaskDialog.showModal==="function"){
@@ -9354,8 +9444,7 @@ function openManualTaskDialog(){
 }
 
 function closeManualTaskDialog(){
-  closeGitLabPoolDiscoveryRealtime();
-  gitLabPoolDiscoveryInProgress=false;
+  resetGitLabPoolDiscoveryDialogState();
 
   if(typeof manualTaskDialog.close==="function"){
     manualTaskDialog.close();

@@ -1,10 +1,10 @@
 <!DOCTYPE html>
-<!-- Team_calculator v23.4.52: выбор задач scope::analysis / scope::design / scope::devops из GitLab -->
+<!-- Team_calculator v23.4.54: выбор задач scope::analysis / scope::design / scope::devops из GitLab -->
 <html lang="ru">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Team_calculator v23.4.52 — планирование спринта</title>
+  <title>Team_calculator v23.4.54 — планирование спринта</title>
   <link
     rel="icon"
     type="image/svg+xml"
@@ -2048,6 +2048,40 @@
       text-align:center;
       font-size:12px;
     }
+    .gitlab-pool-discovery-item.selected{
+      background:#f7f9ff;
+    }
+    .gitlab-pool-discovery-row-config{
+      display:grid;
+      grid-template-columns:minmax(170px,.8fr) minmax(220px,1fr);
+      gap:10px;
+      align-items:end;
+      margin-top:10px;
+      padding:10px;
+      border:1px solid #dfe5f2;
+      border-radius:10px;
+      background:#fff;
+    }
+    .gitlab-pool-discovery-row-config[hidden]{
+      display:none!important;
+    }
+    .gitlab-pool-discovery-row-config label{
+      display:block;
+      margin-bottom:5px;
+      font-size:11px;
+      font-weight:800;
+    }
+    .gitlab-pool-discovery-row-config select{
+      min-width:0;
+    }
+    .gitlab-pool-discovery-row-config .estimate-stepper{
+      max-width:260px;
+    }
+    @media(max-width:620px){
+      .gitlab-pool-discovery-row-config{
+        grid-template-columns:1fr;
+      }
+    }
 
     /* Automatic Team_poker integration */
     .auto-integration-panel{
@@ -2359,7 +2393,7 @@
       <h1>Team_calculator</h1>
       <span
         class="app-version-badge"
-        title="Версия Team_calculator">v23.4.52</span>
+        title="Версия Team_calculator">v23.4.54</span>
     </div>
     <div
       class="header-sprint-context empty"
@@ -2999,7 +3033,7 @@
     <div id="gitLabPoolDiscoveryPane" class="gitlab-pool-discovery-pane" hidden>
       <div class="gitlab-pool-discovery-intro">
         GitLab показывает открытые задачи с labels <b>scope::analysis</b>, <b>scope::design</b> или <b>scope::devops</b>, которых сейчас нет в общем пуле Team_calculator.
-        После добавления укажите оценку в соответствующей колонке общего пула.
+        Выберите одну или несколько задач и укажите оценку для каждой выбранной задачи.
       </div>
       <div id="gitLabPoolDiscoveryProgress" class="gitlab-pool-discovery-progress"></div>
       <div id="gitLabPoolDiscoveryMessage" class="manual-task-message"></div>
@@ -3007,10 +3041,11 @@
       <div id="gitLabPoolDiscoveryList" class="gitlab-pool-discovery-list">
         <div class="gitlab-pool-discovery-empty">Нажмите «Обновить список».</div>
       </div>
+
       <div class="manual-task-actions">
         <button id="cancelGitLabPoolDiscovery" class="secondary" type="button">Закрыть</button>
         <button id="refreshGitLabPoolDiscovery" class="secondary" type="button">Обновить список</button>
-        <button id="importGitLabPoolCandidate" type="button" disabled>Добавить выбранную</button>
+        <button id="importGitLabPoolCandidate" type="button" disabled>Добавить выбранные</button>
       </div>
     </div>
   </form>
@@ -8491,65 +8526,455 @@ function gitLabPoolDiscoveryScopeLabel(roleKey){
   return ({analytics:"scope::analysis",design:"scope::design",devops:"scope::devops"})[roleKey]||roleKey;
 }
 
-function selectedGitLabPoolCandidate(){
-  const selected=gitLabPoolDiscoveryList.querySelector('input[name="gitlabPoolDiscoveryCandidate"]:checked');
-  if(!selected)return null;
-  const index=Number(selected.value);
-  return Number.isInteger(index)?gitLabPoolDiscoveryCandidates[index]||null:null;
+function selectedGitLabPoolCandidateIndexes(){
+  return [
+    ...gitLabPoolDiscoveryList.querySelectorAll(
+      'input[name="gitlabPoolDiscoveryCandidate"]:checked'
+    )
+  ]
+    .map(input=>Number(input.value))
+    .filter(index=>
+      Number.isInteger(index)
+      &&Boolean(
+        gitLabPoolDiscoveryCandidates[index]
+      )
+    );
+}
+
+function gitLabPoolDiscoveryCandidateRoles(candidate){
+  return [
+    ...new Set(
+      (
+        Array.isArray(candidate?.roleKeys)
+          ?candidate.roleKeys
+          :[]
+      ).filter(roleKey=>
+        ["analytics","design","devops"]
+          .includes(roleKey)
+      )
+    )
+  ];
+}
+
+function gitLabPoolDiscoveryRowControls(index){
+  return {
+    row:
+      gitLabPoolDiscoveryList.querySelector(
+        `[data-gitlab-discovery-row="${index}"]`
+      ),
+    checkbox:
+      gitLabPoolDiscoveryList.querySelector(
+        `input[name="gitlabPoolDiscoveryCandidate"][value="${index}"]`
+      ),
+    config:
+      gitLabPoolDiscoveryList.querySelector(
+        `[data-gitlab-discovery-config="${index}"]`
+      ),
+    role:
+      gitLabPoolDiscoveryList.querySelector(
+        `[data-gitlab-discovery-role="${index}"]`
+      ),
+    estimate:
+      gitLabPoolDiscoveryList.querySelector(
+        `[data-gitlab-discovery-estimate="${index}"]`
+      )
+  };
+}
+
+function gitLabPoolDiscoveryEstimateValue(index){
+  const controls=
+    gitLabPoolDiscoveryRowControls(index);
+
+  return parseTaskEstimate(
+    controls.estimate?.value||""
+  );
 }
 
 function updateGitLabPoolDiscoverySelection(){
-  importGitLabPoolCandidateButton.disabled=gitLabPoolDiscoveryInProgress||!selectedGitLabPoolCandidate();
+  const selectedIndexes=
+    selectedGitLabPoolCandidateIndexes();
+
+  gitLabPoolDiscoveryCandidates
+    .forEach((candidate,index)=>{
+      const controls=
+        gitLabPoolDiscoveryRowControls(index);
+
+      const selected=
+        Boolean(
+          controls.checkbox?.checked
+        );
+
+      if(controls.row){
+        controls.row.classList.toggle(
+          "selected",
+          selected
+        );
+      }
+
+      if(controls.config){
+        controls.config.hidden=!selected;
+      }
+    });
+
+  const hasInvalidSelection=
+    selectedIndexes.some(index=>{
+      const candidate=
+        gitLabPoolDiscoveryCandidates[index];
+
+      const controls=
+        gitLabPoolDiscoveryRowControls(index);
+
+      const allowedRoles=
+        gitLabPoolDiscoveryCandidateRoles(
+          candidate
+        );
+
+      const roleKey=String(
+        controls.role?.value||""
+      ).trim();
+
+      const estimate=
+        gitLabPoolDiscoveryEstimateValue(
+          index
+        );
+
+      return (
+        !allowedRoles.includes(roleKey)
+        ||!isAllowedTaskEstimate(
+          estimate,
+          {allowZero:false}
+        )
+      );
+    });
+
+  importGitLabPoolCandidateButton.textContent=
+    selectedIndexes.length
+      ?`Добавить выбранные (${selectedIndexes.length})`
+      :"Добавить выбранные";
+
+  importGitLabPoolCandidateButton.disabled=
+    gitLabPoolDiscoveryInProgress
+    ||selectedIndexes.length===0
+    ||hasInvalidSelection;
 }
 
-function renderGitLabPoolDiscoveryCandidates(job={}){
-  gitLabPoolDiscoveryCandidates=(Array.isArray(job.candidates)?job.candidates:[])
-    .filter(candidate=>!taskPoolHasGitLabCandidate(candidate));
-  gitLabPoolDiscoveryLoaded=true;
-  const searchedCount=Number(job.searchedCount||0);
-  const alreadyExistingCount=Number(job.alreadyExistingCount||0);
-  gitLabPoolDiscoverySummary.textContent=
-    `Проверено открытых задач: ${searchedCount}. Доступно для добавления: ${gitLabPoolDiscoveryCandidates.length}. Уже есть в Team_calculator: ${alreadyExistingCount}.`
-    +(job.truncated===true?" Результат ограничен лимитом коннектора.":"");
+function validateGitLabPoolDiscoveryEstimate(index){
+  const controls=
+    gitLabPoolDiscoveryRowControls(index);
 
-  if(!gitLabPoolDiscoveryCandidates.length){
-    gitLabPoolDiscoveryList.innerHTML='<div class="gitlab-pool-discovery-empty">Новых задач с нужными scope labels не найдено.</div>';
+  if(
+    !controls.checkbox?.checked
+    ||!controls.estimate
+  ){
     updateGitLabPoolDiscoverySelection();
     return;
   }
 
-  gitLabPoolDiscoveryList.innerHTML=gitLabPoolDiscoveryCandidates.map((candidate,index)=>{
-    const title=String(candidate?.title||"Задача без названия");
-    const webUrl=String(candidate?.webUrl||"").trim();
-    const projectPath=String(candidate?.projectPath||"").trim();
-    const issueIid=Number(candidate?.issueIid||0);
-    const roles=Array.isArray(candidate?.roleKeys)?candidate.roleKeys:[];
-    const scopes=roles.map(gitLabPoolDiscoveryScopeLabel).filter(Boolean);
-    const assignees=Array.isArray(candidate?.assignees)
-      ?candidate.assignees.map(person=>String(person?.name||person?.username||"").trim()).filter(Boolean)
-      :[];
-    const status=String(candidate?.statusLabel||"").trim();
-    const meta=[
-      projectPath&&issueIid?`${projectPath}#${issueIid}`:null,
-      status?`Статус: ${status}`:"Статус: —",
-      `Исполнитель: ${assignees.length?assignees.join(", "):"не назначен"}`
-    ].filter(Boolean).join(" · ");
-    return `<label class="gitlab-pool-discovery-item">
-      <input type="radio" name="gitlabPoolDiscoveryCandidate" value="${index}">
-      <div>
-        <div class="gitlab-pool-discovery-title">${webUrl?`<a href="${esc(webUrl)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">${esc(title)}</a>`:esc(title)}</div>
-        <div class="gitlab-pool-discovery-meta">${esc(meta)}</div>
-        <div class="gitlab-pool-discovery-scopes">${scopes.map(scope=>`<span class="gitlab-pool-discovery-scope">${esc(scope)}</span>`).join("")}</div>
-      </div>
-    </label>`;
-  }).join("");
+  const value=
+    gitLabPoolDiscoveryEstimateValue(
+      index
+    );
 
-  gitLabPoolDiscoveryList.querySelectorAll('input[name="gitlabPoolDiscoveryCandidate"]').forEach(input=>{
-    input.addEventListener("change",updateGitLabPoolDiscoverySelection);
-  });
+  if(
+    controls.estimate.value.trim()
+    &&!isAllowedTaskEstimate(
+      value,
+      {allowZero:false}
+    )
+  ){
+    gitLabPoolDiscoveryMessage.textContent=
+      taskEstimateScaleMessage(
+        {allowZero:false}
+      );
+  }else{
+    gitLabPoolDiscoveryMessage.textContent="";
+  }
+
   updateGitLabPoolDiscoverySelection();
 }
 
+
+function renderGitLabPoolDiscoveryCandidates(job={}){
+  gitLabPoolDiscoveryCandidates=(
+    Array.isArray(job.candidates)
+      ?job.candidates
+      :[]
+  ).filter(candidate=>
+    !taskPoolHasGitLabCandidate(candidate)
+  );
+
+  gitLabPoolDiscoveryLoaded=true;
+
+  const searchedCount=Number(
+    job.searchedCount||0
+  );
+
+  const alreadyExistingCount=Number(
+    job.alreadyExistingCount||0
+  );
+
+  gitLabPoolDiscoverySummary.textContent=
+    `Проверено открытых задач: ${searchedCount}. `
+    +`Доступно для добавления: ${gitLabPoolDiscoveryCandidates.length}. `
+    +`Уже есть в Team_calculator: ${alreadyExistingCount}.`
+    +(job.truncated===true
+      ?" Результат ограничен лимитом коннектора."
+      :"");
+
+  if(!gitLabPoolDiscoveryCandidates.length){
+    gitLabPoolDiscoveryList.innerHTML=
+      '<div class="gitlab-pool-discovery-empty">Новых задач с нужными scope labels не найдено.</div>';
+
+    importGitLabPoolCandidateButton.textContent=
+      "Добавить выбранные";
+
+    importGitLabPoolCandidateButton.disabled=true;
+    return;
+  }
+
+  gitLabPoolDiscoveryList.innerHTML=
+    gitLabPoolDiscoveryCandidates
+      .map((candidate,index)=>{
+        const title=String(
+          candidate?.title
+          ||"Задача без названия"
+        );
+
+        const webUrl=String(
+          candidate?.webUrl||""
+        ).trim();
+
+        const projectPath=String(
+          candidate?.projectPath||""
+        ).trim();
+
+        const issueIid=Number(
+          candidate?.issueIid||0
+        );
+
+        const roleKeys=
+          gitLabPoolDiscoveryCandidateRoles(
+            candidate
+          );
+
+        const scopes=roleKeys
+          .map(
+            gitLabPoolDiscoveryScopeLabel
+          )
+          .filter(Boolean);
+
+        const assignees=
+          Array.isArray(candidate?.assignees)
+            ?candidate.assignees
+                .map(person=>
+                  String(
+                    person?.name
+                    ||person?.username
+                    ||""
+                  ).trim()
+                )
+                .filter(Boolean)
+            :[];
+
+        const status=String(
+          candidate?.statusLabel||""
+        ).trim();
+
+        const meta=[
+          projectPath&&issueIid
+            ?`${projectPath}#${issueIid}`
+            :null,
+          status
+            ?`Статус: ${status}`
+            :"Статус: —",
+          `Исполнитель: ${
+            assignees.length
+              ?assignees.join(", ")
+              :"не назначен"
+          }`
+        ]
+          .filter(Boolean)
+          .join(" · ");
+
+        const roleOptions=roleKeys
+          .map(roleKey=>
+            `<option value="${esc(roleKey)}">${esc(roleLabelByKey(roleKey))}</option>`
+          )
+          .join("");
+
+        return `
+          <div
+            class="gitlab-pool-discovery-item"
+            data-gitlab-discovery-row="${index}">
+            <input
+              type="checkbox"
+              name="gitlabPoolDiscoveryCandidate"
+              value="${index}"
+              aria-label="Выбрать задачу">
+            <div>
+              <div class="gitlab-pool-discovery-title">
+                ${
+                  webUrl
+                    ?`<a href="${esc(webUrl)}" target="_blank" rel="noopener">${esc(title)}</a>`
+                    :esc(title)
+                }
+              </div>
+
+              <div class="gitlab-pool-discovery-meta">
+                ${esc(meta)}
+              </div>
+
+              <div class="gitlab-pool-discovery-scopes">
+                ${
+                  scopes.map(scope=>
+                    `<span class="gitlab-pool-discovery-scope">${esc(scope)}</span>`
+                  ).join("")
+                }
+              </div>
+
+              <div
+                class="gitlab-pool-discovery-row-config"
+                data-gitlab-discovery-config="${index}"
+                hidden>
+                <div>
+                  <label>Направление</label>
+                  <select
+                    data-gitlab-discovery-role="${index}"
+                    ${roleKeys.length<=1?"disabled":""}>
+                    ${roleOptions}
+                  </select>
+                </div>
+
+                <div>
+                  <label>Оценка, человеко-дни</label>
+                  <div class="muted small" style="margin-bottom:5px">
+                    0,25 → 0,5 → далее шаг 0,5
+                  </div>
+                  <div class="estimate-stepper">
+                    <button
+                      class="estimate-step-button"
+                      type="button"
+                      data-gitlab-discovery-estimate-step="-1"
+                      data-gitlab-discovery-index="${index}"
+                      aria-label="Уменьшить оценку">−</button>
+                    <input
+                      class="estimate-input"
+                      type="text"
+                      value=""
+                      inputmode="decimal"
+                      autocomplete="off"
+                      placeholder="Укажите оценку"
+                      data-gitlab-discovery-estimate="${index}"
+                      title="Допустимо: 0,25; 0,5; далее с шагом 0,5">
+                    <button
+                      class="estimate-step-button"
+                      type="button"
+                      data-gitlab-discovery-estimate-step="1"
+                      data-gitlab-discovery-index="${index}"
+                      aria-label="Увеличить оценку">+</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>`;
+      })
+      .join("");
+
+  gitLabPoolDiscoveryList
+    .querySelectorAll(
+      'input[name="gitlabPoolDiscoveryCandidate"]'
+    )
+    .forEach(input=>{
+      input.addEventListener(
+        "change",
+        updateGitLabPoolDiscoverySelection
+      );
+    });
+
+  gitLabPoolDiscoveryList
+    .querySelectorAll(
+      "[data-gitlab-discovery-role]"
+    )
+    .forEach(select=>{
+      select.addEventListener(
+        "change",
+        updateGitLabPoolDiscoverySelection
+      );
+    });
+
+  gitLabPoolDiscoveryList
+    .querySelectorAll(
+      "[data-gitlab-discovery-estimate]"
+    )
+    .forEach(input=>{
+      const index=Number(
+        input.getAttribute(
+          "data-gitlab-discovery-estimate"
+        )
+      );
+
+      bindEstimateScaleInput(
+        input,
+        {allowZero:false}
+      );
+
+      input.addEventListener(
+        "input",
+        updateGitLabPoolDiscoverySelection
+      );
+
+      input.addEventListener(
+        "change",
+        ()=>validateGitLabPoolDiscoveryEstimate(
+          index
+        )
+      );
+    });
+
+  gitLabPoolDiscoveryList
+    .querySelectorAll(
+      "[data-gitlab-discovery-estimate-step]"
+    )
+    .forEach(button=>{
+      button.addEventListener(
+        "click",
+        ()=>{
+          const index=Number(
+            button.getAttribute(
+              "data-gitlab-discovery-index"
+            )
+          );
+
+          const direction=Number(
+            button.getAttribute(
+              "data-gitlab-discovery-estimate-step"
+            )
+          );
+
+          const controls=
+            gitLabPoolDiscoveryRowControls(
+              index
+            );
+
+          if(!controls.estimate)return;
+
+          applyEstimateStep(
+            controls.estimate,
+            direction,
+            {
+              allowZero:false,
+              commit:false
+            }
+          );
+
+          gitLabPoolDiscoveryMessage.textContent="";
+          updateGitLabPoolDiscoverySelection();
+        }
+      );
+    });
+
+  updateGitLabPoolDiscoverySelection();
+}
 async function watchGitLabPoolDiscoveryJob(jobId){
   closeGitLabPoolDiscoveryRealtime();
   const {fsMod}=await loadFirebaseModules();
@@ -8640,80 +9065,250 @@ function gitLabDiscoveredTaskDocumentId(candidate){
   return `tc_gitlab_${projectId}_${issueIid}`;
 }
 
-async function importSelectedGitLabPoolCandidate(){
-  const candidate=selectedGitLabPoolCandidate();
-  if(!candidate)return;
-  if(taskPoolHasGitLabCandidate(candidate)){
-    gitLabPoolDiscoveryMessage.textContent="Эта задача уже появилась в общем пуле.";
-    return;
-  }
-  const title=String(candidate.title||"Задача без названия").trim();
-  const externalTaskUrl=normalizeManualTaskUrl(candidate.webUrl);
-  const roleKeys=(Array.isArray(candidate.roleKeys)?candidate.roleKeys:[])
-    .filter(roleKey=>["analytics","design","devops"].includes(roleKey));
-  const uniqueRoleKeys=[...new Set(roleKeys)];
-  const taskTypeRole=uniqueRoleKeys.length===1?uniqueRoleKeys[0]:null;
-  const id=gitLabDiscoveredTaskDocumentId(candidate);
-  const now=new Date().toISOString();
-  const task={
+function buildGitLabDiscoveredPoolTask(
+  candidate,
+  roleKey,
+  estimate
+){
+  const title=String(
+    candidate.title
+    ||"Задача без названия"
+  ).trim();
+
+  const externalTaskUrl=
+    normalizeManualTaskUrl(
+      candidate.webUrl
+    );
+
+  const id=
+    gitLabDiscoveredTaskDocumentId(
+      candidate
+    );
+
+  const now=
+    new Date().toISOString();
+
+  const estimates=
+    emptyTaskEstimates();
+
+  estimates[roleKey]=estimate;
+
+  return {
     id,
-    identityKey:`gitlab:${gitLabPoolCandidateKey(candidate)}`,
+    identityKey:
+      `gitlab:${gitLabPoolCandidateKey(candidate)}`,
     title,
     externalTaskUrl,
     source:"team_calculator",
-    taskTypeRole,
+    taskTypeRole:roleKey,
     createdAt:now,
     updatedAt:now,
     createdByUid:currentUser.uid,
-    createdByName:String(currentProfile?.alias||currentUser.email||"").trim(),
+    createdByName:String(
+      currentProfile?.alias
+      ||currentUser.email
+      ||""
+    ).trim(),
     planningStatus:"available",
-    estimates:emptyTaskEstimates(),
-    estimateSources:{},
-    estimateVersions:{},
+    estimates,
+    estimateSources:{
+      [roleKey]:"team_calculator"
+    },
+    estimateVersions:{
+      [roleKey]:1
+    },
     sourceTaskIds:{},
     finalizedAtByRole:{},
     finalizedByRole:{},
     teamByRole:{},
     sessionByRole:{},
     gitlab:{
-      statusLabel:candidate.statusLabel||null,
-      statusState:candidate.statusState||"missing",
-      matchedStatusLabels:Array.isArray(candidate.matchedStatusLabels)?candidate.matchedStatusLabels:[],
-      auxiliaryStatusLabels:Array.isArray(candidate.auxiliaryStatusLabels)?candidate.auxiliaryStatusLabels:[],
-      assignees:Array.isArray(candidate.assignees)?candidate.assignees:[],
+      statusLabel:
+        candidate.statusLabel||null,
+      statusState:
+        candidate.statusState||"missing",
+      matchedStatusLabels:
+        Array.isArray(
+          candidate.matchedStatusLabels
+        )
+          ?candidate.matchedStatusLabels
+          :[],
+      auxiliaryStatusLabels:
+        Array.isArray(
+          candidate.auxiliaryStatusLabels
+        )
+          ?candidate.auxiliaryStatusLabels
+          :[],
+      assignees:
+        Array.isArray(candidate.assignees)
+          ?candidate.assignees
+          :[],
       iteration:null,
       iterationState:"missing",
       iterationSyncError:null,
       iterationSource:null,
-      issueState:candidate.state||"opened",
+      issueState:
+        candidate.state||"opened",
       closedAt:null,
       issueTitle:title,
-      issueIid:Number(candidate.issueIid||0)||null,
-      projectId:Number(candidate.projectId||0)||null,
+      issueIid:
+        Number(candidate.issueIid||0)
+        ||null,
+      projectId:
+        Number(candidate.projectId||0)
+        ||null,
       webUrl:externalTaskUrl,
-      labels:Array.isArray(candidate.labels)?candidate.labels:[],
+      labels:
+        Array.isArray(candidate.labels)
+          ?candidate.labels
+          :[],
       syncedAt:now,
       syncError:null,
-      connectorVersion:candidate.connectorVersion||null
+      connectorVersion:
+        candidate.connectorVersion||null
     },
-    integration:{transport:"gitlab_discovery",createdIn:"team_calculator"}
+    integration:{
+      transport:"gitlab_discovery",
+      createdIn:"team_calculator"
+    }
   };
+}
+
+async function importSelectedGitLabPoolCandidates(){
+  const selectedIndexes=
+    selectedGitLabPoolCandidateIndexes();
+
+  if(!selectedIndexes.length){
+    return;
+  }
+
+  const prepared=[];
+
+  for(const index of selectedIndexes){
+    const candidate=
+      gitLabPoolDiscoveryCandidates[index];
+
+    if(!candidate)continue;
+
+    if(taskPoolHasGitLabCandidate(candidate)){
+      continue;
+    }
+
+    const controls=
+      gitLabPoolDiscoveryRowControls(
+        index
+      );
+
+    const roleKey=String(
+      controls.role?.value||""
+    ).trim();
+
+    const allowedRoles=
+      gitLabPoolDiscoveryCandidateRoles(
+        candidate
+      );
+
+    if(!allowedRoles.includes(roleKey)){
+      gitLabPoolDiscoveryMessage.textContent=
+        `Для задачи «${String(candidate.title||"")}» выберите направление.`;
+
+      controls.role?.focus();
+      return;
+    }
+
+    const estimate=
+      gitLabPoolDiscoveryEstimateValue(
+        index
+      );
+
+    if(
+      !isAllowedTaskEstimate(
+        estimate,
+        {allowZero:false}
+      )
+    ){
+      gitLabPoolDiscoveryMessage.textContent=
+        `Для задачи «${String(candidate.title||"")}» укажите корректную оценку. `
+        +taskEstimateScaleMessage(
+          {allowZero:false}
+        );
+
+      controls.estimate?.focus();
+      return;
+    }
+
+    prepared.push({
+      candidate,
+      task:buildGitLabDiscoveredPoolTask(
+        candidate,
+        roleKey,
+        estimate
+      )
+    });
+  }
+
+  if(!prepared.length){
+    gitLabPoolDiscoveryMessage.textContent=
+      "Выбранные задачи уже появились в общем пуле.";
+
+    return;
+  }
+
+  importGitLabPoolCandidateButton.disabled=true;
+  refreshGitLabPoolDiscoveryButton.disabled=true;
+
+  gitLabPoolDiscoveryMessage.style.color=
+    "var(--muted)";
+
+  gitLabPoolDiscoveryMessage.textContent=
+    `Добавление в общий пул: 0 из ${prepared.length}…`;
+
+  let importedCount=0;
+
   try{
-    importGitLabPoolCandidateButton.disabled=true;
-    gitLabPoolDiscoveryMessage.style.color="var(--muted)";
-    gitLabPoolDiscoveryMessage.textContent="Добавление в общий пул…";
-    await saveTaskPoolItem(task);
-    gitLabPoolDiscoveryMessage.style.color="var(--bad)";
+    for(const item of prepared){
+      await saveTaskPoolItem(
+        item.task
+      );
+
+      importedCount+=1;
+
+      gitLabPoolDiscoveryMessage.textContent=
+        `Добавление в общий пул: ${importedCount} из ${prepared.length}…`;
+    }
+
+    gitLabPoolDiscoveryMessage.style.color=
+      "var(--bad)";
+
     closeManualTaskDialog();
     render();
   }catch(error){
     console.error(error);
-    importGitLabPoolCandidateButton.disabled=false;
-    gitLabPoolDiscoveryMessage.style.color="var(--bad)";
-    gitLabPoolDiscoveryMessage.textContent=`Не удалось добавить задачу: ${error.message}`;
+
+    refreshGitLabPoolDiscoveryButton.disabled=false;
+
+    gitLabPoolDiscoveryMessage.style.color=
+      "var(--bad)";
+
+    gitLabPoolDiscoveryMessage.textContent=
+      `Добавлено ${importedCount} из ${prepared.length}. `
+      +`Не удалось продолжить: ${error.message}`;
+
+    /*
+      Уже успешно сохранённые задачи сразу находятся в локальном taskPool,
+      поэтому повторно импортировать их нельзя. Остальные выбранные строки
+      остаются доступны пользователю.
+    */
+    renderGitLabPoolDiscoveryCandidates({
+      candidates:
+        gitLabPoolDiscoveryCandidates,
+      searchedCount:
+        gitLabPoolDiscoveryCandidates.length,
+      alreadyExistingCount:
+        importedCount
+    });
   }
 }
-
 function manualTaskDocumentId(){
   const randomPart=
     globalThis.crypto&&typeof globalThis.crypto.randomUUID==="function"
@@ -14787,7 +15382,8 @@ manualTaskModeManual.onclick=()=>setManualTaskMode("manual");
 manualTaskModeGitLab.onclick=()=>setManualTaskMode("gitlab");
 document.getElementById("cancelGitLabPoolDiscovery").onclick=closeManualTaskDialog;
 refreshGitLabPoolDiscoveryButton.onclick=requestGitLabPoolDiscovery;
-importGitLabPoolCandidateButton.onclick=importSelectedGitLabPoolCandidate;
+importGitLabPoolCandidateButton.onclick=importSelectedGitLabPoolCandidates;
+
 manualTaskTitle.addEventListener("keydown",e=>{
   if(e.key==="Enter"){
     e.preventDefault();

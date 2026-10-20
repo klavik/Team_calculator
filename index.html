@@ -1,10 +1,10 @@
 <!DOCTYPE html>
-<!-- Team_calculator v23.4.58: выбор задач scope::analysis / scope::design / scope::DevOps из GitLab -->
+<!-- Team_calculator v23.4.59: GitLab import — default 1 ч.д. и фильтр Scope -->
 <html lang="ru">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Team_calculator v23.4.58 — планирование спринта</title>
+  <title>Team_calculator v23.4.59 — планирование спринта</title>
   <link
     rel="icon"
     type="image/svg+xml"
@@ -1998,6 +1998,26 @@
       font-size:12px;
       color:var(--muted);
     }
+    .gitlab-pool-discovery-toolbar{
+      display:flex;
+      align-items:flex-end;
+      justify-content:space-between;
+      gap:10px;
+      flex-wrap:wrap;
+      margin:8px 0 10px;
+    }
+    .gitlab-pool-discovery-filter{
+      display:grid;
+      gap:5px;
+      min-width:220px;
+      margin:0;
+    }
+    .gitlab-pool-discovery-filter select{
+      min-width:220px;
+    }
+    .gitlab-pool-discovery-item.scope-filtered-out{
+      display:none;
+    }
     .gitlab-pool-discovery-list{
       max-height:min(54vh,520px);
       overflow:auto;
@@ -2393,7 +2413,7 @@
       <h1>Team_calculator</h1>
       <span
         class="app-version-badge"
-        title="Версия Team_calculator">v23.4.58</span>
+        title="Версия Team_calculator">v23.4.59</span>
     </div>
     <div
       class="header-sprint-context empty"
@@ -3033,12 +3053,20 @@
     <div id="gitLabPoolDiscoveryPane" class="gitlab-pool-discovery-pane" hidden>
       <div class="gitlab-pool-discovery-intro">
         GitLab показывает открытые задачи с labels <b>scope::analysis</b>, <b>scope::design</b> или <b>scope::DevOps</b>, которых сейчас нет в общем пуле Team_calculator.
-        Выберите одну или несколько задач и укажите оценку для каждой выбранной задачи.
+        Выберите одну или несколько задач. Для новой задачи по умолчанию устанавливается оценка <b>1 человеко-день</b>; при необходимости её можно изменить перед добавлением.
         При добавлении оценка автоматически отправится в GitLab, а на issue будет проставлен label <b>estimate::done</b>.
       </div>
       <div id="gitLabPoolDiscoveryProgress" class="gitlab-pool-discovery-progress"></div>
       <div id="gitLabPoolDiscoveryMessage" class="manual-task-message"></div>
-      <div id="gitLabPoolDiscoverySummary" class="muted small" style="margin:4px 0 8px"></div>
+      <div class="gitlab-pool-discovery-toolbar">
+        <label class="gitlab-pool-discovery-filter" for="gitLabPoolDiscoveryScopeFilter">
+          <span>Scope</span>
+          <select id="gitLabPoolDiscoveryScopeFilter">
+            <option value="all">Все scope</option>
+          </select>
+        </label>
+        <div id="gitLabPoolDiscoverySummary" class="muted small"></div>
+      </div>
       <div id="gitLabPoolDiscoveryList" class="gitlab-pool-discovery-list">
         <div class="gitlab-pool-discovery-empty">Нажмите «Обновить список».</div>
       </div>
@@ -3273,6 +3301,7 @@ createManualTaskButton=document.getElementById("createManualTask"),
 gitLabPoolDiscoveryProgress=document.getElementById("gitLabPoolDiscoveryProgress"),
 gitLabPoolDiscoveryMessage=document.getElementById("gitLabPoolDiscoveryMessage"),
 gitLabPoolDiscoverySummary=document.getElementById("gitLabPoolDiscoverySummary"),
+gitLabPoolDiscoveryScopeFilter=document.getElementById("gitLabPoolDiscoveryScopeFilter"),
 gitLabPoolDiscoveryList=document.getElementById("gitLabPoolDiscoveryList"),
 refreshGitLabPoolDiscoveryButton=document.getElementById("refreshGitLabPoolDiscovery"),
 importGitLabPoolCandidateButton=document.getElementById("importGitLabPoolCandidate");
@@ -8466,6 +8495,10 @@ function resetGitLabPoolDiscoveryDialogState(){
   gitLabPoolDiscoveryMessage.textContent="";
   gitLabPoolDiscoveryMessage.style.color="";
   gitLabPoolDiscoverySummary.textContent="";
+  gitLabPoolDiscoverySummary.dataset.baseText="";
+  gitLabPoolDiscoveryScopeFilter.innerHTML=
+    '<option value="all">Все scope</option>';
+  gitLabPoolDiscoveryScopeFilter.value="all";
 
   gitLabPoolDiscoveryList.innerHTML=
     '<div class="gitlab-pool-discovery-empty">Нажмите «Обновить список».</div>';
@@ -8557,6 +8590,90 @@ function taskPoolHasGitLabCandidate(candidate){
 
 function gitLabPoolDiscoveryScopeLabel(roleKey){
   return ({analytics:"scope::analysis",design:"scope::design",devops:"scope::DevOps"})[roleKey]||roleKey;
+}
+
+function refreshGitLabPoolDiscoveryScopeFilter(){
+  const previousValue=String(
+    gitLabPoolDiscoveryScopeFilter?.value||"all"
+  ).trim()||"all";
+
+  const roleKeys=[
+    "analytics",
+    "design",
+    "devops"
+  ].filter(roleKey=>
+    gitLabPoolDiscoveryCandidates.some(candidate=>
+      gitLabPoolDiscoveryCandidateRoles(candidate)
+        .includes(roleKey)
+    )
+  );
+
+  gitLabPoolDiscoveryScopeFilter.innerHTML=[
+    '<option value="all">Все scope</option>',
+    ...roleKeys.map(roleKey=>{
+      const count=gitLabPoolDiscoveryCandidates
+        .filter(candidate=>
+          gitLabPoolDiscoveryCandidateRoles(candidate)
+            .includes(roleKey)
+        ).length;
+
+      return `<option value="${esc(roleKey)}">${esc(
+        gitLabPoolDiscoveryScopeLabel(roleKey)
+      )} (${count})</option>`;
+    })
+  ].join("");
+
+  gitLabPoolDiscoveryScopeFilter.value=
+    roleKeys.includes(previousValue)
+      ?previousValue
+      :"all";
+}
+
+function gitLabPoolDiscoveryCandidateMatchesScope(candidate){
+  const selectedScope=String(
+    gitLabPoolDiscoveryScopeFilter?.value||"all"
+  ).trim()||"all";
+
+  return selectedScope==="all"
+    ||gitLabPoolDiscoveryCandidateRoles(candidate)
+      .includes(selectedScope);
+}
+
+function applyGitLabPoolDiscoveryScopeFilter(){
+  let visibleCount=0;
+
+  gitLabPoolDiscoveryCandidates
+    .forEach((candidate,index)=>{
+      const row=gitLabPoolDiscoveryList.querySelector(
+        `[data-gitlab-discovery-row="${index}"]`
+      );
+
+      if(!row)return;
+
+      const matches=
+        gitLabPoolDiscoveryCandidateMatchesScope(candidate);
+
+      row.classList.toggle(
+        "scope-filtered-out",
+        !matches
+      );
+
+      if(matches)visibleCount+=1;
+    });
+
+  const baseText=String(
+    gitLabPoolDiscoverySummary.dataset.baseText||""
+  );
+
+  const selectedScope=String(
+    gitLabPoolDiscoveryScopeFilter?.value||"all"
+  );
+
+  gitLabPoolDiscoverySummary.textContent=
+    baseText
+    +(selectedScope!=="all"
+      ?` Показано по фильтру: ${visibleCount}.`
+      :"");
 }
 
 function selectedGitLabPoolCandidateIndexes(){
@@ -8746,13 +8863,20 @@ function renderGitLabPoolDiscoveryCandidates(job={}){
     job.alreadyExistingCount||0
   );
 
-  gitLabPoolDiscoverySummary.textContent=
+  const discoverySummaryText=
     `Проверено открытых задач: ${searchedCount}. `
     +`Доступно для добавления: ${gitLabPoolDiscoveryCandidates.length}. `
     +`Уже есть в Team_calculator: ${alreadyExistingCount}.`
     +(job.truncated===true
       ?" Результат ограничен лимитом коннектора."
       :"");
+
+  gitLabPoolDiscoverySummary.dataset.baseText=
+    discoverySummaryText;
+  gitLabPoolDiscoverySummary.textContent=
+    discoverySummaryText;
+
+  refreshGitLabPoolDiscoveryScopeFilter();
 
   if(!gitLabPoolDiscoveryCandidates.length){
     gitLabPoolDiscoveryList.innerHTML=
@@ -8893,12 +9017,12 @@ function renderGitLabPoolDiscoveryCandidates(job={}){
                     <input
                       class="estimate-input"
                       type="text"
-                      value=""
+                      value="${esc(formatTaskEstimateInput(1))}"
                       inputmode="decimal"
                       autocomplete="off"
                       placeholder="Укажите оценку"
                       data-gitlab-discovery-estimate="${index}"
-                      title="Допустимо: 0,25; 0,5; далее с шагом 0,5">
+                      title="По умолчанию 1 ч.д. Допустимо: 0,25; 0,5; далее с шагом 0,5">
                     <button
                       class="estimate-step-button"
                       type="button"
@@ -9006,6 +9130,7 @@ function renderGitLabPoolDiscoveryCandidates(job={}){
       );
     });
 
+  applyGitLabPoolDiscoveryScopeFilter();
   updateGitLabPoolDiscoverySelection();
 }
 async function watchGitLabPoolDiscoveryJob(jobId){
@@ -15472,6 +15597,10 @@ manualTaskModeGitLab.onclick=()=>setManualTaskMode("gitlab");
 document.getElementById("cancelGitLabPoolDiscovery").onclick=closeManualTaskDialog;
 refreshGitLabPoolDiscoveryButton.onclick=requestGitLabPoolDiscovery;
 importGitLabPoolCandidateButton.onclick=importSelectedGitLabPoolCandidates;
+gitLabPoolDiscoveryScopeFilter.addEventListener(
+  "change",
+  applyGitLabPoolDiscoveryScopeFilter
+);
 
 manualTaskTitle.addEventListener("keydown",e=>{
   if(e.key==="Enter"){

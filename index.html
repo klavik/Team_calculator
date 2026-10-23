@@ -1,10 +1,10 @@
 <!DOCTYPE html>
-<!-- Team_calculator v23.4.59: GitLab import — default 1 ч.д. и фильтр Scope -->
+<!-- Team_calculator v23.4.60: общие спринты в workspace, перенос личных спринтов без удаления оригиналов -->
 <html lang="ru">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Team_calculator v23.4.59 — планирование спринта</title>
+  <title>Team_calculator v23.4.60 — планирование спринта</title>
   <link
     rel="icon"
     type="image/svg+xml"
@@ -2413,7 +2413,7 @@
       <h1>Team_calculator</h1>
       <span
         class="app-version-badge"
-        title="Версия Team_calculator">v23.4.59</span>
+        title="Версия Team_calculator">v23.4.60</span>
     </div>
     <div
       class="header-sprint-context empty"
@@ -2561,8 +2561,8 @@
 </div>
 <div class="save-list-wrap">
 <div class="save-list-title">
-<h3>Сохранённые наборы</h3>
-<span class="muted" id="savedSprintsCount">0 наборов</span>
+<h3>Общие спринты команды</h3>
+<span class="muted" id="savedSprintsCount">0 спринтов</span>
 </div>
 <div class="status-note" id="savedSprintsList"></div>
 <p class="footer-note">
@@ -3129,6 +3129,8 @@ let sprintGitLabIterationCatalog=[];
 let sprintGitLabIterationCatalogLoading=false;
 let unsubscribeSprintGitLabIterationJob=null;
 let savedSprintSets={};
+let unsubscribeSharedSprints=null;
+let sharedSprintMigrationStatus="";
 let taskPool={};
 const TEAM_CALCULATOR_WORKSPACE_ID =
   String(window.TEAM_CALCULATOR_WORKSPACE_ID || "main").trim() || "main";
@@ -3728,7 +3730,7 @@ function acceptedActualHtml(taskId){
   if(!parts.length)return "";
   return `<div class="accepted-actual-note">
     <span>Факт: ${esc(parts.join(" · "))}</span>
-    <button class="secondary" type="button" data-clear-task-actual="${esc(taskId)}">Сбросить</button>
+    ${sharedSprintIsReadOnly()?"":`<button class="secondary" type="button" data-clear-task-actual="${esc(taskId)}">Сбросить</button>`}
   </div>`;
 }
 
@@ -4079,7 +4081,7 @@ function taskPlanFactHtml(
 
   return `<div class="task-plan-fact">
     ${rows}
-    ${hasAccepted
+    ${hasAccepted&&!sprintEditingBlocked()
       ?`<button
         class="secondary task-plan-fact-reset"
         type="button"
@@ -5082,6 +5084,7 @@ function taskActualPreviewHtml(taskId){
       <input
         data-inline-actual-role="${esc(roleKey)}"
         value="${esc(String(value))}"
+        ${sharedSprintIsReadOnly()?"disabled":""}
         inputmode="decimal"
         aria-label="Принять факт ${esc(roleLabelByKey(roleKey))}">
       <span>ч.д.</span>
@@ -5116,6 +5119,7 @@ function taskActualPreviewHtml(taskId){
         :""}
       <button
         type="button"
+        ${sharedSprintIsReadOnly()?"disabled":""}
         data-accept-task-actual="${esc(taskId)}">
           ${alreadyAccepted
             ?"Принять новый расчёт"
@@ -5128,6 +5132,7 @@ async function acceptTaskActualPreview(
   taskId,
   container
 ){
+  if(!guardSharedSprintEdit())return;
   if(
     !actualPreviewJobData
     ||!currentSprintId
@@ -5424,6 +5429,7 @@ async function acceptActualPreview(){
 }
 
 async function clearTaskAcceptedActual(taskId){
+  if(!guardSharedSprintEdit())return;
   if(!sprintTaskActuals?.[taskId])return;
   if(!confirm("Удалить принятый факт этой задачи и вернуться к прежнему расчёту?"))return;
   delete sprintTaskActuals[taskId];
@@ -6430,7 +6436,8 @@ function renderSprintLifecycle(){
     sprintLifecycleAction.textContent="Начать спринт";
     sprintLifecycleAction.disabled=
       !(sprintName.value||"").trim()
-      ||selectedTaskIds.length===0;
+      ||selectedTaskIds.length===0
+      ||sharedSprintIsReadOnly();
   }else if(sprintLifecycleStatus===SPRINT_STATUS_ACTIVE){
     const taskCount=baselineTaskIds().length;
     const total=baselineTotalEstimate();
@@ -6440,7 +6447,7 @@ function renderSprintLifecycle(){
       +`исходный план: ${taskCount} задач, ${fmt(total,1)} ч.д.`;
 
     sprintLifecycleAction.textContent="Завершить спринт";
-    sprintLifecycleAction.disabled=false;
+    sprintLifecycleAction.disabled=sharedSprintIsReadOnly();
   }else{
     sprintLifecycleMeta.textContent=
       `Завершён ${formatLifecycleDate(sprintCompletedAt)} · `
@@ -6450,10 +6457,16 @@ function renderSprintLifecycle(){
     sprintLifecycleAction.disabled=true;
   }
 
-  const readOnly=sprintLifecycleIsCompleted();
+  const readOnly=sprintEditingBlocked();
+  document.getElementById("addRole").disabled=readOnly;
+  document.getElementById("saveData").disabled=readOnly;
 
   sprintName.disabled=readOnly;
   saveSprintButton.disabled=readOnly;
+  document.getElementById("deleteSprint").disabled=sharedSprintIsReadOnly();
+  restorePreviousStateButton.disabled=sharedSprintIsReadOnly()
+    ||!getSprintRecoveryHistory().length;
+  document.getElementById("saveAsSprint").disabled=false;
 
   [
     periodName,
@@ -6477,6 +6490,7 @@ function renderSprintLifecycle(){
 }
 
 async function startSprintLifecycle(){
+  if(!guardSharedSprintEdit())return;
   if(sprintLifecycleStatus!==SPRINT_STATUS_PLANNING)return;
 
   const name=(sprintName.value||"").trim();
@@ -6540,6 +6554,7 @@ async function startSprintLifecycle(){
 }
 
 async function completeSprintLifecycle(){
+  if(!guardSharedSprintEdit())return;
   if(sprintLifecycleStatus!==SPRINT_STATUS_ACTIVE)return;
 
   if(!currentSprintId){
@@ -6618,8 +6633,13 @@ async function completeSprintLifecycle(){
   inputState.currentSprintId=currentSprintId;
 
   const resultState=getCurrentResultSnapshot();
+  const priorSaved=getSavedSprints()[currentSprintId]||{};
   const saved={
     id:currentSprintId,
+    createdByUid:priorSaved.createdByUid||currentUser.uid,
+    createdByName:priorSaved.createdByName||String(currentProfile?.alias||currentUser.email||""),
+    createdByEmail:priorSaved.createdByEmail||String(currentUser.email||""),
+    createdAt:priorSaved.createdAt||new Date().toISOString(),
     name:(sprintName.value||"").trim(),
     updatedAt:new Date().toISOString(),
     input:inputState,
@@ -6635,8 +6655,8 @@ async function completeSprintLifecycle(){
     batch.set(
       fsMod.doc(
         firebaseDb,
-        "users",
-        currentUser.uid,
+        "workspaces",
+        TEAM_CALCULATOR_WORKSPACE_ID,
         "sprints",
         currentSprintId
       ),
@@ -7113,6 +7133,143 @@ function savedSprintInputState(
   return state;
 }
 
+function sharedSprintDocument(fsMod,sprintId){
+  return fsMod.doc(
+    firebaseDb,
+    "workspaces",
+    TEAM_CALCULATOR_WORKSPACE_ID,
+    "sprints",
+    sprintId
+  );
+}
+
+function sharedSprintOwnerName(item){
+  return String(
+    item?.createdByName
+    ||item?.createdByEmail
+    ||""
+  ).trim();
+}
+
+function canEditSharedSprint(item){
+  if(!item||!currentUser)return false;
+  return currentProfile?.role==="admin"
+    ||String(item.createdByUid||"")===currentUser.uid;
+}
+
+function sharedSprintIsReadOnly(){
+  return Boolean(
+    currentSprintId
+    &&savedSprintSets[currentSprintId]
+    &&!canEditSharedSprint(savedSprintSets[currentSprintId])
+  );
+}
+
+function sprintEditingBlocked(){
+  return sprintLifecycleIsCompleted()||sharedSprintIsReadOnly();
+}
+
+function guardSharedSprintEdit(){
+  if(sharedSprintIsReadOnly()){
+    alert("Этот спринт доступен только для просмотра. Изменять его может создатель или администратор. Для собственного спринта используйте «Создать копию». ");
+    return false;
+  }
+  return true;
+}
+
+// Старые спринты остаются в users/{uid}/sprints как резервная копия.
+// Копируем только отсутствующие документы. Повторный вход не перезаписывает
+// уже существующие общие спринты и не сбрасывает их последующие изменения.
+async function migrateOwnLegacySprints(fsMod){
+  const legacy=await fsMod.getDocs(
+    fsMod.collection(firebaseDb,"users",currentUser.uid,"sprints")
+  );
+  if(legacy.empty)return {copied:0,failed:0};
+
+  const documents=legacy.docs;
+  let copied=0;
+  let failed=0;
+  const creator=String(
+    currentProfile?.alias||currentUser.email||""
+  ).trim();
+
+  for(let i=0;i<documents.length;i+=5){
+    const page=documents.slice(i,i+5);
+    await Promise.all(page.map(async snap=>{
+      try{
+        const result=await fsMod.runTransaction(firebaseDb,async tx=>{
+          const dest=sharedSprintDocument(fsMod,snap.id);
+          const existing=await tx.get(dest);
+          if(existing.exists())return false;
+          const old=snap.data();
+          tx.set(dest,{
+            ...old,
+            id:snap.id,
+            createdByUid:currentUser.uid,
+            createdByName:creator,
+            createdByEmail:String(currentUser.email||""),
+            createdAt:String(old.createdAt||old.updatedAt||new Date().toISOString()),
+            migratedFromLegacy:true
+          });
+          return true;
+        });
+        if(result)copied++;
+      }catch(error){
+        failed++;
+        console.error("Ошибка переноса старого спринта",snap.id,error);
+      }
+    }));
+  }
+  return {copied,failed};
+}
+
+function stopSharedSprintsRealtime(){
+  if(typeof unsubscribeSharedSprints==="function"){
+    unsubscribeSharedSprints();
+  }
+  unsubscribeSharedSprints=null;
+}
+
+async function startSharedSprintsRealtime(){
+  stopSharedSprintsRealtime();
+  if(!currentUser||!firebaseDb)return;
+  const {fsMod}=await loadFirebaseModules();
+  const ref=fsMod.collection(
+    firebaseDb,"workspaces",TEAM_CALCULATOR_WORKSPACE_ID,"sprints"
+  );
+  unsubscribeSharedSprints=fsMod.onSnapshot(ref,snapshot=>{
+    const next={};
+    snapshot.forEach(docSnap=>{
+      next[docSnap.id]={...docSnap.data(),id:docSnap.id};
+    });
+    const previousCurrent=savedSprintSets[currentSprintId];
+    savedSprintSets=next;
+    sprintFingerprints.clear();
+    Object.values(next).forEach(item=>{
+      sprintFingerprints.set(item.id,sprintPayloadFingerprint(
+        item.name||"",item.input||{},item.result||{}
+      ));
+    });
+    if(!appLoaded)return;
+    // Для чужих спринтов показываем изменения создателя без ручного обновления.
+    if(currentSprintId&&next[currentSprintId]&&sharedSprintIsReadOnly()){
+      const nextCurrent=next[currentSprintId];
+      if(JSON.stringify(previousCurrent)!==JSON.stringify(nextCurrent)){
+        applyInputState(savedSprintInputState(currentSprintId,nextCurrent));
+        return;
+      }
+    }
+    if(currentSprintId&&!next[currentSprintId]){
+      startNewSprintSet({confirmCurrent:false,historyMode:"replace"});
+      return;
+    }
+    render();
+  },error=>{
+    console.error("Не удалось обновить общие спринты",error);
+    setSyncState("Ошибка получения общих спринтов","bad");
+  });
+}
+
 function getSavedSprints(){
   return savedSprintSets||{};
 }
@@ -7189,6 +7346,7 @@ function pushSprintRecoverySnapshot(reason){
 }
 
 function restorePreviousSprintState(){
+  if(!guardSharedSprintEdit())return;
   const history=getSprintRecoveryHistory();
   const snapshot=history.pop();
 
@@ -7256,6 +7414,10 @@ async function saveSprintSet(
   forceNew=false,
   {silent=false,source="manual"}={}
 ){
+  if(!forceNew&&sharedSprintIsReadOnly()){
+    if(!silent)guardSharedSprintEdit();
+    return false;
+  }
   const name=(sprintName.value||"").trim();
 
   if(!name){
@@ -7411,6 +7573,10 @@ async function saveSprintSet(
 
   const saved={
     id,
+    createdByUid:previousSprint?.createdByUid||currentUser.uid,
+    createdByName:previousSprint?.createdByName||String(currentProfile?.alias||currentUser.email||""),
+    createdByEmail:previousSprint?.createdByEmail||String(currentUser.email||""),
+    createdAt:previousSprint?.createdAt||new Date().toISOString(),
     name,
     updatedAt:new Date().toISOString(),
     input:inputState,
@@ -7429,8 +7595,8 @@ async function saveSprintSet(
       await fsMod.setDoc(
         fsMod.doc(
           firebaseDb,
-          "users",
-          currentUser.uid,
+          "workspaces",
+          TEAM_CALCULATOR_WORKSPACE_ID,
           "sprints",
           id
         ),
@@ -7585,7 +7751,7 @@ function scheduleSprintAutoSave(){
     ||!currentUser
     ||!firebaseDb
     ||!(sprintName.value||"").trim()
-    ||sprintLifecycleIsCompleted()
+    ||sprintEditingBlocked()
     ||taskRouteBrowseOnly()
   ){
     return;
@@ -7604,7 +7770,7 @@ async function runSprintAutoSave(){
     ||!currentUser
     ||!firebaseDb
     ||!(sprintName.value||"").trim()
-    ||sprintLifecycleIsCompleted()
+    ||sprintEditingBlocked()
     ||taskRouteBrowseOnly()
   ){
     return;
@@ -7677,6 +7843,10 @@ function loadSprintSet(
 }
 
 async function deleteSprintSet(id){
+  if(!canEditSharedSprint(getSavedSprints()[id])){
+    alert("Удалять этот спринт может только создатель или администратор.");
+    return;
+  }
   if(!id){
     alert("Выберите сохранённый набор.");
     return;
@@ -7692,7 +7862,7 @@ async function deleteSprintSet(id){
   try{
     const {fsMod}=await loadFirebaseModules();
     const batch=fsMod.writeBatch(firebaseDb);
-    batch.delete(fsMod.doc(firebaseDb,"users",currentUser.uid,"sprints",id));
+    batch.delete(sharedSprintDocument(fsMod,id));
 
     const taskIds=Array.isArray(sprint.input?.selectedTaskIds)?sprint.input.selectedTaskIds:[];
     taskIds.forEach(taskId=>{
@@ -7822,7 +7992,7 @@ function renderSavedSprints(){
   if(statusEl){
     statusEl.textContent=currentItem
       ?(
-        sprintLifecycleIsCompleted()
+        sprintEditingBlocked()
           ?"только просмотр"
           :"автосохранение включено"
       )
@@ -7842,13 +8012,16 @@ function renderSavedSprints(){
       ?(
         sprintLifecycleIsCompleted()
           ?`Спринт «${currentItem.name}» завершён и открыт в режиме просмотра.`
-          :`Изменения в наборе «${currentItem.name}» сохраняются автоматически.`
+          :(sharedSprintIsReadOnly()
+            ?`Спринт «${currentItem.name}» открыт только для просмотра. Создатель: ${sharedSprintOwnerName(currentItem)||"—"}.`
+            :`Изменения в наборе «${currentItem.name}» сохраняются автоматически.`)
       )
       : ((sprintName.value||"").trim()
         ? "Новый спринт будет создан и сохранён автоматически."
         : "Введите название спринта. Текущий черновик уже сохраняется автоматически.");
   }
   renderSprintLifecycle();
+  document.getElementById("clearSprintTasks").disabled=sprintEditingBlocked();
 
   if(countEl){
     const n=items.length;
@@ -7883,12 +8056,15 @@ function renderSavedSprints(){
     row.className="saved-sprint-row"+(item.id===currentSprintId?" active":"");
     row.innerHTML=`<div>
         <div class="saved-sprint-name">${esc(item.name)} ${lifecycleBadge} ${item.id===currentSprintId?'<span class="prep-pill">открыт</span>':""}</div>
+        <div class="saved-sprint-meta">Создатель: ${esc(sharedSprintOwnerName(item)||"—")} · ${canEditSharedSprint(item)?"можно изменять":"только просмотр"}</div>
         <div class="saved-sprint-meta">Обновлён: ${updated} · задач: ${res.taskCount??res.crossTaskLimit??"—"} · выполнено: ${res.completedTaskCount??res.developmentTaskLimit??"—"} · самая загруженная роль: ${esc(res.bottleneck||"—")}</div>
       </div>
       <div class="small-actions">
         <button class="secondary" data-open-sprint="${item.id}">Открыть</button>
         <button class="secondary" data-copy-sprint="${item.id}">Создать копию</button>
-        <button class="danger-inline" data-delete-sprint="${item.id}">Удалить</button>
+        ${canEditSharedSprint(item)
+          ?`<button class="danger-inline" data-delete-sprint="${item.id}">Удалить</button>`
+          :""}
       </div>`;
     savedSprintsList.appendChild(row);
   });
@@ -9951,7 +10127,7 @@ async function renameTaskInPool(taskId){
 
     const isCurrentSprintTask=
       selectedTaskIds.includes(taskId)
-      &&!sprintLifecycleIsCompleted();
+      &&!sprintEditingBlocked();
 
     if(isCurrentSprintTask){
       const snapshot=normalizeTask(
@@ -10063,6 +10239,7 @@ async function deleteTaskFromPool(taskId){
 }
 
 async function addTaskToSprint(taskId){
+  if(!guardSharedSprintEdit())return;
   if(sprintLifecycleIsCompleted()){
     alert("Завершённый спринт доступен только для просмотра.");
     return;
@@ -10174,6 +10351,7 @@ async function addTaskToSprint(taskId){
 }
 
 async function removeTaskFromSprint(taskId){
+  if(!guardSharedSprintEdit())return;
   if(sprintLifecycleIsCompleted()){
     alert("Завершённый спринт доступен только для просмотра.");
     return;
@@ -10321,6 +10499,7 @@ async function removeTaskFromSprint(taskId){
 }
 
 async function toggleTaskCompleted(taskId,completed){
+  if(!guardSharedSprintEdit())return;
   if(sprintReturnedTaskIds.includes(taskId)){
     alert(
       "Задача уже возвращена в общий пул. "
@@ -10359,6 +10538,7 @@ async function toggleTaskCompleted(taskId,completed){
 }
 
 function updateSprintTaskSnapshot(taskId){
+  if(!guardSharedSprintEdit())return;
   if(sprintLifecycleIsCompleted()){
     alert("Завершённый спринт доступен только для просмотра.");
     return;
@@ -10372,6 +10552,13 @@ function updateSprintTaskSnapshot(taskId){
 
 async function releaseTaskToPool(taskId){
   const task=normalizeTask(taskPool[taskId]);
+  if(task?.plannedSprintId){
+    const linked=getSavedSprints()[task.plannedSprintId];
+    if(linked&&!canEditSharedSprint(linked)){
+      alert("Вернуть задачу в пул может создатель связанного спринта или администратор.");
+      return;
+    }
+  }
   if(!task)return;
 
   const returnedFromCurrentSprint=
@@ -10844,7 +11031,9 @@ function renderTaskPool(){
     if(selected){
       statusHtml=sprintLifecycleIsCompleted()
         ?'<span class="task-status done">В завершённом спринте</span>'
-        :'<span class="task-status planned">В текущем спринте</span>';
+        :(sharedSprintIsReadOnly()
+          ?'<span class="task-status planned">В спринте · просмотр</span>'
+          :'<span class="task-status planned">В текущем спринте</span>');
     }else if(plannedElsewhere){
       statusHtml=task.planningStatus==="completed"
         ?`<span class="task-status done">Выполнена · ${esc(task.plannedSprintName||"завершённый спринт")}</span>`
@@ -10886,7 +11075,7 @@ function renderTaskPool(){
       const addDisabled=
         !ready
         ||completed
-        ||sprintLifecycleIsCompleted();
+        ||sprintEditingBlocked();
 
       actionButtons.push(
         `<button
@@ -10896,7 +11085,7 @@ function renderTaskPool(){
               ?"Выполнена"
               :(sprintLifecycleIsCompleted()
                 ?"Спринт завершён"
-                :"В спринт")}
+                :(sharedSprintIsReadOnly()?"Только просмотр":"В спринт"))}
         </button>`,
         `<button
           class="danger-inline"
@@ -10906,7 +11095,7 @@ function renderTaskPool(){
       );
     }else if(selected){
       actionButtons.push(
-        sprintLifecycleIsCompleted()
+        sprintEditingBlocked()
           ?'<button class="secondary" disabled>История</button>'
           :`<button class="secondary" data-remove-task="${task.id}">Убрать</button>`
       );
@@ -10923,7 +11112,7 @@ function renderTaskPool(){
       const addDisabled=
         !ready
         ||completed
-        ||sprintLifecycleIsCompleted();
+        ||sprintEditingBlocked();
 
       actionButtons.push(
         `<button
@@ -10933,7 +11122,7 @@ function renderTaskPool(){
               ?"Выполнена"
               :(sprintLifecycleIsCompleted()
                 ?"Спринт завершён"
-                :"В спринт")}
+                :(sharedSprintIsReadOnly()?"Только просмотр":"В спринт"))}
         </button>`,
         `<button class="danger-inline" data-delete-task="${task.id}">Удалить</button>`
       );
@@ -11165,7 +11354,7 @@ function renderSprintGitLabIterationControl(){
   sprintGitLabIterationSelect.value=
     selected?String(selected.id):"";
 
-  const readOnly=sprintLifecycleIsCompleted();
+  const readOnly=sprintEditingBlocked();
   sprintGitLabIterationSelect.disabled=readOnly;
   refreshSprintGitLabIterationsButton.disabled=
     readOnly||sprintGitLabIterationCatalogLoading;
@@ -12260,6 +12449,7 @@ async function reconcilePostSprintCompletions(
       );
 
     if(!match)return;
+    if(!canEditSharedSprint(match.sourceSprint))return;
 
     if(!affected.has(match.sourceSprintId)){
       affected.set(
@@ -12342,8 +12532,8 @@ async function reconcilePostSprintCompletions(
     await fsMod.updateDoc(
       fsMod.doc(
         firebaseDb,
-        "users",
-        currentUser.uid,
+        "workspaces",
+        TEAM_CALCULATOR_WORKSPACE_ID,
         "sprints",
         sprintId
       ),
@@ -12698,6 +12888,7 @@ function stopGitLabJobRealtime(){
 async function applyGitLabIssueCompletion(
   job
 ){
+  if(sharedSprintIsReadOnly())return {changed:0,completed:0,reopened:0};
   if(
     !sprintLifecycleIsActive()
     ||!currentSprintId
@@ -13023,6 +13214,7 @@ async function requestSprintGitLabSync(
 }
 
 async function runCombinedSprintGitLabAction(){
+  if(!guardSharedSprintEdit())return;
   if(
     combinedGitLabActionInProgress
     ||gitLabSyncInProgress
@@ -14628,7 +14820,8 @@ function renderSprintTasks(){
           <input
             type="checkbox"
             data-complete-task="${id}"
-            ${done?"checked":""}>
+            ${done?"checked":""}
+            ${sharedSprintIsReadOnly()?"disabled":""}>
           Выполнена
         </label>`;
     }else if(done){
@@ -14657,7 +14850,7 @@ function renderSprintTasks(){
       )
       :"";
 
-    const actions=sprintLifecycleIsCompleted()
+    const actions=sprintEditingBlocked()
       ?'<span class="muted">Только просмотр</span>'
       :(
         returnedToPool
@@ -14693,7 +14886,7 @@ function renderSprintTasks(){
           poolTask
         )}
         ${taskActualPreviewHtml(id)}
-        ${estimateChanged&&!sprintLifecycleIsCompleted()
+        ${estimateChanged&&!sprintEditingBlocked()
           ?'<div class="task-warning">В пуле есть обновлённая оценка</div>'
           :""}
         ${lifecycleNote}
@@ -14859,7 +15052,7 @@ function render(){
     "inline";
 
   combinedSprintGitLabActionButton.disabled=
-    sprintLifecycleIsCompleted()
+    sprintEditingBlocked()
     ||combinedGitLabActionInProgress
     ||gitLabSyncInProgress
     ||actualPreviewInProgress
@@ -15248,12 +15441,12 @@ function renderInterpretation(bottleneck,highestLoad){
 }
 
 function bindDynamicInputs(){
-  const readOnly=sprintLifecycleIsCompleted();
+  const readOnly=sprintEditingBlocked();
 
   document.querySelectorAll("[data-idx][data-field]").forEach(input=>{
     input.disabled=readOnly;
     input.oninput=e=>{
-      if(sprintLifecycleIsCompleted())return;
+      if(sprintEditingBlocked())return;
       const idx=Number(e.target.dataset.idx),field=e.target.dataset.field;
       roles[idx][field]=field==="name"?e.target.value:Number(e.target.value);
       saveState();render();
@@ -15263,7 +15456,7 @@ function bindDynamicInputs(){
   document.querySelectorAll("[data-remove]").forEach(btn=>{
     btn.disabled=readOnly;
     btn.onclick=()=>{
-      if(sprintLifecycleIsCompleted())return;
+      if(sprintEditingBlocked())return;
       roles.splice(Number(btn.dataset.remove),1);
       saveState();
       render();
@@ -15272,8 +15465,9 @@ function bindDynamicInputs(){
 }
 
 async function clearCurrentSprintTasks(){
-  if(sprintLifecycleIsCompleted()){
-    alert("Завершённый спринт доступен только для просмотра.");
+  if(!guardSharedSprintEdit())return;
+  if(sprintEditingBlocked()){
+    alert("Этот спринт доступен только для просмотра.");
     return;
   }
 
@@ -15413,6 +15607,7 @@ periodName.onchange=()=>{if(periodName.value==="sprint")workdays.value=10;if(per
 document.getElementById("saveSprint").onclick=()=>saveSprintSet(false,{silent:false,source:"manual"});
 refreshSprintGitLabIterationsButton.onclick=refreshSprintGitLabIterations;
 sprintGitLabIterationSelect.onchange=()=>{
+  if(!guardSharedSprintEdit())return;
   const selectedId=Number(sprintGitLabIterationSelect.value);
   sprintGitLabIteration=
     sprintGitLabIterationCatalog
@@ -15472,11 +15667,12 @@ document.getElementById("deleteSprint").onclick=()=>deleteSprintSet(currentSprin
 document.getElementById("newSprint").onclick=()=>startNewSprintSet();
 savedSprintSelect.onchange=()=>{if(savedSprintSelect.value)loadSprintSet(savedSprintSelect.value)};
 sprintName.addEventListener("input",()=>{
+  if(!guardSharedSprintEdit())return;
   saveState();
   renderSavedSprints();
   updateActiveSprintHeader();
 });
-document.getElementById("addRole").onclick=()=>{roles.push({name:"Новая роль",people:1,absence:0,task:0,planned:0,actual:0});saveState();render()};
+document.getElementById("addRole").onclick=()=>{if(!guardSharedSprintEdit())return;roles.push({name:"Новая роль",people:1,absence:0,task:0,planned:0,actual:0});saveState();render()};
 
 window.addEventListener(
   "popstate",
@@ -15534,7 +15730,7 @@ document.addEventListener("visibilitychange",()=>{
 
   if(
     (sprintName.value||"").trim()
-    &&!sprintLifecycleIsCompleted()
+    &&!sprintEditingBlocked()
     &&!taskRouteBrowseOnly()
   ){
     runSprintAutoSave();
@@ -15785,6 +15981,7 @@ async function initializeFirebase(){
       await loadUserWorkspace();
     }else{
       stopTaskPoolRealtime();
+      stopSharedSprintsRealtime();
       stopGitLabJobRealtime();
       if(unsubscribeActualPreviewJob){
         unsubscribeActualPreviewJob();
@@ -15792,6 +15989,7 @@ async function initializeFirebase(){
       }
       currentUser=null;
       currentProfile=null;
+      sharedSprintMigrationStatus="";
       savedSprintSets={};
       taskPool={};
       resetSprintLifecycle();
@@ -15873,8 +16071,15 @@ async function loadUserWorkspace(){
     const appRef=fsMod.doc(firebaseDb,"users",currentUser.uid,"app","main");
     const appSnap=await fsMod.getDoc(appRef);
 
+    const migration=await migrateOwnLegacySprints(fsMod);
+    sharedSprintMigrationStatus=migration.failed
+      ?`Не удалось перенести ${migration.failed} личных спринтов. Проверьте Firestore Rules и обновите страницу.`
+      :(migration.copied
+        ?`Перенесено в общий список: ${migration.copied} спринтов.`
+        :"");
+
     const [sprintSnap,taskSnap,actualSettingsSnap]=await Promise.all([
-      fsMod.getDocs(fsMod.collection(firebaseDb,"users",currentUser.uid,"sprints")),
+      fsMod.getDocs(fsMod.collection(firebaseDb,"workspaces",TEAM_CALCULATOR_WORKSPACE_ID,"sprints")),
       fsMod.getDocs(fsMod.collection(firebaseDb,"workspaces",TEAM_CALCULATOR_WORKSPACE_ID,"taskPool")),
       fsMod.getDoc(fsMod.doc(firebaseDb,"workspaces",TEAM_CALCULATOR_WORKSPACE_ID,"settings","actualCalculation"))
     ]);
@@ -16044,11 +16249,21 @@ async function loadUserWorkspace(){
     appLoaded=true;
     render();
     await startTaskPoolRealtime();
+    await startSharedSprintsRealtime();
+
+    if(sharedSprintMigrationStatus.startsWith("Не удалось")){
+      alert(sharedSprintMigrationStatus+" Личные спринты сохранены и не удалялись.");
+    }
 
     if(routeWarning){
       setSyncState(
         routeWarning,
         "bad"
+      );
+    }else if(sharedSprintMigrationStatus){
+      setSyncState(
+        sharedSprintMigrationStatus,
+        sharedSprintMigrationStatus.startsWith("Не удалось")?"bad":""
       );
     }else{
       setSyncState("Синхронизировано");

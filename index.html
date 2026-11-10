@@ -1,10 +1,10 @@
 <!DOCTYPE html>
-<!-- Team_calculator v23.4.60: общие спринты в workspace, перенос личных спринтов без удаления оригиналов -->
+<!-- Team_calculator v23.4.61: общие спринты в workspace, перенос личных спринтов без удаления оригиналов -->
 <html lang="ru">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Team_calculator v23.4.60 — планирование спринта</title>
+  <title>Team_calculator v23.4.61 — планирование спринта</title>
   <link
     rel="icon"
     type="image/svg+xml"
@@ -2413,7 +2413,7 @@
       <h1>Team_calculator</h1>
       <span
         class="app-version-badge"
-        title="Версия Team_calculator">v23.4.60</span>
+        title="Версия Team_calculator">v23.4.61</span>
     </div>
     <div
       class="header-sprint-context empty"
@@ -3166,11 +3166,24 @@ let isHydrating=false;
 let saveTimer=null;
 let sprintAutoSaveTimer=null;
 let sprintSaveInProgress=false;
+let sprintLifecycleInProgress=false;
+let sprintLifecycleCommitConfirmed=false;
+let unsavedSprintFailure=false;
+let currentStateSaveInProgress=false;
+let currentStateSaveQueued=false;
+let sharedSprintSnapshotSequence=0;
+const sprintPayloadCache=new Map();
+let localDraftSaveTimer=null;
 let sprintAutoSaveQueued=false;
 let lastCurrentStateFingerprint="";
+let lastCurrentStatePayloadRef=null;
 const sprintFingerprints=new Map();
 const CURRENT_STATE_AUTOSAVE_DELAY=5000;
 const SPRINT_AUTOSAVE_DELAY=10000;
+// Max 80,000 UTF-16 code units: under 240 KB even for Cyrillic text.
+// Firestore documents have a hard 1 MiB limit; chunks are immutable.
+const SPRINT_PAYLOAD_CHUNK_CHARS=80000;
+const MAX_SPRINT_DOCUMENT_BYTES=800000;
 const TASK_POOL_SORT_VERSION=2;
 let taskPoolSort={key:"title",direction:"asc"};
 let appLoaded=false;
@@ -6437,7 +6450,9 @@ function renderSprintLifecycle(){
     sprintLifecycleAction.disabled=
       !(sprintName.value||"").trim()
       ||selectedTaskIds.length===0
-      ||sharedSprintIsReadOnly();
+      ||sharedSprintIsReadOnly()
+      ||sprintSaveInProgress
+      ||sprintLifecycleInProgress;
   }else if(sprintLifecycleStatus===SPRINT_STATUS_ACTIVE){
     const taskCount=baselineTaskIds().length;
     const total=baselineTotalEstimate();
@@ -6447,7 +6462,7 @@ function renderSprintLifecycle(){
       +`исходный план: ${taskCount} задач, ${fmt(total,1)} ч.д.`;
 
     sprintLifecycleAction.textContent="Завершить спринт";
-    sprintLifecycleAction.disabled=sharedSprintIsReadOnly();
+    sprintLifecycleAction.disabled=sharedSprintIsReadOnly()||sprintLifecycleInProgress||sprintSaveInProgress;
   }else{
     sprintLifecycleMeta.textContent=
       `Завершён ${formatLifecycleDate(sprintCompletedAt)} · `
@@ -6491,70 +6506,99 @@ function renderSprintLifecycle(){
 
 async function startSprintLifecycle(){
   if(!guardSharedSprintEdit())return;
-  if(sprintLifecycleStatus!==SPRINT_STATUS_PLANNING)return;
-
+  if(sprintLifecycleStatus!==SPRINT_STATUS_PLANNING||sprintLifecycleInProgress||sprintSaveInProgress)return;
   const name=(sprintName.value||"").trim();
+  if(!name){alert("Сначала укажите название спринта.");sprintName.focus();return;}
+  if(!selectedTaskIds.length){alert("Добавьте в спринт хотя бы одну задачу.");return;}
+  if(!confirm(`Начать спринт «${name}»?\n\nБудет зафиксирован исходный план: ${selectedTaskIds.length} задач.`))return;
 
-  if(!name){
-    alert("Сначала укажите название спринта.");
-    sprintName.focus();
-    return;
-  }
+  sprintLifecycleInProgress=true;
+  sprintLifecycleCommitConfirmed=false;
+  clearTimeout(sprintAutoSaveTimer);
+  clearTimeout(saveTimer);
+  renderSprintLifecycle();
+  const before=getCurrentInputState();
+  let startCommitted=false;
+  try{
+    pushSprintRecoverySnapshot("начало спринта");
+    if(!await saveEmergencyDraft()){
+      alert("Не удалось создать локальную резервную копию плана. Запуск отменён. Проверьте свободное место браузера.");
+      return;
+    }
 
-  if(!selectedTaskIds.length){
-    alert("Добавьте в спринт хотя бы одну задачу.");
-    return;
-  }
+    // Existing sprint, already saved as PLANNING: validate the authoritative
+    // Firestore document before modifying any lifecycle fields locally.
+    // Never create a new sprint id and never overwrite an already active
+    // sprint from an outdated browser tab.
+    if(currentSprintId){
+      const {fsMod}=await loadFirebaseModules();
+      const remote=await fsMod.getDocFromServer(sharedSprintDocument(fsMod,currentSprintId));
+      if(!remote.exists()){
+        throw new Error("Сохранённый спринт не найден на сервере. План не изменён.");
+      }
+      const remoteData=remote.data();
+      if(!canEditSharedSprint(remoteData)){
+        throw new Error("Нет прав на запуск этого спринта. План не изменён.");
+      }
+      if(normalizeSprintLifecycleStatus(remoteData?.input?.sprintLifecycleStatus)
+          !==SPRINT_STATUS_PLANNING){
+        throw new Error("На сервере этот спринт уже не в статусе «Планирование». Обновите страницу перед продолжением.");
+      }
 
-  const approved=confirm(
-    `Начать спринт «${name}»?\n\n`
-    +`Будет зафиксирован исходный план: `
-    +`${selectedTaskIds.length} задач.`
-  );
+      // First safely publish the complete EXISTING planning sprint as v2
+      // chunks. Starting from a near-1MiB legacy document must not overwrite
+      // or clear the only persisted copy if the subsequent transition fails.
+      // This also flushes unsaved local edits before capturing the baseline.
+      const planningSaved=await saveSprintSet(false,{
+        silent:true,source:"start_preparation",forceDocumentWrite:true
+      });
+      if(!planningSaved){
+        throw new Error("Не удалось подтвердить сохранение плана перед запуском. Спринт остался в статусе «Планирование».");
+      }
+      sprintLifecycleCommitConfirmed=false;
+      // saveSprintSet may clear the emergency copy after its own commit;
+      // restore a checkpoint for the entire upcoming lifecycle transition.
+      if(!await saveEmergencyDraft()){
+        throw new Error("Не удалось сохранить резервную копию перед запуском. Спринт остался в статусе «Планирование».");
+      }
+    }
 
-  if(!approved)return;
-
-  pushSprintRecoverySnapshot("начало спринта");
-
-  const previous={
-    status:sprintLifecycleStatus,
-    startedAt:sprintStartedAt,
-    completedAt:sprintCompletedAt,
-    baseline:sprintBaseline,
-    returnedTaskIds:sprintReturnedTaskIds,
-    currentSprintId
-  };
-
-  sprintBaseline=captureSprintBaseline();
-  sprintLifecycleStatus=SPRINT_STATUS_ACTIVE;
-  sprintStartedAt=new Date().toISOString();
-  sprintCompletedAt=null;
-  sprintReturnedTaskIds=[];
-
-  saveState();
-  render();
-
-  const saved=await saveSprintSet(
-    false,
-    {silent:false,source:"manual"}
-  );
-
-  if(!saved){
-    sprintLifecycleStatus=previous.status;
-    sprintStartedAt=previous.startedAt;
-    sprintCompletedAt=previous.completedAt;
-    sprintBaseline=previous.baseline;
-    sprintReturnedTaskIds=previous.returnedTaskIds;
-    currentSprintId=previous.currentSprintId;
+    sprintBaseline=captureSprintBaseline();
+    sprintLifecycleStatus=SPRINT_STATUS_ACTIVE;
+    sprintStartedAt=new Date().toISOString();
+    sprintCompletedAt=null;
+    sprintReturnedTaskIds=[];
     render();
-    return;
+    const saved=await saveSprintSet(false,{silent:true,source:"lifecycle_start"});
+    if(!saved){
+      throw new Error("Firestore отклонил запуск. Сохранённый план и задачи остались в статусе «Планирование».");
+    }
+    startCommitted=true;
+    render();
+  }catch(error){
+    console.error("Ошибка запуска спринта",error);
+    if(!startCommitted){
+      applyInputState(before);
+      setSyncState("Спринт не запущен — планирование и задачи сохранены","bad");
+      await saveEmergencyDraft();
+      alert(`Спринт не запущен: ${error.message}\n\nЗадачи в плане не очищены.`);
+    }else{
+      setSyncState("Спринт запущен; ошибка обновления интерфейса","warn");
+    }
+  }finally{
+    sprintLifecycleInProgress=false;
+    sprintLifecycleCommitConfirmed=false;
+    if(currentStateSaveQueued){
+      currentStateSaveQueued=false;
+      clearTimeout(saveTimer);
+      saveTimer=setTimeout(saveCurrentStateNow,300);
+    }
+    renderSprintLifecycle();
   }
-
-  render();
 }
 
 async function completeSprintLifecycle(){
-  if(!guardSharedSprintEdit())return;
+  if(!guardSharedSprintEdit()||sprintLifecycleInProgress||sprintSaveInProgress)return;
   if(sprintLifecycleStatus!==SPRINT_STATUS_ACTIVE)return;
 
   if(!currentSprintId){
@@ -6600,7 +6644,18 @@ async function completeSprintLifecycle(){
 
   if(!approved)return;
 
+  if(sprintLifecycleInProgress||sprintSaveInProgress)return;
+  sprintLifecycleInProgress=true;
+  sprintLifecycleCommitConfirmed=false;
+  renderSprintLifecycle();
+  const beforeCompletion=getCurrentInputState();
   pushSprintRecoverySnapshot("завершение спринта");
+  if(!await saveEmergencyDraft()){
+    sprintLifecycleInProgress=false;
+    renderSprintLifecycle();
+    alert("Не удалось создать локальную копию. Завершение отменено.");
+    return;
+  }
 
   sprintLifecycleStatus=SPRINT_STATUS_COMPLETED;
   sprintCompletedAt=new Date().toISOString();
@@ -6646,22 +6701,14 @@ async function completeSprintLifecycle(){
     result:resultState
   };
 
+  let completionCommitted=false;
   try{
     setSyncState("Завершение спринта…","warn");
 
     const {fsMod}=await loadFirebaseModules();
+    const stored=await stageSprintStorage(fsMod,saved,priorSaved);
     const batch=fsMod.writeBatch(firebaseDb);
-
-    batch.set(
-      fsMod.doc(
-        firebaseDb,
-        "workspaces",
-        TEAM_CALCULATOR_WORKSPACE_ID,
-        "sprints",
-        currentSprintId
-      ),
-      saved
-    );
+    batch.set(sharedSprintDocument(fsMod,currentSprintId),stored);
 
     const completedAtIso=
       sprintCompletedAt
@@ -6711,7 +6758,12 @@ async function completeSprintLifecycle(){
       );
     });
 
+    if(returnedTaskIdsStillInPool.length>449){
+      throw new Error("Слишком много возвращаемых задач для атомарного завершения спринта.");
+    }
     await batch.commit();
+    completionCommitted=true;
+    sprintLifecycleCommitConfirmed=true;
 
     returnedTaskIdsStillInPool.forEach(taskId=>{
       taskPool[taskId].plannedSprintId=null;
@@ -6741,28 +6793,35 @@ async function completeSprintLifecycle(){
 
     clearTimeout(sprintAutoSaveTimer);
 
-    const currentStateSaved=
-      await saveCurrentStateNow();
-
-    if(!currentStateSaved){
-      throw new Error(
-        "Спринт сохранён, но не удалось обновить текущее состояние приложения."
-      );
+    const currentStateSaved=await saveCurrentStateNow();
+    if(currentStateSaved&&stateFingerprint(currentStatePayload())===lastCurrentStateFingerprint){
+      await clearEmergencyDraft();
     }
-
-    setSyncState("Спринт завершён");
+    cleanupObsoletePayloadChunks(fsMod,sprintPayloadCollection(fsMod,currentSprintId),
+      stored.payloadRef.revision,stored.payloadRef.previousRevision);
+    setSyncState(currentStateSaved?"Спринт завершён":"Спринт завершён; ошибка сохранения текущего состояния",
+      currentStateSaved?"":"warn");
     render();
   }catch(error){
     console.error(error);
-
-    sprintLifecycleStatus=SPRINT_STATUS_ACTIVE;
-    sprintCompletedAt=null;
-    sprintReturnedTaskIds=
-      alreadyReturnedIds;
-
-    setSyncState("Ошибка завершения","bad");
+    if(completionCommitted){
+      setSyncState("Спринт завершён в Firestore, но возникла ошибка обновления интерфейса","warn");
+      render();
+      return;
+    }
+    applyInputState(beforeCompletion);
+    setSyncState("Ошибка завершения: план не удалён","bad");
     alert(`Не удалось завершить спринт: ${error.message}`);
     render();
+  }finally{
+    sprintLifecycleInProgress=false;
+    sprintLifecycleCommitConfirmed=false;
+    if(currentStateSaveQueued){
+      currentStateSaveQueued=false;
+      clearTimeout(saveTimer);
+      saveTimer=setTimeout(saveCurrentStateNow,300);
+    }
+    renderSprintLifecycle();
   }
 }
 
@@ -6775,6 +6834,269 @@ async function handleSprintLifecycleAction(){
   if(sprintLifecycleStatus===SPRINT_STATUS_ACTIVE){
     await completeSprintLifecycle();
   }
+}
+
+// v23.4.61: versioned chunk storage for large sprint and user state payloads.
+// Write all immutable chunks first, then publish their revision through the
+// parent document. Readers never see a parent referencing incomplete content.
+function safePayloadChunks(value){
+  const chunks=[];
+  let start=0;
+  while(start<value.length){
+    let end=Math.min(start+SPRINT_PAYLOAD_CHUNK_CHARS,value.length);
+    // Do not split a Unicode surrogate pair across Firestore strings.
+    if(end<value.length){
+      const last=value.charCodeAt(end-1);
+      const next=value.charCodeAt(end);
+      if(last>=0xD800&&last<=0xDBFF&&next>=0xDC00&&next<=0xDFFF)end--;
+    }
+    chunks.push(value.slice(start,end));
+    start=end;
+  }
+  return chunks.length?chunks:["{}"];
+}
+
+function newPayloadRevision(){
+  return `r_${Date.now()}_${Math.random().toString(36).slice(2,10)}`;
+}
+
+function ensureFirestoreDocumentFits(value){
+  const bytes=new TextEncoder().encode(JSON.stringify(value)).length;
+  if(bytes>MAX_SPRINT_DOCUMENT_BYTES){
+    throw new Error(`Основной документ слишком большой (${bytes} байт). Сохранение отменено без потери плана.`);
+  }
+}
+
+function sprintPayloadCollection(fsMod,id){
+  return fsMod.collection(firebaseDb,"workspaces",TEAM_CALCULATOR_WORKSPACE_ID,"sprints",id,"payloadChunks");
+}
+
+function currentStatePayloadCollection(fsMod){
+  return fsMod.collection(firebaseDb,"users",currentUser.uid,"app","main","statePayloadChunks");
+}
+
+async function writeVersionedPayload(fsMod,ref,serialized,revision){
+  const parts=safePayloadChunks(serialized);
+  const ownerUid=currentUser.uid;
+  // Max 25 * 240 KB (< 10 MiB Firestore batch request limit).
+  for(let offset=0;offset<parts.length;offset+=25){
+    const batch=fsMod.writeBatch(firebaseDb);
+    parts.slice(offset,offset+25).forEach((data,index)=>{
+      batch.set(fsMod.doc(ref,`${revision}_${offset+index}`),{
+        revision,index:offset+index,ownerUid,data,
+        createdAt:new Date().toISOString()
+      });
+    });
+    await batch.commit();
+  }
+  return {version:2,revision,chunkCount:parts.length,checksum:hashString(serialized)};
+}
+
+async function readVersionedPayload(fsMod,ref,payloadRef){
+  if(!payloadRef||payloadRef.version!==2)return null;
+  const count=Number(payloadRef.chunkCount);
+  if(!Number.isInteger(count)||count<1||count>5000){
+    throw new Error("Некорректное количество частей спринта");
+  }
+  const chunks=new Array(count);
+  // Bound concurrent Firestore reads on large sprint histories.
+  for(let offset=0;offset<count;offset+=30){
+    await Promise.all(Array.from({length:Math.min(30,count-offset)},async(_,n)=>{
+      const index=offset+n;
+      const snap=await fsMod.getDoc(fsMod.doc(ref,`${payloadRef.revision}_${index}`));
+      if(!snap.exists())throw new Error(`Отсутствует часть ${index+1}/${count} ревизии ${payloadRef.revision}`);
+      const data=snap.data();
+      if(data.revision!==payloadRef.revision||data.index!==index||typeof data.data!=="string"){
+        throw new Error(`Повреждена часть ${index+1}/${count}`);
+      }
+      chunks[index]=data.data;
+    }));
+  }
+  const serialized=chunks.join("");
+  if(hashString(serialized)!==payloadRef.checksum){
+    throw new Error("Контрольная сумма частей данных не совпала");
+  }
+  return JSON.parse(serialized);
+}
+
+function prepareSprintForStorage(saved){
+  const input=JSON.parse(JSON.stringify(saved.input||{}));
+  const result=JSON.parse(JSON.stringify(saved.result||{}));
+  const large={
+    taskSnapshots:input.sprintTaskSnapshots||{},
+    taskActuals:input.sprintTaskActuals||{},
+    baselineTaskSnapshots:input.sprintBaseline?.taskSnapshots||{},
+    // captureSprintBaseline() also stores getCurrentResultSnapshot() here.
+    // Before this fix the entire snapshot map remained in the parent doc,
+    // so a previously saved planning sprint could STILL fail on start.
+    baselineResultTaskSnapshots:input.sprintBaseline?.result?.taskSnapshots||{}
+  };
+  delete input.sprintTaskSnapshots;
+  delete input.sprintTaskActuals;
+  if(input.sprintBaseline){
+    delete input.sprintBaseline.taskSnapshots;
+    if(input.sprintBaseline.result)delete input.sprintBaseline.result.taskSnapshots;
+  }
+  delete result.taskSnapshots; // Duplicate of input.sprintTaskSnapshots
+  const compact={...saved,input,result};
+  ensureFirestoreDocumentFits(compact);
+  return {compact,serialized:JSON.stringify(large)};
+}
+
+async function stageSprintStorage(fsMod,saved,previous){
+  const prepared=prepareSprintForStorage(saved);
+  const ref=sprintPayloadCollection(fsMod,saved.id);
+  const revision=newPayloadRevision();
+  const payloadRef=await writeVersionedPayload(fsMod,ref,prepared.serialized,revision);
+  const oldRevision=previous?.payloadRef?.revision||null;
+  const stored={...prepared.compact,payloadRef:{...payloadRef,previousRevision:oldRevision}};
+  ensureFirestoreDocumentFits(stored);
+  return stored;
+}
+
+async function hydrateSprintDocument(fsMod,saved){
+  if(saved?.payloadRef?.version!==2)return saved;
+  const revision=saved.payloadRef.revision;
+  const key=`${saved.id}:${revision}`;
+  let large=sprintPayloadCache.get(key);
+  if(!large){
+    large=await readVersionedPayload(fsMod,sprintPayloadCollection(fsMod,saved.id),saved.payloadRef);
+    sprintPayloadCache.set(key,large);
+    while(sprintPayloadCache.size>50){
+      sprintPayloadCache.delete(sprintPayloadCache.keys().next().value);
+    }
+  }
+  const input={...saved.input};
+  input.sprintTaskSnapshots=large.taskSnapshots||{};
+  input.sprintTaskActuals=large.taskActuals||{};
+  if(input.sprintBaseline){
+    input.sprintBaseline={...input.sprintBaseline,taskSnapshots:large.baselineTaskSnapshots||{}};
+    // For v2 documents created by an earlier candidate release, the
+    // baseline.result.taskSnapshots may still live in the parent document.
+    if(Object.prototype.hasOwnProperty.call(large,"baselineResultTaskSnapshots")){
+      input.sprintBaseline.result={...(input.sprintBaseline.result||{}),
+        taskSnapshots:large.baselineResultTaskSnapshots||{}};
+    }
+  }
+  const result={...saved.result,taskSnapshots:large.taskSnapshots||{}};
+  return {...saved,input,result};
+}
+
+async function hydrateCurrentStateDocument(fsMod,saved){
+  if(saved?.statePayloadRef?.version!==2)return saved;
+  const large=await readVersionedPayload(fsMod,currentStatePayloadCollection(fsMod),saved.statePayloadRef);
+  const state={...(saved.currentState||{})};
+  state.sprintTaskSnapshots=large.taskSnapshots||{};
+  state.sprintTaskActuals=large.taskActuals||{};
+  if(state.sprintBaseline){
+    state.sprintBaseline={...state.sprintBaseline,taskSnapshots:large.baselineTaskSnapshots||{}};
+    if(Object.prototype.hasOwnProperty.call(large,"baselineResultTaskSnapshots")){
+      state.sprintBaseline.result={...(state.sprintBaseline.result||{}),
+        taskSnapshots:large.baselineResultTaskSnapshots||{}};
+    }
+  }
+  const result={...(saved.result||{}),taskSnapshots:large.taskSnapshots||{}};
+  return {...saved,currentState:state,result};
+}
+
+function prepareCurrentStateForStorage(payload){
+  const currentState=JSON.parse(JSON.stringify(payload.currentState||{}));
+  const result=JSON.parse(JSON.stringify(payload.result||{}));
+  const large={
+    taskSnapshots:currentState.sprintTaskSnapshots||{},
+    taskActuals:currentState.sprintTaskActuals||{},
+    baselineTaskSnapshots:currentState.sprintBaseline?.taskSnapshots||{},
+    baselineResultTaskSnapshots:currentState.sprintBaseline?.result?.taskSnapshots||{}
+  };
+  delete currentState.sprintTaskSnapshots;
+  delete currentState.sprintTaskActuals;
+  if(currentState.sprintBaseline){
+    delete currentState.sprintBaseline.taskSnapshots;
+    if(currentState.sprintBaseline.result)delete currentState.sprintBaseline.result.taskSnapshots;
+  }
+  delete result.taskSnapshots;
+  const compact={currentState,result};
+  ensureFirestoreDocumentFits(compact);
+  return {compact,serialized:JSON.stringify(large)};
+}
+
+// Keep the current and immediately previous revision for readers already in
+// flight; delete older chunks opportunistically. Cleanup failures cannot
+// invalidate an otherwise successful save.
+async function cleanupObsoletePayloadChunks(fsMod,ref,current,previous=null){
+  try{
+    const snaps=await fsMod.getDocs(ref);
+    const obsolete=snaps.docs.filter(docSnap=>{
+      const rev=docSnap.data()?.revision;
+      const timestamp=Date.parse(docSnap.data()?.createdAt||"");
+      const oldEnough=Number.isFinite(timestamp)&&timestamp<Date.now()-5*60*1000;
+      return rev!==current&&rev!==previous&&(current===null||oldEnough);
+    });
+    for(let i=0;i<obsolete.length;i+=200){
+      const batch=fsMod.writeBatch(firebaseDb);
+      obsolete.slice(i,i+200).forEach(snap=>batch.delete(snap.ref));
+      await batch.commit();
+    }
+  }catch(error){
+    console.warn("Не удалось очистить старые части данных",error);
+  }
+}
+
+// IndexedDB survives page reload even when Firestore rejects the document.
+// The recovery copy is written BEFORE a destructive sprint lifecycle action.
+function openEmergencyDraftDb(){
+  return new Promise((resolve,reject)=>{
+    if(!window.indexedDB){reject(new Error("IndexedDB недоступна"));return;}
+    const request=indexedDB.open("teamCalculatorEmergencyDrafts",1);
+    request.onupgradeneeded=()=>request.result.createObjectStore("drafts",{keyPath:"key"});
+    request.onsuccess=()=>resolve(request.result);
+    request.onerror=()=>reject(request.error);
+  });
+}
+function emergencyDraftKey(){
+  return `${currentUser?.uid||"anonymous"}:${TEAM_CALCULATOR_WORKSPACE_ID}`;
+}
+async function emergencyDraftTransaction(mode,operation){
+  const db=await openEmergencyDraftDb();
+  try{
+    return await new Promise((resolve,reject)=>{
+      const tx=db.transaction("drafts",mode);
+      const request=operation(tx.objectStore("drafts"));
+      let result;
+      request.onsuccess=()=>{result=request.result;};
+      request.onerror=()=>reject(request.error);
+      tx.oncomplete=()=>resolve(result);
+      tx.onerror=()=>reject(tx.error||new Error("IndexedDB transaction failed"));
+      tx.onabort=()=>reject(tx.error||new Error("IndexedDB transaction aborted"));
+    });
+  }finally{db.close();}
+}
+async function saveEmergencyDraft(){
+  if(!currentUser)return false;
+  try{
+    const state=getCurrentInputState();
+    await emergencyDraftTransaction("readwrite",store=>store.put({
+      key:emergencyDraftKey(),state,savedAt:new Date().toISOString()
+    }));
+    return true;
+  }catch(error){
+    console.warn("Не удалось сохранить аварийную копию",error);
+    setSyncState("Не удалось сохранить локальную резервную копию","bad");
+    return false;
+  }
+}
+async function getEmergencyDraft(){
+  try{return await emergencyDraftTransaction("readonly",store=>store.get(emergencyDraftKey()));}
+  catch(error){console.warn("Не удалось прочитать аварийную копию",error);return null;}
+}
+async function clearEmergencyDraft(){
+  try{await emergencyDraftTransaction("readwrite",store=>store.delete(emergencyDraftKey()));}
+  catch(error){console.warn("Не удалось очистить локальную копию",error);}
+}
+function scheduleEmergencyDraft(){
+  if(isHydrating||!appLoaded||!currentUser)return;
+  clearTimeout(localDraftSaveTimer);
+  localDraftSaveTimer=setTimeout(()=>{saveEmergencyDraft();},350);
 }
 
 function getCurrentInputState(){
@@ -7224,6 +7546,7 @@ async function migrateOwnLegacySprints(fsMod){
 }
 
 function stopSharedSprintsRealtime(){
+  sharedSprintSnapshotSequence++;
   if(typeof unsubscribeSharedSprints==="function"){
     unsubscribeSharedSprints();
   }
@@ -7234,36 +7557,41 @@ async function startSharedSprintsRealtime(){
   stopSharedSprintsRealtime();
   if(!currentUser||!firebaseDb)return;
   const {fsMod}=await loadFirebaseModules();
-  const ref=fsMod.collection(
-    firebaseDb,"workspaces",TEAM_CALCULATOR_WORKSPACE_ID,"sprints"
-  );
-  unsubscribeSharedSprints=fsMod.onSnapshot(ref,snapshot=>{
-    const next={};
-    snapshot.forEach(docSnap=>{
-      next[docSnap.id]={...docSnap.data(),id:docSnap.id};
-    });
-    const previousCurrent=savedSprintSets[currentSprintId];
-    savedSprintSets=next;
-    sprintFingerprints.clear();
-    Object.values(next).forEach(item=>{
-      sprintFingerprints.set(item.id,sprintPayloadFingerprint(
-        item.name||"",item.input||{},item.result||{}
-      ));
-    });
-    if(!appLoaded)return;
-    // Для чужих спринтов показываем изменения создателя без ручного обновления.
-    if(currentSprintId&&next[currentSprintId]&&sharedSprintIsReadOnly()){
-      const nextCurrent=next[currentSprintId];
-      if(JSON.stringify(previousCurrent)!==JSON.stringify(nextCurrent)){
-        applyInputState(savedSprintInputState(currentSprintId,nextCurrent));
+  const ref=fsMod.collection(firebaseDb,"workspaces",TEAM_CALCULATOR_WORKSPACE_ID,"sprints");
+  unsubscribeSharedSprints=fsMod.onSnapshot(ref,async snapshot=>{
+    const sequence=++sharedSprintSnapshotSequence;
+    try{
+      const pairs=await Promise.all(snapshot.docs.map(async docSnap=>{
+        const item=await hydrateSprintDocument(fsMod,{...docSnap.data(),id:docSnap.id});
+        return [docSnap.id,item];
+      }));
+      if(sequence!==sharedSprintSnapshotSequence||!currentUser)return;
+      const next=Object.fromEntries(pairs);
+      const previousCurrent=savedSprintSets[currentSprintId];
+      savedSprintSets=next;
+      sprintFingerprints.clear();
+      Object.values(next).forEach(item=>sprintFingerprints.set(item.id,
+        sprintPayloadFingerprint(item.name||"",item.input||{},item.result||{})));
+      if(!appLoaded)return;
+      if(currentSprintId&&next[currentSprintId]&&sharedSprintIsReadOnly()
+          &&!sprintSaveInProgress&&!sprintLifecycleInProgress){
+        const nextCurrent=next[currentSprintId];
+        if(JSON.stringify(previousCurrent)!==JSON.stringify(nextCurrent)){
+          applyInputState(savedSprintInputState(currentSprintId,nextCurrent));
+          return;
+        }
+      }
+      // Never erase local edits on a temporarily missing/failed remote sprint.
+      if(currentSprintId&&!next[currentSprintId]&&!sprintSaveInProgress){
+        setSyncState("Спринт отсутствует в общем списке; локальный план сохранён","bad");
+        await saveEmergencyDraft();
         return;
       }
+      render();
+    }catch(error){
+      console.error("Не удалось восстановить части спринтов",error);
+      setSyncState("Ошибка загрузки части спринтов: данные не сброшены","bad");
     }
-    if(currentSprintId&&!next[currentSprintId]){
-      startNewSprintSet({confirmCurrent:false,historyMode:"replace"});
-      return;
-    }
-    render();
   },error=>{
     console.error("Не удалось обновить общие спринты",error);
     setSyncState("Ошибка получения общих спринтов","bad");
@@ -7410,335 +7738,166 @@ function applyInputState(state){
   render();
 }
 
-async function saveSprintSet(
-  forceNew=false,
-  {silent=false,source="manual"}={}
-){
+async function saveSprintSet(forceNew=false,{silent=false,source="manual",forceDocumentWrite=false}={}){
   if(!forceNew&&sharedSprintIsReadOnly()){
     if(!silent)guardSharedSprintEdit();
     return false;
   }
   const name=(sprintName.value||"").trim();
-
   if(!name){
-    if(!silent){
-      alert("Введите имя спринта / набора.");
-      sprintName.focus();
-    }
+    if(!silent){alert("Введите имя спринта / набора.");sprintName.focus();}
     return false;
   }
-
   if(!currentUser||!firebaseDb){
     if(!silent)alert("Нет подключения к Firebase.");
     return false;
   }
-
   if(sprintSaveInProgress){
     sprintAutoSaveQueued=true;
     return false;
   }
-
   sprintSaveInProgress=true;
-
   const sprints=getSavedSprints();
-  const previousSprint=currentSprintId?sprints[currentSprintId]:null;
+  const previousSprint=!forceNew&&currentSprintId?sprints[currentSprintId]:null;
   const id=forceNew||!currentSprintId?makeSprintId():currentSprintId;
-
-  const previousTaskIds=forceNew
-    ?[]
-    :(Array.isArray(previousSprint?.input?.selectedTaskIds)
-      ?previousSprint.input.selectedTaskIds
-      :[]);
-
-  const previousReturnedTaskIds=forceNew
-    ?[]
-    :(Array.isArray(
-      previousSprint?.input?.sprintReturnedTaskIds
-    )
-      ?previousSprint.input.sprintReturnedTaskIds
-      :[]);
-
-  const previousReturnedTaskSet=
-    new Set(previousReturnedTaskIds);
-
-  const previousPlannedTaskIds=
-    previousTaskIds.filter(
-      taskId=>!previousReturnedTaskSet.has(taskId)
-    );
-
-  const currentPlannedTaskIds=
-    activeSprintTaskIds();
-
-  const previousCompletedIds=forceNew
-    ?[]
-    :(Array.isArray(previousSprint?.input?.completedTaskIds)
-      ?previousSprint.input.completedTaskIds
-      :[]);
-
-  const previousName=forceNew
-    ?""
-    :String(previousSprint?.name||"");
-
-  const previousLifecycleStatus=normalizeSprintLifecycleStatus(
-    previousSprint?.input?.sprintLifecycleStatus
-  );
-
-  currentSprintId=id;
-
-  selectedTaskIds.forEach(taskId=>{
-    if(!sprintTaskSnapshots[taskId]&&taskPool[taskId]){
-      sprintTaskSnapshots[taskId]=JSON.parse(
-        JSON.stringify(taskPool[taskId])
-      );
-    }
-  });
-
-  recalculateRolePlanFact();
-
-  const inputState=getSprintInputState();
-  inputState.currentSprintId=id;
-
-  const resultState=getCurrentResultSnapshot();
-  const fingerprint=sprintPayloadFingerprint(
-    name,
-    inputState,
-    resultState
-  );
-
-  const previousFingerprint=
-    sprintFingerprints.get(id)
-    ||(
-      previousSprint
-        ?sprintPayloadFingerprint(
-          previousSprint.name||"",
-          previousSprint.input||{},
-          previousSprint.result||{}
-        )
-        :""
-    );
-
-  const previousTaskSet=
-    new Set(previousPlannedTaskIds);
-
-  const currentTaskSet=
-    new Set(currentPlannedTaskIds);
-  const previousCompletedSet=new Set(previousCompletedIds);
-  const currentCompletedSet=new Set(completedTaskIds);
-
-  const removedTaskIds=
-    previousPlannedTaskIds.filter(
-      taskId=>!currentTaskSet.has(taskId)
-    );
-
-  const addedTaskIds=
-    currentPlannedTaskIds.filter(
-      taskId=>!previousTaskSet.has(taskId)
-    );
-
-  const completionChangedIds=
-    currentPlannedTaskIds.filter(
-    taskId=>
-      previousTaskSet.has(taskId)
-      &&previousCompletedSet.has(taskId)!==currentCompletedSet.has(taskId)
-  );
-
-  const nameChanged=previousName!==name;
-  const lifecycleChanged=
-    previousLifecycleStatus!==sprintLifecycleStatus;
-
-  const tasksToPlan=new Set([
-    ...addedTaskIds,
-    ...completionChangedIds,
-    ...(
-      nameChanged||lifecycleChanged
-        ?currentPlannedTaskIds
-        :[]
-    )
-  ]);
-
-  const sprintChanged=
-    forceNew
-    ||!previousSprint
-    ||fingerprint!==previousFingerprint;
-
-  const taskLinksChanged=
-    removedTaskIds.length>0
-    ||tasksToPlan.size>0;
-
-  if(!sprintChanged&&!taskLinksChanged){
-    setSyncState("Автосохранено");
-    sprintSaveInProgress=false;
-    return true;
-  }
-
-  const saved={
-    id,
-    createdByUid:previousSprint?.createdByUid||currentUser.uid,
-    createdByName:previousSprint?.createdByName||String(currentProfile?.alias||currentUser.email||""),
-    createdByEmail:previousSprint?.createdByEmail||String(currentUser.email||""),
-    createdAt:previousSprint?.createdAt||new Date().toISOString(),
-    name,
-    updatedAt:new Date().toISOString(),
-    input:inputState,
-    result:resultState
-  };
-
+  let remoteCommitted=false;
   try{
-    setSyncState(
-      source==="autosave"?"Автосохранение…":"Сохранение…",
-      "warn"
+    const previousTaskIds=forceNew?[]:(previousSprint?.input?.selectedTaskIds||[]);
+    const previousReturnedSet=new Set(forceNew?[]:(previousSprint?.input?.sprintReturnedTaskIds||[]));
+    const previousPlannedTaskIds=previousTaskIds.filter(taskId=>!previousReturnedSet.has(taskId));
+    const currentPlannedTaskIds=activeSprintTaskIds();
+    const previousCompletedIds=forceNew?[]:(previousSprint?.input?.completedTaskIds||[]);
+    const previousName=forceNew?"":String(previousSprint?.name||"");
+    const previousLifecycle=normalizeSprintLifecycleStatus(previousSprint?.input?.sprintLifecycleStatus);
+
+    selectedTaskIds.forEach(taskId=>{
+      if(!sprintTaskSnapshots[taskId]&&taskPool[taskId]){
+        sprintTaskSnapshots[taskId]=JSON.parse(JSON.stringify(taskPool[taskId]));
+      }
+    });
+    recalculateRolePlanFact();
+    const inputState=getSprintInputState();
+    inputState.currentSprintId=id;
+    const resultState=getCurrentResultSnapshot();
+    const fingerprint=sprintPayloadFingerprint(name,inputState,resultState);
+    const previousFingerprint=sprintFingerprints.get(id)||(
+      previousSprint?sprintPayloadFingerprint(previousSprint.name||"",previousSprint.input||{},previousSprint.result||{}):""
     );
-
+    const prevTaskSet=new Set(previousPlannedTaskIds);
+    const currentTaskSet=new Set(currentPlannedTaskIds);
+    const prevCompletedSet=new Set(previousCompletedIds);
+    const currentCompletedSet=new Set(completedTaskIds);
+    const removedTaskIds=previousPlannedTaskIds.filter(taskId=>!currentTaskSet.has(taskId));
+    const addedTaskIds=currentPlannedTaskIds.filter(taskId=>!prevTaskSet.has(taskId));
+    const completionChangedIds=currentPlannedTaskIds.filter(taskId=>
+      prevTaskSet.has(taskId)&&prevCompletedSet.has(taskId)!==currentCompletedSet.has(taskId));
+    const nameChanged=previousName!==name;
+    const lifecycleChanged=previousLifecycle!==sprintLifecycleStatus;
+    const tasksToPlan=new Set([
+      ...addedTaskIds,...completionChangedIds,
+      ...(nameChanged||lifecycleChanged?currentPlannedTaskIds:[])
+    ]);
+    const sprintChanged=forceNew||!previousSprint||fingerprint!==previousFingerprint||forceDocumentWrite;
+    const taskLinksChanged=removedTaskIds.length>0||tasksToPlan.size>0;
+    if(!sprintChanged&&!taskLinksChanged){
+      setSyncState("Автосохранено");
+      return true;
+    }
+    const saved={
+      id,
+      createdByUid:previousSprint?.createdByUid||currentUser.uid,
+      createdByName:previousSprint?.createdByName||String(currentProfile?.alias||currentUser.email||""),
+      createdByEmail:previousSprint?.createdByEmail||String(currentUser.email||""),
+      createdAt:previousSprint?.createdAt||new Date().toISOString(),
+      name,updatedAt:new Date().toISOString(),input:inputState,result:resultState
+    };
+    setSyncState(source==="autosave"?"Автосохранение…":"Сохранение…","warn");
     const {fsMod}=await loadFirebaseModules();
-
-    if(sprintChanged){
-      await fsMod.setDoc(
-        fsMod.doc(
-          firebaseDb,
-          "workspaces",
-          TEAM_CALCULATOR_WORKSPACE_ID,
-          "sprints",
-          id
-        ),
-        saved
-      );
+    const stored=sprintChanged?await stageSprintStorage(fsMod,saved,previousSprint):null;
+    const batch=fsMod.writeBatch(firebaseDb);
+    if(stored)batch.set(sharedSprintDocument(fsMod,id),stored);
+    let writes=stored?1:0;
+    const pendingTaskUpdates=new Map();
+    removedTaskIds.forEach(taskId=>{
+      if(!taskPool[taskId]||taskPool[taskId].plannedSprintId!==id)return;
+      const update={plannedSprintId:null,plannedSprintName:null,plannedByUid:null,
+        plannedByName:null,planningStatus:"available",updatedAt:new Date().toISOString()};
+      batch.set(fsMod.doc(firebaseDb,"workspaces",TEAM_CALCULATOR_WORKSPACE_ID,"taskPool",taskId),update,{merge:true});
+      pendingTaskUpdates.set(taskId,update);
+      writes++;
+    });
+    tasksToPlan.forEach(taskId=>{
+      if(!taskPool[taskId])return; // Do not re-create tasks deleted from pool.
+      const poolTask=normalizeTask(taskPool[taskId]||{id:taskId});
+      const carryover=taskCarryoverInfo(poolTask)?{
+        ...poolTask.carryover,pending:false,toSprintId:id,toSprintName:name,
+        addedAt:poolTask.carryover.addedAt||new Date().toISOString()
+      }:null;
+      const update={
+        plannedSprintId:id,plannedSprintName:name,plannedByUid:currentUser.uid,
+        plannedByName:(currentProfile?.alias||currentUser.email||"").trim(),
+        planningStatus:currentCompletedSet.has(taskId)?"completed":"planned",
+        updatedAt:new Date().toISOString()
+      };
+      if(carryover)update.carryover=carryover;
+      batch.set(fsMod.doc(firebaseDb,"workspaces",TEAM_CALCULATOR_WORKSPACE_ID,"taskPool",taskId),update,{merge:true});
+      pendingTaskUpdates.set(taskId,update);
+      writes++;
+    });
+    if(writes>450){
+      throw new Error("Изменено более 450 задач за раз. Сохранение отклонено без изменения данных; обратитесь к администратору.");
     }
-
-    if(taskLinksChanged){
-      const taskBatch=fsMod.writeBatch(firebaseDb);
-
-      removedTaskIds.forEach(taskId=>{
-        taskBatch.set(
-          fsMod.doc(
-            firebaseDb,
-            "workspaces",
-            TEAM_CALCULATOR_WORKSPACE_ID,
-            "taskPool",
-            taskId
-          ),
-          {
-            plannedSprintId:null,
-            plannedSprintName:null,
-            plannedByUid:null,
-            plannedByName:null,
-            planningStatus:"available",
-            updatedAt:new Date().toISOString()
-          },
-          {merge:true}
-        );
-
-        if(taskPool[taskId]?.plannedSprintId===id){
-          taskPool[taskId].plannedSprintId=null;
-          taskPool[taskId].plannedSprintName=null;
-          taskPool[taskId].planningStatus="available";
-        }
-      });
-
-      tasksToPlan.forEach(taskId=>{
-        const poolTask=normalizeTask(
-          taskPool[taskId]||{id:taskId}
-        );
-
-        const carryover=
-          taskCarryoverInfo(poolTask)
-            ?{
-                ...poolTask.carryover,
-                pending:false,
-                toSprintId:id,
-                toSprintName:name,
-                addedAt:
-                  poolTask.carryover.addedAt
-                  ||new Date().toISOString()
-              }
-            :null;
-
-        const taskUpdate={
-          plannedSprintId:id,
-          plannedSprintName:name,
-          plannedByUid:currentUser.uid,
-          plannedByName:(
-            currentProfile?.alias
-            ||currentUser.email
-            ||""
-          ).trim(),
-          planningStatus:
-            currentCompletedSet.has(taskId)
-              ?"completed"
-              :"planned",
-          updatedAt:new Date().toISOString()
-        };
-
-        if(carryover){
-          taskUpdate.carryover=carryover;
-        }
-
-        taskBatch.set(
-          fsMod.doc(
-            firebaseDb,
-            "workspaces",
-            TEAM_CALCULATOR_WORKSPACE_ID,
-            "taskPool",
-            taskId
-          ),
-          taskUpdate,
-          {merge:true}
-        );
-
-        if(taskPool[taskId]){
-          Object.assign(
-            taskPool[taskId],
-            taskUpdate
-          );
-        }
-      });
-
-      await taskBatch.commit();
-    }
-
-    sprints[id]=saved;
-    setSavedSprints(sprints);
+    await batch.commit(); // Parent & taskPool links either ALL commit or NONE do.
+    remoteCommitted=true;
+    sprintLifecycleCommitConfirmed=true;
+    unsavedSprintFailure=false;
+    pendingTaskUpdates.forEach((value,taskId)=>{
+      if(taskPool[taskId])Object.assign(taskPool[taskId],value);
+    });
+    currentSprintId=id;
+    const updatedSprints={...getSavedSprints(),[id]:saved};
+    setSavedSprints(updatedSprints);
     sprintFingerprints.set(id,fingerprint);
-
-    // Сохранение текущего состояния выполнится только если оно
-    // действительно отличается от последней записанной версии.
-    await saveCurrentStateNow();
-
     renderSavedSprints();
     savedSprintSelect.value=id;
-
-    // Первый успешный save превращает черновик в адресный спринт.
-    // replaceState не создаёт лишний шаг истории для того же черновика.
-    setSprintUrl(
-      id,
-      {mode:"replace"}
-    );
+    setSprintUrl(id,{mode:"replace"});
     updateActiveSprintHeader();
-
-    setSyncState(
-      source==="autosave"?"Автосохранено":"Сохранено"
-    );
-
-    return true;
-  }catch(e){
-    console.error(e);
-    setSyncState("Ошибка сохранения","bad");
-
-    if(!silent){
-      alert(`Не удалось сохранить спринт: ${e.message}`);
+    setSyncState(source==="autosave"?"Автосохранено":"Сохранено");
+    // User app/main is a secondary navigation copy. Its failure must never
+    // report the already committed sprint as failed or undo its lifecycle.
+    const currentStateSaved=await saveCurrentStateNow();
+    if(!currentStateSaved){
+      setSyncState("Спринт сохранён; ошибка сохранения текущего состояния","warn");
+    }else if(stateFingerprint(currentStatePayload())===lastCurrentStateFingerprint){
+      await clearEmergencyDraft();
     }
-
+    // Cleanup is best-effort and does not affect the published revision.
+    if(stored){
+      cleanupObsoletePayloadChunks(fsMod,sprintPayloadCollection(fsMod,id),
+        stored.payloadRef.revision,stored.payloadRef.previousRevision);
+    }
+    return true;
+  }catch(error){
+    console.error(error);
+    if(remoteCommitted){
+      // A UI/secondary state exception is not a failed Firestore sprint save.
+      currentSprintId=id;
+      setSyncState("Спринт записан в Firestore, но есть ошибка обновления интерфейса","warn");
+      return true;
+    }
+    unsavedSprintFailure=true;
+    setSyncState("Ошибка сохранения: план не удалён","bad");
+    await saveEmergencyDraft();
+    if(!silent)alert(`Не удалось сохранить спринт: ${error.message}.\nПлан остался в приложении и локальной копии.`);
     return false;
   }finally{
     sprintSaveInProgress=false;
-
     if(sprintAutoSaveQueued){
       sprintAutoSaveQueued=false;
       clearTimeout(sprintAutoSaveTimer);
-      sprintAutoSaveTimer=setTimeout(
-        runSprintAutoSave,
-        1000
-      );
+      sprintAutoSaveTimer=setTimeout(runSprintAutoSave,1000);
     }
+    renderSprintLifecycle();
   }
 }
 
@@ -7872,13 +8031,19 @@ async function deleteSprintSet(id){
           {plannedSprintId:null,plannedSprintName:null,plannedByUid:null,plannedByName:null,planningStatus:"available",updatedAt:new Date().toISOString()},
           {merge:true}
         );
+      }
+    });
+
+    await batch.commit();
+    taskIds.forEach(taskId=>{
+      if(taskPool[taskId]?.plannedSprintId===id){
         taskPool[taskId].plannedSprintId=null;
         taskPool[taskId].plannedSprintName=null;
         taskPool[taskId].planningStatus="available";
       }
     });
-
-    await batch.commit();
+    // Removing a parent does not delete its subcollections in Firestore.
+    cleanupObsoletePayloadChunks(fsMod,sprintPayloadCollection(fsMod,id),null,null);
     delete sprints[id];
     setSavedSprints(sprints);
 
@@ -15588,6 +15753,7 @@ function saveState(){
   if(isHydrating||!currentUser||!firebaseDb)return;
 
   setSyncState("Есть изменения","warn");
+  scheduleEmergencyDraft();
 
   clearTimeout(saveTimer);
   saveTimer=setTimeout(
@@ -15726,6 +15892,7 @@ document.addEventListener("visibilitychange",()=>{
   clearTimeout(saveTimer);
   clearTimeout(sprintAutoSaveTimer);
 
+  saveEmergencyDraft();
   saveCurrentStateNow();
 
   if(
@@ -15765,8 +15932,8 @@ document.getElementById("resetDefaults").onclick=()=>{
 };
 document.getElementById("saveData").onclick=async()=>{
   clearTimeout(saveTimer);
-  await saveCurrentStateNow();
-  alert("Сохранено.");
+  const saved=await saveCurrentStateNow();
+  alert(saved?"Сохранено.":"Сохранить не удалось. Данные оставлены в локальной резервной копии.");
 };
 document.getElementById("reloadTaskPool").onclick=async()=>{
   try{
@@ -16070,6 +16237,12 @@ async function loadUserWorkspace(){
 
     const appRef=fsMod.doc(firebaseDb,"users",currentUser.uid,"app","main");
     const appSnap=await fsMod.getDoc(appRef);
+    const hydratedApp=appSnap.exists()
+      ?await hydrateCurrentStateDocument(fsMod,appSnap.data())
+      :null;
+    lastCurrentStatePayloadRef=appSnap.exists()
+      ?(appSnap.data().statePayloadRef||null)
+      :null;
 
     const migration=await migrateOwnLegacySprints(fsMod);
     sharedSprintMigrationStatus=migration.failed
@@ -16084,10 +16257,11 @@ async function loadUserWorkspace(){
       fsMod.getDoc(fsMod.doc(firebaseDb,"workspaces",TEAM_CALCULATOR_WORKSPACE_ID,"settings","actualCalculation"))
     ]);
 
-    savedSprintSets={};
-    sprintSnap.forEach(docSnap=>{
-      savedSprintSets[docSnap.id]=docSnap.data();
-    });
+    const hydratedSprints=await Promise.all(sprintSnap.docs.map(async docSnap=>[
+      docSnap.id,
+      await hydrateSprintDocument(fsMod,{...docSnap.data(),id:docSnap.id})
+    ]));
+    savedSprintSets=Object.fromEntries(hydratedSprints);
 
     taskPool={};
     taskSnap.forEach(docSnap=>{
@@ -16101,7 +16275,7 @@ async function loadUserWorkspace(){
 
     isHydrating=true;
     if(appSnap.exists()){
-      const state=appSnap.data().currentState||{};
+      const state=hydratedApp?.currentState||{};
       roles=JSON.parse(JSON.stringify(state.roles||defaultRoles));
       if(state.periodName)periodName.value=state.periodName;
       if(state.workdays!==undefined)workdays.value=state.workdays;
@@ -16224,9 +16398,22 @@ async function loadUserWorkspace(){
       prepareTaskRoute();
     }
 
+    // Recover an unsaved plan after a network failure / oversize rejection.
+    let emergencyRestored=false;
+    const emergency=await getEmergencyDraft();
+    if(emergency?.state&&new Date(emergency.savedAt).getTime()>
+        new Date(appSnap.exists()?appSnap.data().updatedAt||0:0).getTime()){
+      if(confirm(`Есть несохранённая локальная копия плана от ${new Date(emergency.savedAt).toLocaleString("ru-RU")}. Восстановить её?`)){
+        applyInputState(emergency.state);
+        emergencyRestored=true;
+        setSprintUrl(currentSprintId,{mode:"replace"});
+        setSyncState("Восстановлен несохранённый локальный план","warn");
+      }
+    }
+
     recalculateRolePlanFact();
 
-    lastCurrentStateFingerprint=stateFingerprint(
+    lastCurrentStateFingerprint=emergencyRestored?"":stateFingerprint(
       currentStatePayload()
     );
 
@@ -16260,6 +16447,8 @@ async function loadUserWorkspace(){
         routeWarning,
         "bad"
       );
+    }else if(emergencyRestored){
+      setSyncState("Локальный план восстановлен, ожидается сохранение","warn");
     }else if(sharedSprintMigrationStatus){
       setSyncState(
         sharedSprintMigrationStatus,
@@ -16280,41 +16469,53 @@ async function loadUserWorkspace(){
 
 async function saveCurrentStateNow(){
   if(isHydrating||!currentUser||!firebaseDb)return false;
-
+  // Prevent the secondary user/app/main document from advertising a
+  // lifecycle change that has not yet committed in the sprint itself.
+  if(sprintLifecycleInProgress&&!sprintLifecycleCommitConfirmed){
+    currentStateSaveQueued=true;
+    return false;
+  }
+  if(currentStateSaveInProgress){
+    currentStateSaveQueued=true;
+    return false;
+  }
   const payload=currentStatePayload();
   const fingerprint=stateFingerprint(payload);
-
-  if(fingerprint===lastCurrentStateFingerprint){
-    return true;
-  }
-
+  if(fingerprint===lastCurrentStateFingerprint)return true;
+  currentStateSaveInProgress=true;
   try{
     const {fsMod}=await loadFirebaseModules();
-
     setSyncState("Сохранение…","warn");
-
-    await fsMod.setDoc(
-      fsMod.doc(
-        firebaseDb,
-        "users",
-        currentUser.uid,
-        "app",
-        "main"
-      ),
-      {
-        ...payload,
-        updatedAt:new Date().toISOString()
-      },
-      {merge:true}
-    );
-
+    const prepared=prepareCurrentStateForStorage(payload);
+    const ref=fsMod.doc(firebaseDb,"users",currentUser.uid,"app","main");
+    // Staged immutable revision is published by a single final setDoc.
+    const previousRef=lastCurrentStatePayloadRef||null;
+    const revision=newPayloadRevision();
+    const payloadRef=await writeVersionedPayload(
+      fsMod,currentStatePayloadCollection(fsMod),prepared.serialized,revision);
+    const stored={...prepared.compact,updatedAt:new Date().toISOString(),
+      statePayloadRef:{...payloadRef,previousRevision:previousRef?.revision||null}};
+    ensureFirestoreDocumentFits(stored);
+    await fsMod.setDoc(ref,stored); // overwrite: remove large legacy embedded fields
+    lastCurrentStatePayloadRef=stored.statePayloadRef;
     lastCurrentStateFingerprint=fingerprint;
-    setSyncState("Синхронизировано");
+    setSyncState(unsavedSprintFailure?"Спринт не сохранён (локальная копия есть)":"Синхронизировано",
+      unsavedSprintFailure?"bad":"");
+    cleanupObsoletePayloadChunks(fsMod,currentStatePayloadCollection(fsMod),
+      revision,previousRef?.revision||null);
     return true;
-  }catch(e){
-    console.error(e);
-    setSyncState("Ошибка сохранения","bad");
+  }catch(error){
+    console.error(error);
+    await saveEmergencyDraft();
+    setSyncState("Ошибка сохранения: есть локальная копия","bad");
     return false;
+  }finally{
+    currentStateSaveInProgress=false;
+    if(currentStateSaveQueued){
+      currentStateSaveQueued=false;
+      clearTimeout(saveTimer);
+      saveTimer=setTimeout(saveCurrentStateNow,300);
+    }
   }
 }
 

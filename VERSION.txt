@@ -1,4 +1,4 @@
-Team_calculator v23.4.27
-Release: team_calculator_v23_4_27_completed_sprint_metrics_fix_deploy
-Base: v23.4.26
-Changes: completed sprint plan and completion metrics include all participating tasks; returned tasks remain incomplete.
+Team_calculator v23.4.61
+Release: team_calculator_v23_4_61_sprint_storage_safe_lifecycle
+Base: v23.4.60 (GitHub archive Team_calculator-main(1).zip)
+Changes: versioned Firestore payload chunks for sprint snapshots and user current state; atomic sprint status + task pool commits; IndexedDB emergency draft recovery; safe start/complete rollback; new Firestore rules for subcollections.

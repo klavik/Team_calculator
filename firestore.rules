@@ -124,6 +124,12 @@ service cloud.firestore {
 
       match /app/{documentId} {
         allow read, write: if isOwner(userId);
+
+        // v23.4.61: versioned parts of the local current-state backup.
+        match /statePayloadChunks/{chunkId} {
+          allow read, create, delete: if isOwner(userId);
+          allow update: if false; // Immutable parts
+        }
       }
 
       match /sprints/{sprintId} {
@@ -136,6 +142,36 @@ service cloud.firestore {
       allow read: if activeUser();
       allow create, update: if adminUser();
       allow delete: if false;
+
+      // Shared sprints: owner or admin may edit, every active user may read.
+      match /sprints/{sprintId} {
+        allow read: if activeUser();
+        allow create: if activeUser() && !integrationUser()
+          && request.resource.data.createdByUid == request.auth.uid;
+        allow update: if activeUser() && !integrationUser()
+          && (adminUser() || resource.data.createdByUid == request.auth.uid)
+          && request.resource.data.createdByUid == resource.data.createdByUid;
+        allow delete: if activeUser() && !integrationUser()
+          && (adminUser() || resource.data.createdByUid == request.auth.uid);
+
+        // Chunks are staged before publishing the parent sprint revision.
+        match /payloadChunks/{chunkId} {
+          allow read: if activeUser();
+          allow create: if activeUser() && !integrationUser()
+            && request.resource.data.ownerUid == request.auth.uid
+            && request.resource.data.revision is string
+            && request.resource.data.index is int
+            && request.resource.data.data is string
+            && (
+              !exists(/databases/$(database)/documents/workspaces/$(workspaceId)/sprints/$(sprintId))
+              || adminUser()
+              || get(/databases/$(database)/documents/workspaces/$(workspaceId)/sprints/$(sprintId)).data.createdByUid == request.auth.uid
+            );
+          allow update: if false;
+          allow delete: if activeUser() && !integrationUser()
+            && (adminUser() || resource.data.ownerUid == request.auth.uid);
+        }
+      }
 
       match /taskPool/{taskId} {
         allow read: if activeUser();

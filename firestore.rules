@@ -233,12 +233,56 @@ service cloud.firestore {
       }
 
       // Очередь запросов к корпоративному GitLab.
-      // Браузер не пишет сюда напрямую: задание создаёт Cloudflare Worker
-      // под техническим пользователем integration.
+      // v23.4.62: ограниченное право браузера добавить unexpected
+      // одновременно с назначением Iteration для сохранённой внеплановой задачи.
+      // Остальные разрешения существующей очереди не расширяются.
       match /gitlab_jobs/{jobId} {
+        function unexpectedMatchesSavedSprint(job, task) {
+          let sprint = get(/databases/$(database)/documents/workspaces/$(workspaceId)/sprints/$(job.sprintId)).data;
+          let pool = get(/databases/$(database)/documents/workspaces/$(workspaceId)/taskPool/$(task.taskId)).data;
+          return (adminUser() || sprint.createdByUid == request.auth.uid)
+            && sprint.input.sprintLifecycleStatus == "active"
+            && sprint.input.sprintBaseline.selectedTaskIds is list
+            && task.taskId in sprint.input.selectedTaskIds
+            && !(task.taskId in sprint.input.sprintBaseline.selectedTaskIds)
+            && !(task.taskId in sprint.input.get("sprintReturnedTaskIds", []))
+            && job.iterationMutation.iterationId == sprint.input.sprintGitLabIteration.id
+            && job.iterationMutation.iterationTitle == sprint.input.sprintGitLabIteration.title
+            && pool.plannedSprintId == job.sprintId
+            && (pool.externalTaskUrl == task.externalTaskUrl
+              || pool.externalTaskUrl == task.externalTaskUrl + "/");
+        }
+
+        function unexpectedAssignmentAllowed(job) {
+          return activeUser() && !integrationUser()
+            && job.requestedByUid == request.auth.uid
+            && job.type == "sync_gitlab_issue_metadata"
+            && job.sprintLifecycleStatus == "active"
+            && job.sprintId is string
+            && job.sprintId.size() > 0
+            && job.tasks is list && job.tasks.size() == 1
+            && job.tasks[0].taskId is string
+            && job.tasks[0].externalTaskUrl is string
+            && job.tasks[0].keys().hasOnly(["taskId", "title", "externalTaskUrl"])
+            && job.get("iterationMutation", {}) is map
+            && job.iterationMutation.keys().hasOnly(["mode", "iterationId", "iterationTitle", "addLabels"])
+            && job.iterationMutation.mode == "set"
+            && job.iterationMutation.addLabels == ["unexpected"]
+            && job.keys().hasOnly([
+              "schemaVersion", "status", "idempotencyKey", "clientRequestId", "workspaceId",
+              "requestedByUid", "requestedByEmail", "requestedByDisplayName", "requestedAt",
+              "updatedAt", "attempts", "processedCount", "succeededCount", "failedCount",
+              "type", "sprintId", "sprintName", "sprintLifecycleStatus", "tasks",
+              "statusLabels", "iterationMutation"
+            ])
+            && job.attempts == 0 && job.processedCount == 0
+            && job.succeededCount == 0 && job.failedCount == 0
+            && unexpectedMatchesSavedSprint(job, job.tasks[0]);
+        }
+
         allow read: if activeUser();
 
-        allow create: if integrationUser()
+        allow create: if (integrationUser() || unexpectedAssignmentAllowed(request.resource.data))
           && request.resource.data.schemaVersion == 1
           && request.resource.data.status == "pending"
           && request.resource.data.idempotencyKey == jobId

@@ -1,10 +1,10 @@
 <!DOCTYPE html>
-<!-- Team_calculator v23.4.61: общие спринты в workspace, перенос личных спринтов без удаления оригиналов -->
+<!-- Team_calculator v23.4.62: внеплановые задачи спринта и запрос лейбла unexpected -->
 <html lang="ru">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Team_calculator v23.4.61 — планирование спринта</title>
+  <title>Team_calculator v23.4.62 — планирование спринта</title>
   <link
     rel="icon"
     type="image/svg+xml"
@@ -256,7 +256,12 @@
       font-weight:800;
     }
     .task-lifecycle-note{margin-top:4px;font-size:11px;font-weight:700}
-    .task-lifecycle-note.added{color:#1a5bc4}
+    .task-lifecycle-note.added{color:#8a4b08}
+    .sprint-unexpected-pill{display:inline-flex;align-items:center;gap:5px;border:1px solid #e6ad62;background:#fff1d6;color:#854b08;border-radius:999px;padding:2px 8px;font-size:11px;font-weight:700;margin-top:5px}
+    .sprint-unexpected-row .task-title{border-left:3px solid #d97706;padding-left:7px}
+    .sprint-summary-pill.unexpected{border-color:#e6ad62;background:#fff1d6;color:#854b08}
+    .unexpected-gitlab-note{font-size:11px;color:#8a4b08;margin-top:4px}
+    .unexpected-gitlab-note.confirmed{color:#137333}
     .task-lifecycle-note.returned{color:#9a5b00}
     .task-lifecycle-note.baseline{color:#596273}
     @media(max-width:780px){
@@ -2413,7 +2418,7 @@
       <h1>Team_calculator</h1>
       <span
         class="app-version-badge"
-        title="Версия Team_calculator">v23.4.61</span>
+        title="Версия Team_calculator">v23.4.62</span>
     </div>
     <div
       class="header-sprint-context empty"
@@ -2715,6 +2720,15 @@
               <span>Iteration</span>
               <select id="sprintTaskIterationFilter">
                 <option value="all">Все Iteration</option>
+              </select>
+            </label>
+
+            <label>
+              <span>Состав спринта</span>
+              <select id="sprintTaskScopeFilter">
+                <option value="all">Все задачи</option>
+                <option value="planned">Плановые</option>
+                <option value="unexpected">Внеплановые</option>
               </select>
             </label>
 
@@ -3270,6 +3284,7 @@ sprintTaskDirectionFilter=document.getElementById("sprintTaskDirectionFilter"),
 sprintTaskStatusFilter=document.getElementById("sprintTaskStatusFilter"),
 sprintTaskAssigneeFilter=document.getElementById("sprintTaskAssigneeFilter"),
 sprintTaskIterationFilter=document.getElementById("sprintTaskIterationFilter"),
+sprintTaskScopeFilter=document.getElementById("sprintTaskScopeFilter"),
 resetSprintTaskFiltersButton=document.getElementById("resetSprintTaskFilters"),
 sprintTaskVisibleCount=document.getElementById("sprintTaskVisibleCount"),
 sprintAnalyticsGrouping=document.getElementById("sprintAnalyticsGrouping"),
@@ -4588,7 +4603,13 @@ function buildDirectGitLabJob({
                   payload.iterationMutation.iterationId??null,
                 iterationTitle:String(
                   payload.iterationMutation.iterationTitle||""
-                ).trim()||null
+                ).trim()||null,
+                ...(payload.iterationMutation.mode==="set"
+                  &&payload.iterationMutation.addLabels?.length===1
+                  &&payload.iterationMutation.addLabels[0]==="unexpected"
+                  &&tasks.length===1
+                  &&payload.sprintLifecycleStatus===SPRINT_STATUS_ACTIVE
+                  ?{addLabels:["unexpected"]}:{})
               }
             }
           :{}
@@ -6381,6 +6402,44 @@ function baselineTaskIds(){
 
 function baselineTaskSet(){
   return new Set(baselineTaskIds());
+}
+
+// Classification is sprint-local, not inferred from the GitLab label.
+// Missing legacy baselines are unknown, not automatically unexpected.
+function sprintTaskScope(taskId){
+  if(sprintLifecycleStatus===SPRINT_STATUS_PLANNING)return "planned";
+  if(!Array.isArray(sprintBaseline?.selectedTaskIds))return "unknown";
+  return baselineTaskSet().has(taskId)?"planned":"unexpected";
+}
+
+function isUnexpectedSprintTask(taskId){
+  return selectedTaskIds.includes(taskId)
+    &&sprintTaskScope(taskId)==="unexpected";
+}
+
+function unexpectedSprintStats(items,completedSet){
+  const unexpected=items.filter(item=>isUnexpectedSprintTask(item.id));
+  const metricIds=sprintMetricTaskSet();
+  const activeIds=activeSprintTaskSet();
+  return {
+    count:unexpected.length,
+    currentCount:unexpected.filter(item=>activeIds.has(item.id)).length,
+    plan:unexpected.filter(item=>metricIds.has(item.id))
+      .reduce((sum,item)=>sum+taskTotalEstimate(item.task),0),
+    actual:unexpected.reduce((sum,item)=>sum+taskEffectiveActualTotal(
+      item.id,item.task,completedSet.has(item.id)),0)
+  };
+}
+
+function gitLabUnexpectedLabelPresent(metadata){
+  return Array.isArray(metadata?.labels)&&metadata.labels.includes("unexpected");
+}
+
+function unexpectedGitLabNoteHtml(item){
+  if(!isUnexpectedSprintTask(item.id)||!item.hasGitLabUrl)return "";
+  return gitLabUnexpectedLabelPresent(item.gitlabMetadata)
+    ?'<div class="unexpected-gitlab-note confirmed">GitLab: unexpected подтверждён</div>'
+    :'<div class="unexpected-gitlab-note">GitLab: лейбл unexpected не подтверждён</div>';
 }
 
 function baselineTotalEstimate(){
@@ -10429,6 +10488,8 @@ async function addTaskToSprint(taskId){
   const wasReturned=
     selectedTaskIds.includes(taskId)
     &&sprintReturnedTaskIds.includes(taskId);
+  if(selectedTaskIds.includes(taskId)&&!wasReturned)return;
+  if(sprintLifecycleInProgress)return;
 
   if(
     !wasReturned
@@ -10491,6 +10552,9 @@ async function addTaskToSprint(taskId){
         :"planned";
   }
 
+  const targetSprintId=currentSprintId;
+  const targetLifecycle=sprintLifecycleStatus;
+  const addUnexpected=sprintLifecycleIsActive()&&isUnexpectedSprintTask(taskId);
   taskPool[taskId]=normalized;
 
   recalculateRolePlanFact();
@@ -10509,10 +10573,13 @@ async function addTaskToSprint(taskId){
     }
   }
 
-  await syncTaskGitLabIterationAfterPlanning(
-    normalized,
-    "set"
-  );
+  if(currentSprintId!==targetSprintId||sprintLifecycleStatus!==targetLifecycle
+      ||!activeSprintTaskSet().has(taskId))return;
+  if(addUnexpected&&taskHasGitLabLink(normalized)){
+    await requestUnexpectedGitLabLabel(taskId);
+  }else{
+    await syncTaskGitLabIterationAfterPlanning(normalized,"set");
+  }
 }
 
 async function removeTaskFromSprint(taskId){
@@ -11702,7 +11769,8 @@ function taskHasGitLabLink(task){
 
 async function enqueueTaskGitLabIterationMutation(
   task,
-  mode
+  mode,
+  {addUnexpected=false}={}
 ){
   if(!taskHasGitLabLink(task))return null;
 
@@ -11743,13 +11811,54 @@ async function enqueueTaskGitLabIterationMutation(
           ?{
               mode:"set",
               iterationId:selected.id,
-              iterationTitle:selected.title
+              iterationTitle:selected.title,
+              ...(addUnexpected&&sprintLifecycleIsActive()
+                &&isUnexpectedSprintTask(normalized.id)
+                &&activeSprintTaskSet().has(normalized.id)
+                ?{addLabels:["unexpected"]}:{})
             }
           :{
               mode:"clear"
             }
     }
   });
+}
+
+// Queue only after the authoritative sprint save, so a failed save cannot
+// cause an unrelated GitLab issue to be labelled. Retrying is additive.
+const unexpectedGitLabRequests=new Set();
+async function requestUnexpectedGitLabLabel(taskId){
+  if(!guardSharedSprintEdit()||!sprintLifecycleIsActive()
+      ||sprintLifecycleInProgress||!isUnexpectedSprintTask(taskId)
+      ||!activeSprintTaskSet().has(taskId))return false;
+  const task=taskPool[taskId];
+  if(!taskHasGitLabLink(task))return false;
+  const sprintId=currentSprintId;
+  const requestKey=`${sprintId}:${taskId}`;
+  if(unexpectedGitLabRequests.has(requestKey))return false;
+  unexpectedGitLabRequests.add(requestKey);
+  renderSprintTasks();
+  try{
+    if(!sprintId||!await saveSprintSet(false,{silent:true,source:"unexpected_label"})){
+      throw new Error("Не подтверждено сохранение состава спринта. Повторите отправку после сохранения.");
+    }
+    if(currentSprintId!==sprintId||!sprintLifecycleIsActive()
+        ||!isUnexpectedSprintTask(taskId)||!activeSprintTaskSet().has(taskId))return false;
+    const queued=await enqueueTaskGitLabIterationMutation(taskPool[taskId]||task,"set",{addUnexpected:true});
+    if(!queued)throw new Error("Запрос не создан.");
+    setSprintGitLabSyncStatus("Запрос Iteration и unexpected создан. Ожидается подтверждение GitLab.","warn");
+    return true;
+  }catch(error){
+    console.error(error);
+    if(currentSprintId===sprintId){
+      setSprintGitLabSyncStatus(`Не удалось отправить unexpected: ${error.message}`,"bad");
+      alert(`Внеплановая задача осталась в спринте, но запрос GitLab не отправлен: ${error.message}`);
+    }
+    return false;
+  }finally{
+    unexpectedGitLabRequests.delete(requestKey);
+    if(currentSprintId===sprintId)renderSprintTasks();
+  }
 }
 
 async function syncTaskGitLabIterationAfterPlanning(
@@ -14011,6 +14120,9 @@ function sprintTaskMatchesFilters(item){
   const iterationFilter=
     sprintTaskIterationFilter.value||"all";
 
+  const scopeFilter=sprintTaskScopeFilter.value||"all";
+  if(scopeFilter!=="all"&&sprintTaskScope(item.id)!==scopeFilter)return false;
+
   if(directionFilter!=="all"){
     const directions=sprintTaskDirectionKeys(
       item.task,
@@ -14737,6 +14849,7 @@ function focusTaskInCurrentSprint(taskId){
   sprintTaskStatusFilter.value="all";
   sprintTaskAssigneeFilter.value="all";
   sprintTaskIterationFilter.value="all";
+  sprintTaskScopeFilter.value="all";
 
   renderSprintTasks();
 
@@ -14896,12 +15009,16 @@ function renderSprintTasks(){
       item=>item.iterationMissing
     ).length;
 
+  const unexpectedStats=unexpectedSprintStats(participantTasks,completedSet);
   sprintTaskSummary.innerHTML=`
     <span class="sprint-summary-pill"><b>${activeItems.length}</b> задач в текущем составе</span>
     <span class="sprint-summary-pill"><b>${participantTasks.length}</b> всего участвовало</span>
     <span class="sprint-summary-pill"><b>${participantTasks.filter(item=>completedSet.has(item.id)).length}</b> выполнено</span>
     <span class="sprint-summary-pill"><b>${fmt(activeItems.reduce((sum,item)=>sum+taskTotalEstimate(item.task),0),1)}</b> ч.д. текущий план</span>
     <span class="sprint-summary-pill"><b>${fmt(totalActualAcrossParticipants,1)}</b> ч.д. факт с учётом перенесённых</span>
+    ${Array.isArray(sprintBaseline?.selectedTaskIds)
+      ?`<span class="sprint-summary-pill unexpected" title="План по ${sprintLifecycleIsCompleted()?"всем участникам":"текущему составу"}; факт включает возвращённые задачи"><b>${unexpectedStats.currentCount}</b> внеплановых в текущем составе · <b>${unexpectedStats.count}</b> всего · <b>${fmt(unexpectedStats.plan,1)}</b> ч.д. план / <b>${fmt(unexpectedStats.actual,1)}</b> ч.д. факт</span>`
+      :""}
     ${returnedItems.length
       ?`<span class="sprint-summary-pill carryover"><b>${returnedItems.length}</b> перенесено дальше</span>`
       :""}
@@ -14950,6 +15067,7 @@ function renderSprintTasks(){
 
     const done=completedSet.has(id);
     const inBaseline=baselineIds.has(id);
+    const unexpected=isUnexpectedSprintTask(id);
     const returnedToPool=
       sprintReturnedTaskIds.includes(id);
 
@@ -14997,15 +15115,12 @@ function renderSprintTasks(){
         '<span class="task-status incomplete">Не выполнена</span>';
     }
 
-    const lifecycleNote=returnedToPool
+    const lifecycleNote=(returnedToPool
       ?'<div class="task-lifecycle-note returned">Возвращена в общий пул</div>'
-      :(sprintBaseline
-        ?(
-          inBaseline
-            ?'<div class="task-lifecycle-note baseline">В исходном плане</div>'
-            :'<div class="task-lifecycle-note added">Добавлена после старта</div>'
-        )
-        :"");
+      :(Array.isArray(sprintBaseline?.selectedTaskIds)&&inBaseline
+        ?'<div class="task-lifecycle-note baseline">В исходном плане</div>':""))
+      +(unexpected?'<span class="sprint-unexpected-pill" title="Добавлена в Team Calculator после начала этого спринта">Внеплановая · unexpected</span>':"")
+      +unexpectedGitLabNoteHtml(item);
 
     const readyToProdNote=readyToProd
       ?(
@@ -15026,12 +15141,15 @@ function renderSprintTasks(){
               ${estimateChanged
                 ?`<button class="secondary" data-update-snapshot="${id}">Обновить оценку</button>`
                 :""}
+              ${unexpected&&hasGitLabUrl&&sprintLifecycleIsActive()&&!gitLabUnexpectedLabelPresent(gitlabMetadata)
+                ?`<button class="secondary" data-retry-unexpected="${esc(id)}" ${unexpectedGitLabRequests.has(`${currentSprintId}:${id}`)?"disabled":""}>Отправить unexpected</button>`:""}
               <button class="secondary" data-remove-task="${id}">Вернуть в пул</button>
             </div>`
       );
 
     const tr=document.createElement("tr");
     tr.dataset.sprintTaskId=id;
+    if(unexpected)tr.classList.add("sprint-unexpected-row");
 
     if(readyToProd){
       tr.classList.add("sprint-ready-prod-row");
@@ -15139,6 +15257,10 @@ function renderSprintTasks(){
         renderSprintTasks();
       };
     });
+
+  document.querySelectorAll("[data-retry-unexpected]").forEach(button=>{
+    button.onclick=()=>requestUnexpectedGitLabLabel(button.dataset.retryUnexpected);
+  });
 
   document
     .querySelectorAll("[data-complete-task]")
@@ -15808,7 +15930,8 @@ refreshActualAssigneesButton.onclick=()=>{
   sprintTaskDirectionFilter,
   sprintTaskStatusFilter,
   sprintTaskAssigneeFilter,
-  sprintTaskIterationFilter
+  sprintTaskIterationFilter,
+  sprintTaskScopeFilter
 ].forEach(select=>{
   select.onchange=renderSprintTasks;
 });
@@ -15818,6 +15941,7 @@ resetSprintTaskFiltersButton.onclick=()=>{
   sprintTaskStatusFilter.value="all";
   sprintTaskAssigneeFilter.value="all";
   sprintTaskIterationFilter.value="all";
+  sprintTaskScopeFilter.value="all";
   renderSprintTasks();
 };
 

@@ -1,10 +1,10 @@
 <!DOCTYPE html>
-<!-- Team_calculator v23.4.63: внеплановые задачи спринта и запрос лейбла Unexpected -->
+<!-- Team_calculator v23.4.64: Firestore-first автосохранение без восстановления локальных черновиков -->
 <html lang="ru">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Team_calculator v23.4.63 — планирование спринта</title>
+  <title>Team_calculator v23.4.64 — планирование спринта</title>
   <link
     rel="icon"
     type="image/svg+xml"
@@ -2418,7 +2418,7 @@
       <h1>Team_calculator</h1>
       <span
         class="app-version-badge"
-        title="Версия Team_calculator">v23.4.63</span>
+        title="Версия Team_calculator">v23.4.64</span>
     </div>
     <div
       class="header-sprint-context empty"
@@ -3187,13 +3187,16 @@ let currentStateSaveInProgress=false;
 let currentStateSaveQueued=false;
 let sharedSprintSnapshotSequence=0;
 const sprintPayloadCache=new Map();
-let localDraftSaveTimer=null;
+let cloudSavePending=false;
+let cloudSaveRevision=0;
+let cloudSaveInProgress=false;
+let cloudSaveRetryDelay=5000;
 let sprintAutoSaveQueued=false;
 let lastCurrentStateFingerprint="";
 let lastCurrentStatePayloadRef=null;
 const sprintFingerprints=new Map();
-const CURRENT_STATE_AUTOSAVE_DELAY=5000;
-const SPRINT_AUTOSAVE_DELAY=10000;
+const SPRINT_AUTOSAVE_DELAY=1000;
+const CLOUD_SAVE_MAX_RETRY_DELAY=60000;
 // Max 80,000 UTF-16 code units: under 240 KB even for Cyrillic text.
 // Firestore documents have a hard 1 MiB limit; chunks are immutable.
 const SPRINT_PAYLOAD_CHUNK_CHARS=80000;
@@ -6580,10 +6583,6 @@ async function startSprintLifecycle(){
   let startCommitted=false;
   try{
     pushSprintRecoverySnapshot("начало спринта");
-    if(!await saveEmergencyDraft()){
-      alert("Не удалось создать локальную резервную копию плана. Запуск отменён. Проверьте свободное место браузера.");
-      return;
-    }
 
     // Existing sprint, already saved as PLANNING: validate the authoritative
     // Firestore document before modifying any lifecycle fields locally.
@@ -6615,11 +6614,6 @@ async function startSprintLifecycle(){
         throw new Error("Не удалось подтвердить сохранение плана перед запуском. Спринт остался в статусе «Планирование».");
       }
       sprintLifecycleCommitConfirmed=false;
-      // saveSprintSet may clear the emergency copy after its own commit;
-      // restore a checkpoint for the entire upcoming lifecycle transition.
-      if(!await saveEmergencyDraft()){
-        throw new Error("Не удалось сохранить резервную копию перед запуском. Спринт остался в статусе «Планирование».");
-      }
     }
 
     sprintBaseline=captureSprintBaseline();
@@ -6639,7 +6633,6 @@ async function startSprintLifecycle(){
     if(!startCommitted){
       applyInputState(before);
       setSyncState("Спринт не запущен — планирование и задачи сохранены","bad");
-      await saveEmergencyDraft();
       alert(`Спринт не запущен: ${error.message}\n\nЗадачи в плане не очищены.`);
     }else{
       setSyncState("Спринт запущен; ошибка обновления интерфейса","warn");
@@ -6650,7 +6643,8 @@ async function startSprintLifecycle(){
     if(currentStateSaveQueued){
       currentStateSaveQueued=false;
       clearTimeout(saveTimer);
-      saveTimer=setTimeout(saveCurrentStateNow,300);
+      if(cloudSavePending)scheduleSprintAutoSave();
+      else saveTimer=setTimeout(saveCurrentStateNow,300);
     }
     renderSprintLifecycle();
   }
@@ -6709,12 +6703,6 @@ async function completeSprintLifecycle(){
   renderSprintLifecycle();
   const beforeCompletion=getCurrentInputState();
   pushSprintRecoverySnapshot("завершение спринта");
-  if(!await saveEmergencyDraft()){
-    sprintLifecycleInProgress=false;
-    renderSprintLifecycle();
-    alert("Не удалось создать локальную копию. Завершение отменено.");
-    return;
-  }
 
   sprintLifecycleStatus=SPRINT_STATUS_COMPLETED;
   sprintCompletedAt=new Date().toISOString();
@@ -6823,6 +6811,7 @@ async function completeSprintLifecycle(){
     await batch.commit();
     completionCommitted=true;
     sprintLifecycleCommitConfirmed=true;
+    unsavedSprintFailure=false;
 
     returnedTaskIdsStillInPool.forEach(taskId=>{
       taskPool[taskId].plannedSprintId=null;
@@ -6853,9 +6842,6 @@ async function completeSprintLifecycle(){
     clearTimeout(sprintAutoSaveTimer);
 
     const currentStateSaved=await saveCurrentStateNow();
-    if(currentStateSaved&&stateFingerprint(currentStatePayload())===lastCurrentStateFingerprint){
-      await clearEmergencyDraft();
-    }
     cleanupObsoletePayloadChunks(fsMod,sprintPayloadCollection(fsMod,currentSprintId),
       stored.payloadRef.revision,stored.payloadRef.previousRevision);
     setSyncState(currentStateSaved?"Спринт завершён":"Спринт завершён; ошибка сохранения текущего состояния",
@@ -6878,7 +6864,8 @@ async function completeSprintLifecycle(){
     if(currentStateSaveQueued){
       currentStateSaveQueued=false;
       clearTimeout(saveTimer);
-      saveTimer=setTimeout(saveCurrentStateNow,300);
+      if(cloudSavePending)scheduleSprintAutoSave();
+      else saveTimer=setTimeout(saveCurrentStateNow,300);
     }
     renderSprintLifecycle();
   }
@@ -7101,62 +7088,8 @@ async function cleanupObsoletePayloadChunks(fsMod,ref,current,previous=null){
   }
 }
 
-// IndexedDB survives page reload even when Firestore rejects the document.
-// The recovery copy is written BEFORE a destructive sprint lifecycle action.
-function openEmergencyDraftDb(){
-  return new Promise((resolve,reject)=>{
-    if(!window.indexedDB){reject(new Error("IndexedDB недоступна"));return;}
-    const request=indexedDB.open("teamCalculatorEmergencyDrafts",1);
-    request.onupgradeneeded=()=>request.result.createObjectStore("drafts",{keyPath:"key"});
-    request.onsuccess=()=>resolve(request.result);
-    request.onerror=()=>reject(request.error);
-  });
-}
-function emergencyDraftKey(){
-  return `${currentUser?.uid||"anonymous"}:${TEAM_CALCULATOR_WORKSPACE_ID}`;
-}
-async function emergencyDraftTransaction(mode,operation){
-  const db=await openEmergencyDraftDb();
-  try{
-    return await new Promise((resolve,reject)=>{
-      const tx=db.transaction("drafts",mode);
-      const request=operation(tx.objectStore("drafts"));
-      let result;
-      request.onsuccess=()=>{result=request.result;};
-      request.onerror=()=>reject(request.error);
-      tx.oncomplete=()=>resolve(result);
-      tx.onerror=()=>reject(tx.error||new Error("IndexedDB transaction failed"));
-      tx.onabort=()=>reject(tx.error||new Error("IndexedDB transaction aborted"));
-    });
-  }finally{db.close();}
-}
-async function saveEmergencyDraft(){
-  if(!currentUser)return false;
-  try{
-    const state=getCurrentInputState();
-    await emergencyDraftTransaction("readwrite",store=>store.put({
-      key:emergencyDraftKey(),state,savedAt:new Date().toISOString()
-    }));
-    return true;
-  }catch(error){
-    console.warn("Не удалось сохранить аварийную копию",error);
-    setSyncState("Не удалось сохранить локальную резервную копию","bad");
-    return false;
-  }
-}
-async function getEmergencyDraft(){
-  try{return await emergencyDraftTransaction("readonly",store=>store.get(emergencyDraftKey()));}
-  catch(error){console.warn("Не удалось прочитать аварийную копию",error);return null;}
-}
-async function clearEmergencyDraft(){
-  try{await emergencyDraftTransaction("readwrite",store=>store.delete(emergencyDraftKey()));}
-  catch(error){console.warn("Не удалось очистить локальную копию",error);}
-}
-function scheduleEmergencyDraft(){
-  if(isHydrating||!appLoaded||!currentUser)return;
-  clearTimeout(localDraftSaveTimer);
-  localDraftSaveTimer=setTimeout(()=>{saveEmergencyDraft();},350);
-}
+// No automatic local plan copies: Firestore is authoritative.
+// Legacy IndexedDB records are deliberately not read, overwritten or deleted.
 
 function getCurrentInputState(){
   return {
@@ -7642,8 +7575,7 @@ async function startSharedSprintsRealtime(){
       }
       // Never erase local edits on a temporarily missing/failed remote sprint.
       if(currentSprintId&&!next[currentSprintId]&&!sprintSaveInProgress){
-        setSyncState("Спринт отсутствует в общем списке; локальный план сохранён","bad");
-        await saveEmergencyDraft();
+        setSyncState("Спринт отсутствует в общем списке; изменения остаются в открытой вкладке","bad");
         return;
       }
       render();
@@ -7732,8 +7664,8 @@ function pushSprintRecoverySnapshot(reason){
   setSprintRecoveryHistory(history);
 }
 
-function restorePreviousSprintState(){
-  if(!guardSharedSprintEdit())return;
+async function restorePreviousSprintState(){
+  if(!guardSharedSprintEdit()||!await flushBeforeNavigation())return;
   const history=getSprintRecoveryHistory();
   const snapshot=history.pop();
 
@@ -7859,7 +7791,8 @@ async function saveSprintSet(forceNew=false,{silent=false,source="manual",forceD
     const sprintChanged=forceNew||!previousSprint||fingerprint!==previousFingerprint||forceDocumentWrite;
     const taskLinksChanged=removedTaskIds.length>0||tasksToPlan.size>0;
     if(!sprintChanged&&!taskLinksChanged){
-      setSyncState("Автосохранено");
+      unsavedSprintFailure=false;
+      setSyncState("Спринт сохранён в Firestore");
       return true;
     }
     const saved={
@@ -7921,14 +7854,12 @@ async function saveSprintSet(forceNew=false,{silent=false,source="manual",forceD
     savedSprintSelect.value=id;
     setSprintUrl(id,{mode:"replace"});
     updateActiveSprintHeader();
-    setSyncState(source==="autosave"?"Автосохранено":"Сохранено");
+    setSyncState("Спринт сохранён в Firestore");
     // User app/main is a secondary navigation copy. Its failure must never
     // report the already committed sprint as failed or undo its lifecycle.
     const currentStateSaved=await saveCurrentStateNow();
     if(!currentStateSaved){
       setSyncState("Спринт сохранён; ошибка сохранения текущего состояния","warn");
-    }else if(stateFingerprint(currentStatePayload())===lastCurrentStateFingerprint){
-      await clearEmergencyDraft();
     }
     // Cleanup is best-effort and does not affect the published revision.
     if(stored){
@@ -7946,8 +7877,8 @@ async function saveSprintSet(forceNew=false,{silent=false,source="manual",forceD
     }
     unsavedSprintFailure=true;
     setSyncState("Ошибка сохранения: план не удалён","bad");
-    await saveEmergencyDraft();
-    if(!silent)alert(`Не удалось сохранить спринт: ${error.message}.\nПлан остался в приложении и локальной копии.`);
+    markCloudSavePending();
+    if(!silent)alert(`Не удалось сохранить спринт: ${error.message}.\nИзменения остались в открытой вкладке. Не закрывайте её до сохранения.`);
     return false;
   }finally{
     sprintSaveInProgress=false;
@@ -7960,47 +7891,78 @@ async function saveSprintSet(forceNew=false,{silent=false,source="manual",forceD
   }
 }
 
-function scheduleSprintAutoSave(){
+function markCloudSavePending(){
+  if(!appLoaded||!currentUser)return;
+  cloudSavePending=true;
+  cloudSaveRevision++;
+  scheduleSprintAutoSave();
+}
+
+function scheduleSprintAutoSave(delay=SPRINT_AUTOSAVE_DELAY){
   clearTimeout(sprintAutoSaveTimer);
-
-  if(
-    isHydrating
-    ||!appLoaded
-    ||!currentUser
-    ||!firebaseDb
-    ||!(sprintName.value||"").trim()
-    ||sprintEditingBlocked()
-    ||taskRouteBrowseOnly()
-  ){
-    return;
-  }
-
-  sprintAutoSaveTimer=setTimeout(
-    runSprintAutoSave,
-    SPRINT_AUTOSAVE_DELAY
-  );
+  if(isHydrating||!appLoaded||!currentUser||!firebaseDb||!cloudSavePending)return;
+  sprintAutoSaveTimer=setTimeout(runSprintAutoSave,delay);
 }
 
 async function runSprintAutoSave(){
-  if(
-    isHydrating
-    ||!appLoaded
-    ||!currentUser
-    ||!firebaseDb
-    ||!(sprintName.value||"").trim()
-    ||sprintEditingBlocked()
-    ||taskRouteBrowseOnly()
-  ){
-    return;
+  if(isHydrating||!appLoaded||!currentUser||!firebaseDb)return false;
+  if(!cloudSavePending)return !sprintSaveInProgress&&!sprintLifecycleInProgress&&!currentStateSaveInProgress;
+  if(cloudSaveInProgress||sprintSaveInProgress||sprintLifecycleInProgress||currentStateSaveInProgress){
+    scheduleSprintAutoSave();
+    return false;
   }
-
-  await saveSprintSet(
-    false,
-    {silent:true,source:"autosave"}
-  );
+  clearTimeout(sprintAutoSaveTimer);
+  clearTimeout(saveTimer);
+  const revision=cloudSaveRevision;
+  cloudSaveInProgress=true;
+  let success=false;
+  try{
+    // Save the shared sprint first. A navigation copy cannot substitute
+    // for a failed sprint commit. Unnamed plans/preferences use app/main.
+    if((sprintName.value||"").trim()&&!sprintEditingBlocked()&&!taskRouteBrowseOnly()){
+      if(currentSprintId&&!getSavedSprints()[currentSprintId]){
+        throw new Error("Спринт отсутствует на сервере; перезапись запрещена.");
+      }
+      if(!await saveSprintSet(false,{silent:true,source:"autosave"})){
+        throw new Error("Спринт не сохранён");
+      }
+    }
+    if(!await saveCurrentStateNow())throw new Error("Текущее состояние не сохранено");
+    success=true;
+    cloudSaveRetryDelay=5000;
+    if(revision===cloudSaveRevision){
+      cloudSavePending=false;
+      unsavedSprintFailure=false;
+      setSyncState("Автосохранено в Firestore");
+      return true;
+    }
+    setSyncState("Есть новые изменения","warn");
+    return false;
+  }catch(error){
+    console.warn("Автосохранение Firestore не завершено",error);
+    setSyncState("Не сохранено в Firestore — не закрывайте вкладку. Повтор автоматически.","bad");
+    return false;
+  }finally{
+    cloudSaveInProgress=false;
+    if(cloudSavePending){
+      scheduleSprintAutoSave(success?SPRINT_AUTOSAVE_DELAY:cloudSaveRetryDelay);
+      if(!success)cloudSaveRetryDelay=Math.min(cloudSaveRetryDelay*2,CLOUD_SAVE_MAX_RETRY_DELAY);
+    }
+  }
 }
 
-function loadSprintSet(
+function cloudSaveOutstanding(){
+  return cloudSavePending||cloudSaveInProgress||sprintSaveInProgress||sprintLifecycleInProgress||currentStateSaveInProgress;
+}
+
+async function flushBeforeNavigation(){
+  if(!cloudSaveOutstanding())return true;
+  if(await runSprintAutoSave()&&!cloudSaveOutstanding())return true;
+  setSyncState("Дождитесь сохранения в Firestore и повторите действие","warn");
+  return false;
+}
+
+async function loadSprintSet(
   id,
   {
     confirmSwitch=true,
@@ -8010,6 +7972,10 @@ function loadSprintSet(
     silentMissing=false
   }={}
 ){
+  if(id!==currentSprintId&&!await flushBeforeNavigation()){
+    savedSprintSelect.value=currentSprintId||"";
+    return false;
+  }
   const sprints=getSavedSprints();
   const item=sprints[id];
 
@@ -8017,18 +7983,6 @@ function loadSprintSet(
     if(!silentMissing){
       alert("Сохранённый набор не найден.");
     }
-    return false;
-  }
-
-  if(
-    confirmSwitch
-    &&selectedTaskIds.length
-    &&id!==currentSprintId
-    &&!confirm(
-      `Открыть другой спринт? Текущий план из ${selectedTaskIds.length} задач `
-      +"будет сохранён в локальной резервной копии."
-    )
-  ){
     return false;
   }
 
@@ -8061,6 +8015,7 @@ function loadSprintSet(
 }
 
 async function deleteSprintSet(id){
+  if(!await flushBeforeNavigation())return;
   if(!canEditSharedSprint(getSavedSprints()[id])){
     alert("Удалять этот спринт может только создатель или администратор.");
     return;
@@ -8130,21 +8085,21 @@ async function deleteSprintSet(id){
   }
 }
 
-function startNewSprintSet(
+async function startNewSprintSet(
   {
     confirmCurrent=true,
     updateUrl=true,
     historyMode="push"
   }={}
 ){
+  if(!await flushBeforeNavigation())return false;
   if(
     confirmCurrent
     &&selectedTaskIds.length
   ){
     const approved=confirm(
       `В текущем плане ${selectedTaskIds.length} задач. `
-      +"Создать пустой набор? Текущий план можно будет вернуть кнопкой "
-      +"«Вернуть предыдущий план»."
+      +"Создать пустой набор? Текущий план сохранён в Firestore."
     );
     if(!approved)return;
   }
@@ -8174,9 +8129,11 @@ function startNewSprintSet(
   renderSavedSprints();
   render();
   sprintName.focus();
+  return true;
 }
 
-function copyCurrentSprintSettings(){
+async function copyCurrentSprintSettings(){
+  if(!await flushBeforeNavigation())return;
   pushSprintRecoverySnapshot("создание копии спринта");
 
   const sourceName=(sprintName.value||"Спринт").trim();
@@ -8294,7 +8251,8 @@ function renderSavedSprints(){
   });
 
   document.querySelectorAll("[data-open-sprint]").forEach(btn=>btn.onclick=()=>loadSprintSet(btn.dataset.openSprint));
-  document.querySelectorAll("[data-copy-sprint]").forEach(btn=>btn.onclick=()=>{
+  document.querySelectorAll("[data-copy-sprint]").forEach(btn=>btn.onclick=async()=>{
+    if(!await flushBeforeNavigation())return;
     const sprints=getSavedSprints();
     const item=sprints[btn.dataset.copySprint];
     if(!item)return;
@@ -15872,18 +15830,9 @@ async function clearCurrentSprintTasks(){
 }
 
 function saveState(){
-  if(isHydrating||!currentUser||!firebaseDb)return;
-
+  if(isHydrating||!appLoaded||!currentUser||!firebaseDb)return;
   setSyncState("Есть изменения","warn");
-  scheduleEmergencyDraft();
-
-  clearTimeout(saveTimer);
-  saveTimer=setTimeout(
-    ()=>saveCurrentStateNow(),
-    CURRENT_STATE_AUTOSAVE_DELAY
-  );
-
-  scheduleSprintAutoSave();
+  markCloudSavePending();
 }
 
 function loadState(){
@@ -15966,7 +15915,7 @@ document.getElementById("addRole").onclick=()=>{if(!guardSharedSprintEdit())retu
 
 window.addEventListener(
   "popstate",
-  ()=>{
+  async ()=>{
     if(!appLoaded)return;
 
     const routedSprintId=
@@ -15979,7 +15928,7 @@ window.addEventListener(
     }
 
     if(routedSprintId){
-      const loaded=loadSprintSet(
+      const loaded=await loadSprintSet(
         routedSprintId,
         {
           confirmSwitch:false,
@@ -15994,41 +15943,33 @@ window.addEventListener(
           currentSprintId,
           {mode:"replace"}
         );
-        setSyncState(
-          "Спринт из истории браузера не найден.",
-          "bad"
-        );
+        if(!cloudSaveOutstanding())setSyncState("Спринт из истории браузера не найден.","bad");
       }
 
       return;
     }
 
-    startNewSprintSet({
-      confirmCurrent:false,
-      updateUrl:false
-    });
+    if(!await startNewSprintSet({confirmCurrent:false,updateUrl:false})){
+      setSprintUrl(currentSprintId,{mode:"replace"});
+    }
   }
 );
 
 document.addEventListener("visibilitychange",()=>{
-  if(document.visibilityState!=="hidden")return;
-
-  clearTimeout(saveTimer);
-  clearTimeout(sprintAutoSaveTimer);
-
-  saveEmergencyDraft();
-  saveCurrentStateNow();
-
-  if(
-    (sprintName.value||"").trim()
-    &&!sprintEditingBlocked()
-    &&!taskRouteBrowseOnly()
-  ){
-    runSprintAutoSave();
-  }
+  if(document.visibilityState==="hidden"&&cloudSavePending)runSprintAutoSave();
+});
+window.addEventListener("online",()=>{
+  if(cloudSavePending)runSprintAutoSave();
+});
+window.addEventListener("beforeunload",event=>{
+  if(!appLoaded||!cloudSaveOutstanding())return;
+  // Browsers cannot guarantee an asynchronous Firestore commit during unload.
+  event.preventDefault();
+  event.returnValue="";
 });
 
-document.getElementById("resetDefaults").onclick=()=>{
+document.getElementById("resetDefaults").onclick=async()=>{
+  if(!await flushBeforeNavigation())return;
   if(!confirm("Сбросить настройки и очистить текущий план? Перед сбросом будет создана резервная копия."))return;
   pushSprintRecoverySnapshot("сброс к команде MARS");
   roles=JSON.parse(JSON.stringify(defaultRoles));
@@ -16055,9 +15996,8 @@ document.getElementById("resetDefaults").onclick=()=>{
   render();
 };
 document.getElementById("saveData").onclick=async()=>{
-  clearTimeout(saveTimer);
-  const saved=await saveCurrentStateNow();
-  alert(saved?"Сохранено.":"Сохранить не удалось. Данные оставлены в локальной резервной копии.");
+  markCloudSavePending();
+  await runSprintAutoSave();
 };
 document.getElementById("reloadTaskPool").onclick=async()=>{
   try{
@@ -16278,6 +16218,11 @@ async function initializeFirebase(){
         unsubscribeActualPreviewJob();
         unsubscribeActualPreviewJob=null;
       }
+      clearTimeout(saveTimer);
+      clearTimeout(sprintAutoSaveTimer);
+      cloudSavePending=false;
+      cloudSaveRevision++;
+      unsavedSprintFailure=false;
       currentUser=null;
       currentProfile=null;
       sharedSprintMigrationStatus="";
@@ -16324,14 +16269,7 @@ async function login(){
 
 async function logout(){
   try{
-    if(saveTimer){
-      clearTimeout(saveTimer);
-      await saveCurrentStateNow();
-    }
-    if(sprintAutoSaveTimer){
-      clearTimeout(sprintAutoSaveTimer);
-      await runSprintAutoSave();
-    }
+    if(!await flushBeforeNavigation())return;
     const {authMod}=await loadFirebaseModules();
     await authMod.signOut(firebaseAuth);
   }catch(e){
@@ -16341,6 +16279,10 @@ async function logout(){
 }
 
 async function loadUserWorkspace(){
+  if(appLoaded&&!await flushBeforeNavigation())return;
+  appLoaded=false;
+  clearTimeout(saveTimer);
+  clearTimeout(sprintAutoSaveTimer);
   let routeWarning="";
 
   try{
@@ -16360,7 +16302,7 @@ async function loadUserWorkspace(){
     }
 
     const appRef=fsMod.doc(firebaseDb,"users",currentUser.uid,"app","main");
-    const appSnap=await fsMod.getDoc(appRef);
+    const appSnap=await fsMod.getDocFromServer(appRef);
     const hydratedApp=appSnap.exists()
       ?await hydrateCurrentStateDocument(fsMod,appSnap.data())
       :null;
@@ -16376,7 +16318,7 @@ async function loadUserWorkspace(){
         :"");
 
     const [sprintSnap,taskSnap,actualSettingsSnap]=await Promise.all([
-      fsMod.getDocs(fsMod.collection(firebaseDb,"workspaces",TEAM_CALCULATOR_WORKSPACE_ID,"sprints")),
+      fsMod.getDocsFromServer(fsMod.collection(firebaseDb,"workspaces",TEAM_CALCULATOR_WORKSPACE_ID,"sprints")),
       fsMod.getDocs(fsMod.collection(firebaseDb,"workspaces",TEAM_CALCULATOR_WORKSPACE_ID,"taskPool")),
       fsMod.getDoc(fsMod.doc(firebaseDb,"workspaces",TEAM_CALCULATOR_WORKSPACE_ID,"settings","actualCalculation"))
     ]);
@@ -16447,73 +16389,26 @@ async function loadUserWorkspace(){
     }
     isHydrating=false;
 
-    const requestedSprintId=
-      sprintIdFromUrl();
-
-    if(requestedSprintId){
-      const routedSprint=
-        savedSprintSets[
-          requestedSprintId
-        ];
-
-      if(routedSprint){
-        applyInputState(
-          savedSprintInputState(
-            requestedSprintId,
-            routedSprint
-          )
-        );
-      }else{
-        routeWarning=
-          "Спринт из URL не найден или недоступен.";
-
-        const fallbackId=
-          currentSprintId
-          &&savedSprintSets[currentSprintId]
-            ?currentSprintId
-            :null;
-
-        if(!fallbackId){
-          currentSprintId=null;
-        }
-
-        setSprintUrl(
-          fallbackId,
-          {mode:"replace"}
-        );
-      }
-    }else if(
-      currentSprintId
-      &&savedSprintSets[currentSprintId]
-    ){
-      /*
-        В старом users/{uid}/app/main поле sprintGitLabIteration
-        могло отсутствовать, хотя оно уже сохранено в самом спринте.
-        В таком случае восстанавливаем только Iteration из sprint.input,
-        не меняя остальные поля текущего состояния.
-      */
-      if(!sprintGitLabIteration){
-        sprintGitLabIteration=
-          normalizeSprintGitLabIteration(
-            savedSprintSets[
-              currentSprintId
-            ]?.input?.sprintGitLabIteration
-          );
-      }
-
-      // Старые ссылки без параметра продолжают работать,
-      // но после входа получают адрес текущего сохранённого спринта.
-      setSprintUrl(
-        currentSprintId,
-        {mode:"replace"}
-      );
-    }else{
-      currentSprintId=null;
-      setSprintUrl(
-        null,
-        {mode:"replace"}
-      );
+    const requestedSprintId=sprintIdFromUrl();
+    const fallbackId=currentSprintId&&savedSprintSets[currentSprintId]?currentSprintId:null;
+    const targetId=requestedSprintId&&savedSprintSets[requestedSprintId]?requestedSprintId:fallbackId;
+    if(requestedSprintId&&!savedSprintSets[requestedSprintId]){
+      routeWarning="Спринт из URL не найден или недоступен.";
     }
+    if(targetId){
+      const personalSort=taskPoolSort;
+      applyInputState({...savedSprintInputState(targetId,savedSprintSets[targetId]),
+        taskPoolSort:personalSort,taskPoolSortVersion:TASK_POOL_SORT_VERSION});
+    }else if(currentSprintId){
+      // The secondary app snapshot must not recreate a missing shared sprint.
+      routeWarning=routeWarning||"Сохранённый спринт не найден или недоступен.";
+      currentSprintId=null;
+      sprintName.value="";
+      sprintGitLabIteration=null;
+      resetSprintLifecycle();
+      selectedTaskIds=[];completedTaskIds=[];sprintTaskSnapshots={};sprintTaskActuals={};
+    }
+    setSprintUrl(targetId,{mode:"replace"});
 
     const requestedTaskId=
       taskIdFromUrl();
@@ -16522,24 +16417,13 @@ async function loadUserWorkspace(){
       prepareTaskRoute();
     }
 
-    // Recover an unsaved plan after a network failure / oversize rejection.
-    let emergencyRestored=false;
-    const emergency=await getEmergencyDraft();
-    if(emergency?.state&&new Date(emergency.savedAt).getTime()>
-        new Date(appSnap.exists()?appSnap.data().updatedAt||0:0).getTime()){
-      if(confirm(`Есть несохранённая локальная копия плана от ${new Date(emergency.savedAt).toLocaleString("ru-RU")}. Восстановить её?`)){
-        applyInputState(emergency.state);
-        emergencyRestored=true;
-        setSprintUrl(currentSprintId,{mode:"replace"});
-        setSyncState("Восстановлен несохранённый локальный план","warn");
-      }
-    }
-
+    // Only Firestore data is used during startup. No timestamp comparison,
+    // browser confirmation or application of legacy local drafts.
     recalculateRolePlanFact();
-
-    lastCurrentStateFingerprint=emergencyRestored?"":stateFingerprint(
-      currentStatePayload()
-    );
+    lastCurrentStateFingerprint=hydratedApp?stateFingerprint({currentState:hydratedApp.currentState,result:hydratedApp.result}):"";
+    cloudSavePending=false;
+    unsavedSprintFailure=false;
+    cloudSaveRetryDelay=5000;
 
     sprintFingerprints.clear();
     Object.values(savedSprintSets).forEach(item=>{
@@ -16571,8 +16455,6 @@ async function loadUserWorkspace(){
         routeWarning,
         "bad"
       );
-    }else if(emergencyRestored){
-      setSyncState("Локальный план восстановлен, ожидается сохранение","warn");
     }else if(sharedSprintMigrationStatus){
       setSyncState(
         sharedSprintMigrationStatus,
@@ -16599,6 +16481,7 @@ async function saveCurrentStateNow(){
     currentStateSaveQueued=true;
     return false;
   }
+  if(unsavedSprintFailure)return false;
   if(currentStateSaveInProgress){
     currentStateSaveQueued=true;
     return false;
@@ -16623,22 +16506,23 @@ async function saveCurrentStateNow(){
     await fsMod.setDoc(ref,stored); // overwrite: remove large legacy embedded fields
     lastCurrentStatePayloadRef=stored.statePayloadRef;
     lastCurrentStateFingerprint=fingerprint;
-    setSyncState(unsavedSprintFailure?"Спринт не сохранён (локальная копия есть)":"Синхронизировано",
+    setSyncState(unsavedSprintFailure?"Спринт не сохранён в Firestore":"Синхронизировано",
       unsavedSprintFailure?"bad":"");
     cleanupObsoletePayloadChunks(fsMod,currentStatePayloadCollection(fsMod),
       revision,previousRef?.revision||null);
     return true;
   }catch(error){
     console.error(error);
-    await saveEmergencyDraft();
-    setSyncState("Ошибка сохранения: есть локальная копия","bad");
+    markCloudSavePending();
+    setSyncState("Не сохранено в Firestore — не закрывайте вкладку","bad");
     return false;
   }finally{
     currentStateSaveInProgress=false;
     if(currentStateSaveQueued){
       currentStateSaveQueued=false;
       clearTimeout(saveTimer);
-      saveTimer=setTimeout(saveCurrentStateNow,300);
+      if(cloudSavePending)scheduleSprintAutoSave();
+      else saveTimer=setTimeout(saveCurrentStateNow,300);
     }
   }
 }

@@ -3,8 +3,8 @@ const vm=require('node:vm');
 const assert=require('node:assert/strict');
 const html=fs.readFileSync(__dirname+'/../index.html','utf8');
 const js=html.slice(html.indexOf('<script>')+8,html.indexOf('</script>',html.indexOf('<script>')));
-const storage=js.slice(js.indexOf('function safePayloadChunks('),js.indexOf('function openEmergencyDraftDb(){'));
-const saveFn=js.slice(js.indexOf('async function saveSprintSet('),js.indexOf('function scheduleSprintAutoSave(){'));
+const storage=js.slice(js.indexOf('function safePayloadChunks('),js.indexOf('function getCurrentInputState(){'));
+const saveFn=js.slice(js.indexOf('async function saveSprintSet('),js.indexOf('function markCloudSavePending(){'));
 const startFn=js.slice(js.indexOf('async function startSprintLifecycle(){'),js.indexOf('async function completeSprintLifecycle(){'));
 const completeFn=js.slice(js.indexOf('async function completeSprintLifecycle(){'),js.indexOf('async function handleSprintLifecycleAction(){'));
 const currentFn=js.slice(js.indexOf('async function saveCurrentStateNow(){'),js.indexOf('function updateAccountUi(){'));
@@ -42,7 +42,7 @@ const context=vm.createContext({
   TEAM_CALCULATOR_WORKSPACE_ID:'main',firebaseDb:{},
   currentUser:{uid:'alice',email:'alice@example.test'}, currentProfile:{alias:'Alice'},
   loadFirebaseModules:async()=>({fsMod:fakeFS}),
-  saveEmergencyDraft:async()=>true,clearEmergencyDraft:async()=>true,
+  markCloudSavePending:()=>{},cloudSavePending:false,scheduleSprintAutoSave:()=>{},
   saveCurrentStateNow:async()=>true,
   renderSavedSprints:()=>{},renderSprintLifecycle:()=>{},updateActiveSprintHeader:()=>{},setSprintUrl:()=>{},
   setSyncState:t=>{context.lastSyncMessage=t},

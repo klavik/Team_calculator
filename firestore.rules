@@ -233,9 +233,10 @@ service cloud.firestore {
       }
 
       // Очередь запросов к корпоративному GitLab.
-      // v23.4.62: ограниченное право браузера добавить unexpected
+      // v23.4.63: разрешены только Unexpected и legacy-запрос unexpected
       // одновременно с назначением Iteration для сохранённой внеплановой задачи.
-      // Остальные разрешения существующей очереди не расширяются.
+      // Hotfix: прямые запросы браузера разрешены для активного пользователя
+      // с проверкой автора, начального состояния и конкретного типа задания.
       match /gitlab_jobs/{jobId} {
         function unexpectedMatchesSavedSprint(job, task) {
           let sprint = get(/databases/$(database)/documents/workspaces/$(workspaceId)/sprints/$(job.sprintId)).data;
@@ -261,13 +262,17 @@ service cloud.firestore {
             && job.sprintId is string
             && job.sprintId.size() > 0
             && job.tasks is list && job.tasks.size() == 1
-            && job.tasks[0].taskId is string
+            && job.tasks[0].taskId is string && job.tasks[0].taskId.size() > 0
             && job.tasks[0].externalTaskUrl is string
             && job.tasks[0].keys().hasOnly(["taskId", "title", "externalTaskUrl"])
             && job.get("iterationMutation", {}) is map
             && job.iterationMutation.keys().hasOnly(["mode", "iterationId", "iterationTitle", "addLabels"])
             && job.iterationMutation.mode == "set"
-            && job.iterationMutation.addLabels == ["unexpected"]
+            && (job.iterationMutation.addLabels == ["Unexpected"]
+              || job.iterationMutation.addLabels == ["unexpected"])
+            && job.iterationMutation.iterationId is int && job.iterationMutation.iterationId > 0
+            && job.iterationMutation.iterationTitle is string
+            && job.iterationMutation.iterationTitle.size() > 0
             && job.keys().hasOnly([
               "schemaVersion", "status", "idempotencyKey", "clientRequestId", "workspaceId",
               "requestedByUid", "requestedByEmail", "requestedByDisplayName", "requestedAt",
@@ -280,9 +285,120 @@ service cloud.firestore {
             && unexpectedMatchesSavedSprint(job, job.tasks[0]);
         }
 
+        // v23.4.62 hotfix: the web client has queued jobs directly since v23.4.33.
+        function browserJobEnvelope(job) {
+          return activeUser() && !integrationUser()
+            && job.requestedByUid == request.auth.uid
+            && job.requestedByEmail == request.auth.token.get("email", "")
+            && job.requestedByDisplayName is string
+            && job.clientRequestId is string && job.clientRequestId.size() > 0
+            && job.requestedAt is string && job.updatedAt is string
+            && job.attempts == 0 && job.processedCount == 0
+            && job.succeededCount == 0 && job.failedCount == 0;
+        }
+
+        function browserJobKeys(job, extraKeys) {
+          return job.keys().hasOnly([
+            "schemaVersion", "status", "idempotencyKey", "clientRequestId", "workspaceId",
+            "requestedByUid", "requestedByEmail", "requestedByDisplayName", "requestedAt",
+            "updatedAt", "attempts", "processedCount", "succeededCount", "failedCount", "type"
+          ].concat(extraKeys));
+        }
+
+        function poolUrlMatches(pool, url) {
+          return url is string && url.size() > 0
+            && (pool.externalTaskUrl == url || pool.externalTaskUrl == url + "/");
+        }
+
+        function editableSavedSprint(sprintId) {
+          return adminUser() || get(/databases/$(database)/documents/workspaces/$(workspaceId)/sprints/$(sprintId)).data.createdByUid == request.auth.uid;
+        }
+
+        function regularIterationMatchesPool(job, task) {
+          let pool = get(/databases/$(database)/documents/workspaces/$(workspaceId)/taskPool/$(task.taskId)).data;
+          let mutation = job.iterationMutation;
+          return poolUrlMatches(pool, task.externalTaskUrl)
+            && (
+              (mutation.mode == "clear"
+                && mutation.iterationId == null && mutation.iterationTitle == null
+                && pool.get("plannedSprintId", null) == null)
+              || (mutation.mode == "set"
+                && job.sprintLifecycleStatus in ["planning", "active"]
+                && mutation.iterationId is int && mutation.iterationId > 0
+                && mutation.iterationTitle is string && mutation.iterationTitle.size() > 0
+                && ((job.sprintId == null && pool.get("plannedSprintId", null) == null
+                    && job.sprintLifecycleStatus == "planning")
+                  || (job.sprintId is string && job.sprintId.size() > 0
+                    && pool.get("plannedSprintId", null) == job.sprintId
+                    && editableSavedSprint(job.sprintId))))
+            );
+        }
+
+        function browserMetadataAllowed(job) {
+          return browserJobKeys(job, ["sprintId", "sprintName", "sprintLifecycleStatus",
+              "tasks", "statusLabels", "iterationCatalogRequest", "iterationMutation"])
+            && job.sprintLifecycleStatus in ["planning", "active", "completed"]
+            && (job.sprintId == null || job.sprintId is string)
+            && (job.sprintName == null || job.sprintName is string)
+            && job.tasks is list && job.tasks.size() > 0 && job.tasks.size() <= 100
+            && job.statusLabels is list && job.statusLabels.size() > 0 && job.statusLabels.size() <= 30
+            && (
+              (!job.keys().hasAny(["iterationMutation"])
+                && job.get("iterationCatalogRequest", false) is bool)
+              || (!job.keys().hasAny(["iterationCatalogRequest"])
+                && job.tasks.size() == 1 && job.tasks[0] is map
+                && job.tasks[0].keys().hasOnly(["taskId", "title", "externalTaskUrl"])
+                && job.tasks[0].taskId is string && job.tasks[0].taskId.size() > 0
+                && job.iterationMutation is map
+                && job.iterationMutation.keys().hasOnly(["mode", "iterationId", "iterationTitle"])
+                && regularIterationMatchesPool(job, job.tasks[0]))
+              || unexpectedAssignmentAllowed(job)
+            );
+        }
+
+        function browserEstimateMatchesPool(job) {
+          let pool = get(/databases/$(database)/documents/workspaces/$(workspaceId)/taskPool/$(job.taskId)).data;
+          return pool.get("source", "") == "team_calculator"
+            && poolUrlMatches(pool, job.externalTaskUrl)
+            && pool.estimates.get(job.estimatedRole, 0) == job.finalEstimate
+            && pool.get("estimateVersions", {}).get(job.estimatedRole, 0) == job.estimateVersion;
+        }
+
+        function browserEstimateAllowed(job) {
+          return browserJobKeys(job, ["taskId", "issueTitle", "externalTaskUrl", "estimatedRole",
+              "finalEstimate", "estimateVersion", "gitlabLabel", "applyLabel", "hoursPerDay", "reason"])
+            && job.taskId is string && job.taskId.size() > 0
+            && job.estimatedRole in ["analytics", "design", "qa", "devops"]
+            && job.finalEstimate is number && job.finalEstimate > 0
+            && job.estimateVersion is int && job.estimateVersion >= 1
+            && job.gitlabLabel == "estimate::done"
+            && job.applyLabel is bool && job.hoursPerDay is number
+            && job.hoursPerDay >= 1 && job.hoursPerDay <= 24
+            && browserEstimateMatchesPool(job);
+        }
+
+        function browserActualAllowed(job) {
+          return browserJobKeys(job, ["sprintId", "sprintName", "periodStart", "periodEnd",
+              "calendar", "mappings", "settingsSnapshot", "tasks"])
+            && job.sprintId is string && job.sprintId.size() > 0
+            && job.periodStart is string && job.periodEnd is string
+            && job.tasks is list && job.tasks.size() > 0 && job.tasks.size() <= 100
+            && job.mappings is list && job.mappings.size() > 0 && job.mappings.size() <= 30
+            && job.calendar is map && job.settingsSnapshot is map
+            && job.settingsSnapshot.calendar == job.calendar
+            && job.settingsSnapshot.mappings == job.mappings;
+        }
+
+        function browserJobAllowed(job) {
+          return browserJobEnvelope(job)
+            && ((job.type == "sync_gitlab_issue_metadata" && browserMetadataAllowed(job))
+              || (job.type == "sync_gitlab_estimate" && browserEstimateAllowed(job))
+              || (job.type == "calculate_gitlab_actual_preview" && browserActualAllowed(job)));
+        }
+
         allow read: if activeUser();
 
-        allow create: if (integrationUser() || unexpectedAssignmentAllowed(request.resource.data))
+        allow create: if (integrationUser() || browserJobAllowed(request.resource.data))
           && request.resource.data.schemaVersion == 1
           && request.resource.data.status == "pending"
           && request.resource.data.idempotencyKey == jobId

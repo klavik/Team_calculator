@@ -46,10 +46,10 @@ const plain=x=>JSON.parse(JSON.stringify(x));
   assert.equal(run('isUnexpectedSprintTask("c")'),true);
   assert.equal(run('isUnexpectedSprintTask("not-member")'),false);
   // GitLab metadata never determines whether a task was added after the start.
-  context.taskPool.a.gitlab={labels:['unexpected']};
+  context.taskPool.a.gitlab={labels:['Unexpected']};
   assert.equal(run('isUnexpectedSprintTask("a")'),false);
-  assert.equal(run('gitLabUnexpectedLabelPresent({labels:["unexpected"]})'),true);
-  assert.equal(run('gitLabUnexpectedLabelPresent({labels:["Unexpected"]})'),false);
+  assert.equal(run('gitLabUnexpectedLabelPresent({labels:["Unexpected"]})'),true);
+  assert.equal(run('gitLabUnexpectedLabelPresent({labels:["unexpected"]})'),false);
   context.sprintTaskScopeFilter.value='unexpected';
   assert.equal(run('sprintTaskMatchesFilters({id:"a"})'),false);
   assert.equal(run('sprintTaskMatchesFilters({id:"b"})'),true);
@@ -72,9 +72,9 @@ const plain=x=>JSON.parse(JSON.stringify(x));
   assert.equal(await run('requestUnexpectedGitLabLabel("b")'),true);
   assert.equal(calls[0],'save');
   const req=calls[1];
-  assert.deepEqual(plain(req.payload.iterationMutation),{mode:'set',iterationId:3,iterationTitle:'Sprint 1',addLabels:['unexpected']});
+  assert.deepEqual(plain(req.payload.iterationMutation),{mode:'set',iterationId:3,iterationTitle:'Sprint 1',addLabels:['Unexpected']});
   const makeJob=payload=>context.buildDirectGitLabJob({endpoint:'https://example.com/gitlab-sync',payload,clientRequestId:'req',jobId:'metadata_test'});
-  assert.deepEqual(plain(makeJob(req.payload).iterationMutation.addLabels),['unexpected']);
+  assert.deepEqual(plain(makeJob(req.payload).iterationMutation.addLabels),['Unexpected']);
   // No new label in the ordinary set/clear flows or regular metadata refresh.
   await run('enqueueTaskGitLabIterationMutation(taskPool.a,"set")');
   assert.equal(calls.at(-1).payload.iterationMutation.addLabels,undefined);
@@ -101,7 +101,7 @@ const plain=x=>JSON.parse(JSON.stringify(x));
   calls.length=0;
   await run('addTaskToSprint("b")');
   assert.equal(run('isUnexpectedSprintTask("b")'),true);
-  assert.deepEqual(plain(calls[1].payload.iterationMutation.addLabels),['unexpected']);
+  assert.deepEqual(plain(calls[1].payload.iterationMutation.addLabels),['Unexpected']);
   calls.length=0;
   await run('addTaskToSprint("b")');
   assert.equal(calls.length,0); // duplicate click

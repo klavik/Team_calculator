@@ -1,10 +1,10 @@
 <!DOCTYPE html>
-<!-- Team_calculator v23.4.62: внеплановые задачи спринта и запрос лейбла unexpected -->
+<!-- Team_calculator v23.4.63: внеплановые задачи спринта и запрос лейбла Unexpected -->
 <html lang="ru">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Team_calculator v23.4.62 — планирование спринта</title>
+  <title>Team_calculator v23.4.63 — планирование спринта</title>
   <link
     rel="icon"
     type="image/svg+xml"
@@ -2418,7 +2418,7 @@
       <h1>Team_calculator</h1>
       <span
         class="app-version-badge"
-        title="Версия Team_calculator">v23.4.62</span>
+        title="Версия Team_calculator">v23.4.63</span>
     </div>
     <div
       class="header-sprint-context empty"
@@ -4606,10 +4606,10 @@ function buildDirectGitLabJob({
                 ).trim()||null,
                 ...(payload.iterationMutation.mode==="set"
                   &&payload.iterationMutation.addLabels?.length===1
-                  &&payload.iterationMutation.addLabels[0]==="unexpected"
+                  &&payload.iterationMutation.addLabels[0]==="Unexpected"
                   &&tasks.length===1
                   &&payload.sprintLifecycleStatus===SPRINT_STATUS_ACTIVE
-                  ?{addLabels:["unexpected"]}:{})
+                  ?{addLabels:["Unexpected"]}:{})
               }
             }
           :{}
@@ -6432,14 +6432,14 @@ function unexpectedSprintStats(items,completedSet){
 }
 
 function gitLabUnexpectedLabelPresent(metadata){
-  return Array.isArray(metadata?.labels)&&metadata.labels.includes("unexpected");
+  return Array.isArray(metadata?.labels)&&metadata.labels.includes("Unexpected");
 }
 
 function unexpectedGitLabNoteHtml(item){
   if(!isUnexpectedSprintTask(item.id)||!item.hasGitLabUrl)return "";
   return gitLabUnexpectedLabelPresent(item.gitlabMetadata)
-    ?'<div class="unexpected-gitlab-note confirmed">GitLab: unexpected подтверждён</div>'
-    :'<div class="unexpected-gitlab-note">GitLab: лейбл unexpected не подтверждён</div>';
+    ?'<div class="unexpected-gitlab-note confirmed">GitLab: Unexpected подтверждён</div>'
+    :'<div class="unexpected-gitlab-note">GitLab: лейбл Unexpected не подтверждён</div>';
 }
 
 function baselineTotalEstimate(){
@@ -11815,7 +11815,7 @@ async function enqueueTaskGitLabIterationMutation(
               ...(addUnexpected&&sprintLifecycleIsActive()
                 &&isUnexpectedSprintTask(normalized.id)
                 &&activeSprintTaskSet().has(normalized.id)
-                ?{addLabels:["unexpected"]}:{})
+                ?{addLabels:["Unexpected"]}:{})
             }
           :{
               mode:"clear"
@@ -11846,12 +11846,12 @@ async function requestUnexpectedGitLabLabel(taskId){
         ||!isUnexpectedSprintTask(taskId)||!activeSprintTaskSet().has(taskId))return false;
     const queued=await enqueueTaskGitLabIterationMutation(taskPool[taskId]||task,"set",{addUnexpected:true});
     if(!queued)throw new Error("Запрос не создан.");
-    setSprintGitLabSyncStatus("Запрос Iteration и unexpected создан. Ожидается подтверждение GitLab.","warn");
+    setSprintGitLabSyncStatus("Запрос Iteration и Unexpected создан. Ожидается подтверждение GitLab.","warn");
     return true;
   }catch(error){
     console.error(error);
     if(currentSprintId===sprintId){
-      setSprintGitLabSyncStatus(`Не удалось отправить unexpected: ${error.message}`,"bad");
+      setSprintGitLabSyncStatus(`Не удалось отправить Unexpected: ${error.message}`,"bad");
       alert(`Внеплановая задача осталась в спринте, но запрос GitLab не отправлен: ${error.message}`);
     }
     return false;
@@ -15119,7 +15119,7 @@ function renderSprintTasks(){
       ?'<div class="task-lifecycle-note returned">Возвращена в общий пул</div>'
       :(Array.isArray(sprintBaseline?.selectedTaskIds)&&inBaseline
         ?'<div class="task-lifecycle-note baseline">В исходном плане</div>':""))
-      +(unexpected?'<span class="sprint-unexpected-pill" title="Добавлена в Team Calculator после начала этого спринта">Внеплановая · unexpected</span>':"")
+      +(unexpected?'<span class="sprint-unexpected-pill" title="Добавлена в Team Calculator после начала этого спринта">Внеплановая · Unexpected</span>':"")
       +unexpectedGitLabNoteHtml(item);
 
     const readyToProdNote=readyToProd
@@ -15142,7 +15142,7 @@ function renderSprintTasks(){
                 ?`<button class="secondary" data-update-snapshot="${id}">Обновить оценку</button>`
                 :""}
               ${unexpected&&hasGitLabUrl&&sprintLifecycleIsActive()&&!gitLabUnexpectedLabelPresent(gitlabMetadata)
-                ?`<button class="secondary" data-retry-unexpected="${esc(id)}" ${unexpectedGitLabRequests.has(`${currentSprintId}:${id}`)?"disabled":""}>Отправить unexpected</button>`:""}
+                ?`<button class="secondary" data-retry-unexpected="${esc(id)}" ${unexpectedGitLabRequests.has(`${currentSprintId}:${id}`)?"disabled":""}>Отправить Unexpected</button>`:""}
               <button class="secondary" data-remove-task="${id}">Вернуть в пул</button>
             </div>`
       );

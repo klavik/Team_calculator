@@ -1,4 +1,6 @@
-Team_calculator v23.4.62
-Release candidate: team_calculator_v23_4_62_unexpected_sprint_tasks
-Base: v23.4.61 (GitHub archive Team_calculator-main.zip, b7f74f79a2a244335d0ba707b8fd1f345dbae23b)
-Changes: sprint-local unexpected classification, badge, filter, plan/fact totals, GitLab label mutation queue contract. Requires mac_connector v1.4.27 (supplied separately in the bundle). Offline tests passed; production E2E pending.
+Team_calculator v23.4.63
+Release candidate: team_calculator_v23_4_63_unexpected_label_case_fix
+Base: v23.4.62 + Firestore Rules hotfix
+Requires Mac Connector v1.4.28 and included Firestore rules.
+Canonical GitLab label: Unexpected. Legacy queue spelling unexpected accepted by connector, never written to GitLab.
+Offline regression tests passed; production E2E and Firestore emulator pending.

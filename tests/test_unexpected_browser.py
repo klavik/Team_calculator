@@ -13,7 +13,7 @@ with sync_playwright() as w:
    currentSprintId='s1'; sprintLifecycleStatus='active'; sprintStartedAt=new Date().toISOString();
    sprintBaseline={selectedTaskIds:['a'],taskSnapshots:{a:{id:'a',title:'Planned',estimates:{backend:3}}}};
    selectedTaskIds=['a','b','c'];completedTaskIds=[];sprintReturnedTaskIds=['c'];
-   taskPool={a:{id:'a',title:'Planned',estimates:{backend:3},externalTaskUrl:'https://example.test/p/-/issues/1',gitlab:{labels:['unexpected']}},b:{id:'b',title:'Late',estimates:{backend:2},externalTaskUrl:'https://example.test/p/-/issues/2'},c:{id:'c',title:'Returned late',estimates:{backend:1}}};
+   taskPool={a:{id:'a',title:'Planned',estimates:{backend:3},externalTaskUrl:'https://example.test/p/-/issues/1',gitlab:{labels:['Unexpected']}},b:{id:'b',title:'Late',estimates:{backend:2},externalTaskUrl:'https://example.test/p/-/issues/2'},c:{id:'c',title:'Returned late',estimates:{backend:1}}};
    sprintTaskSnapshots=JSON.parse(JSON.stringify(taskPool));
    renderSprintTasks();
  }''')
@@ -22,12 +22,14 @@ with sync_playwright() as w:
  assert page.locator('tr[data-sprint-task-id=a] .sprint-unexpected-pill').count()==0
  assert '2' in page.locator('.sprint-summary-pill.unexpected').inner_text()
  assert page.locator('[data-retry-unexpected=b]').count()==1
+ assert page.locator('[data-retry-unexpected=b]').inner_text()=='Отправить Unexpected'
+ assert 'Unexpected' in page.locator('tr[data-sprint-task-id=b] .sprint-unexpected-pill').inner_text()
  page.locator('#sprintTaskScopeFilter').select_option('unexpected',force=True)
  assert page.locator('#sprintTasksBody tr[data-sprint-task-id]').count()==1
  assert page.locator('tr[data-sprint-task-id=b]').count()==1
  page.evaluate('''() => {document.getElementById('resetSprintTaskFilters').click();}''')
  assert page.locator('#sprintTasksBody tr[data-sprint-task-id]').count()==2
- page.evaluate('''() => {taskPool.b.gitlab={labels:['unexpected']};renderSprintTasks();}''')
+ page.evaluate('''() => {taskPool.b.gitlab={labels:['Unexpected']};renderSprintTasks();}''')
  assert page.locator('tr[data-sprint-task-id=b] .unexpected-gitlab-note.confirmed').count()==1
  assert page.locator('[data-retry-unexpected=b]').count()==0
  page.evaluate('''() => {sprintLifecycleStatus='completed';renderSprintTasks();}''')

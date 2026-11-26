@@ -50,7 +50,7 @@ const context=vm.createContext({
   taskPool:{t1:{id:'t1',title:'Test task'}},
   sprintTaskSnapshots:{t1:{id:'t1',title:'Test task'}},
   selectedTaskIds:['t1'],completedTaskIds:[],sprintTaskActuals:{},
-  currentSprintId:null,sprintSaveInProgress:false,sprintAutoSaveQueued:false,
+  currentSprintId:null,sprintSaveInProgress:false,sprintSaveCompletion:null,sprintAutoSaveQueued:false,
   sprintAutoSaveTimer:null, sprintFingerprints:new Map(),sprintPayloadCache:new Map(),
   getSavedSprints:()=>context.savedSprintSets,setSavedSprints:data=>{context.savedSprintSets=data},savedSprintSets:{},
   makeSprintId:()=> 'sp_123456_mock',

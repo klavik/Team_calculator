@@ -1,7 +1,7 @@
-Team_calculator v23.4.64
-Release candidate: team_calculator_v23_4_64_firestore_first_autosave
-Base: v23.4.63
-Requires Mac Connector v1.4.28 and the unchanged v23.4.63 Firestore rules.
+Team_calculator v23.4.65
+Release candidate: team_calculator_v23_4_65_unexpected_autosave_wait
+Base: v23.4.64
+Requires Mac Connector v1.4.28 and unchanged v23.4.63 Firestore rules.
 Canonical GitLab label: Unexpected.
-Cloud-first autosave; no automatic IndexedDB drafts or recovery prompts.
-Offline regression and browser tests passed; production E2E pending.
+Await active sprint save; commit sprint and task link before GitLab queue.
+Offline regression and browser tests; production E2E pending.

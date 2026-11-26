@@ -1,10 +1,10 @@
 <!DOCTYPE html>
-<!-- Team_calculator v23.4.64: Firestore-first автосохранение без восстановления локальных черновиков -->
+<!-- Team_calculator v23.4.65: согласование автосохранения с отправкой Unexpected -->
 <html lang="ru">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Team_calculator v23.4.64 — планирование спринта</title>
+  <title>Team_calculator v23.4.65 — планирование спринта</title>
   <link
     rel="icon"
     type="image/svg+xml"
@@ -2418,7 +2418,7 @@
       <h1>Team_calculator</h1>
       <span
         class="app-version-badge"
-        title="Версия Team_calculator">v23.4.64</span>
+        title="Версия Team_calculator">v23.4.65</span>
     </div>
     <div
       class="header-sprint-context empty"
@@ -3180,6 +3180,7 @@ let isHydrating=false;
 let saveTimer=null;
 let sprintAutoSaveTimer=null;
 let sprintSaveInProgress=false;
+let sprintSaveCompletion=null;
 let sprintLifecycleInProgress=false;
 let sprintLifecycleCommitConfirmed=false;
 let unsavedSprintFailure=false;
@@ -7729,7 +7730,20 @@ function applyInputState(state){
   render();
 }
 
-async function saveSprintSet(forceNew=false,{silent=false,source="manual",forceDocumentWrite=false}={}){
+async function saveSprintSet(forceNew=false,{silent=false,source="manual",forceDocumentWrite=false,
+    waitForCurrentSave=false,expectedSprintId=null,ensurePlannedTaskId=null}={}){
+  // GitLab's Unexpected job needs a confirmed parent + pool write, not a
+  // false result meaning that autosave currently owns the save lock.
+  if(waitForCurrentSave){
+    while(sprintSaveInProgress){
+      if(!sprintSaveCompletion)return false;
+      await sprintSaveCompletion;
+    }
+    if(!expectedSprintId||currentSprintId!==expectedSprintId
+        ||sprintLifecycleInProgress||sprintLifecycleStatus!==SPRINT_STATUS_ACTIVE
+        ||!ensurePlannedTaskId||!taskPool[ensurePlannedTaskId]
+        ||!activeSprintTaskIds().includes(ensurePlannedTaskId))return false;
+  }
   if(!forceNew&&sharedSprintIsReadOnly()){
     if(!silent)guardSharedSprintEdit();
     return false;
@@ -7748,6 +7762,8 @@ async function saveSprintSet(forceNew=false,{silent=false,source="manual",forceD
     return false;
   }
   sprintSaveInProgress=true;
+  let releaseSprintSave;
+  sprintSaveCompletion=new Promise(resolve=>{releaseSprintSave=resolve;});
   const sprints=getSavedSprints();
   const previousSprint=!forceNew&&currentSprintId?sprints[currentSprintId]:null;
   const id=forceNew||!currentSprintId?makeSprintId():currentSprintId;
@@ -7788,7 +7804,10 @@ async function saveSprintSet(forceNew=false,{silent=false,source="manual",forceD
       ...addedTaskIds,...completionChangedIds,
       ...(nameChanged||lifecycleChanged?currentPlannedTaskIds:[])
     ]);
-    const sprintChanged=forceNew||!previousSprint||fingerprint!==previousFingerprint||forceDocumentWrite;
+    // Explicitly write the requested task link even if an optimistic realtime
+    // snapshot made it look as though this task was already saved.
+    if(ensurePlannedTaskId)tasksToPlan.add(ensurePlannedTaskId);
+    const sprintChanged=forceNew||!previousSprint||fingerprint!==previousFingerprint||forceDocumentWrite||Boolean(ensurePlannedTaskId);
     const taskLinksChanged=removedTaskIds.length>0||tasksToPlan.size>0;
     if(!sprintChanged&&!taskLinksChanged){
       unsavedSprintFailure=false;
@@ -7882,6 +7901,8 @@ async function saveSprintSet(forceNew=false,{silent=false,source="manual",forceD
     return false;
   }finally{
     sprintSaveInProgress=false;
+    sprintSaveCompletion=null;
+    releaseSprintSave();
     if(sprintAutoSaveQueued){
       sprintAutoSaveQueued=false;
       clearTimeout(sprintAutoSaveTimer);
@@ -10519,7 +10540,9 @@ async function addTaskToSprint(taskId){
   saveState();
   render();
 
-  if(currentSprintId){
+  // Unexpected uses the atomic sprint + taskPool batch below. Do not write
+  // the pool separately while background autosave may be committing it.
+  if(currentSprintId&&!(addUnexpected&&taskHasGitLabLink(normalized))){
     try{
       await saveTaskPlanningFields(normalized);
     }catch(error){
@@ -11797,10 +11820,15 @@ async function requestUnexpectedGitLabLabel(taskId){
   unexpectedGitLabRequests.add(requestKey);
   renderSprintTasks();
   try{
-    if(!sprintId||!await saveSprintSet(false,{silent:true,source:"unexpected_label"})){
-      throw new Error("Не подтверждено сохранение состава спринта. Повторите отправку после сохранения.");
+    setSprintGitLabSyncStatus("Сохранение состава спринта перед отправкой Unexpected…","warn");
+    const saved=sprintId&&await saveSprintSet(false,{silent:true,source:"unexpected_label",
+      waitForCurrentSave:true,expectedSprintId:sprintId,ensurePlannedTaskId:taskId});
+    if(!saved){
+      if(currentSprintId!==sprintId||!sprintLifecycleIsActive()||sprintLifecycleInProgress
+          ||!isUnexpectedSprintTask(taskId)||!activeSprintTaskSet().has(taskId))return false;
+      throw new Error("Сохранение состава спринта не подтверждено. После автосохранения повторите отправку Unexpected.");
     }
-    if(currentSprintId!==sprintId||!sprintLifecycleIsActive()
+    if(currentSprintId!==sprintId||!sprintLifecycleIsActive()||sprintLifecycleInProgress
         ||!isUnexpectedSprintTask(taskId)||!activeSprintTaskSet().has(taskId))return false;
     const queued=await enqueueTaskGitLabIterationMutation(taskPool[taskId]||task,"set",{addUnexpected:true});
     if(!queued)throw new Error("Запрос не создан.");
@@ -11810,7 +11838,8 @@ async function requestUnexpectedGitLabLabel(taskId){
     console.error(error);
     if(currentSprintId===sprintId){
       setSprintGitLabSyncStatus(`Не удалось отправить Unexpected: ${error.message}`,"bad");
-      alert(`Внеплановая задача осталась в спринте, но запрос GitLab не отправлен: ${error.message}`);
+      // Non-blocking status + existing per-task retry button. Do not interrupt
+      // the user with a modal while autosave is recovering.
     }
     return false;
   }finally{
